@@ -7,6 +7,7 @@
 import re, math
 from java.lang import Exception as JavaException
 from com.inductiveautomation.ignition.common import BasicDataset
+from com.inductiveautomation.ignition.common.script.builtin.DatasetUtilities import PyDataSet
 from shared.corso.meta import getObjectName, getFunctionCallSigs
 
 
@@ -157,36 +158,45 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 
 
 def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
-
 	out = []
 	
 	strElePattern = '%%-%ds'
 	numElePattern = '%%%ds'	
+	colSep = ' |  '
 	
 	if isinstance(o, BasicDataset):
 		ds = o
-		out += ['"%s" <DataSet> of %d elements' % (getObjectName(o,estimatedDepth=2), ds.getRowCount())]
+		if isinstance(ds, PyDataSet):
+			ds = ds.getUnderlyingDataset()
+			out += ['"%s" <PyDataSet> of %d elements and %d columns' % (getObjectName(o,estimatedDepth=2), ds.getRowCount(), ds.getColumnCount())]
+		else:
+			out += ['"%s" <DataSet> of %d elements and %d columns' % (getObjectName(o,estimatedDepth=2), ds.getRowCount(), ds.getColumnCount())]
 		out += ['='*len(out[0])]
 		
 		# preprocessing
 		# Get the width of each column in the dataset
 		data = zip(*ds.data)
 		colTypes = [repr(t) for t in ds.getColumnTypes()]
-		colTypeStrs = [ct[7:-2] for ct in colTypes]
- 
-		colWidths = [max([len(repr(row)) for row in col] + [len(t)] + [1]) for t,col in zip(colTypeStrs,data)]
+		colTypeStrs = [' <%s> ' % ct[7:-2] for ct in colTypes]
+		colNames = [h for h in ds.getColumnNames()]
+		
+		
+		colWidths = [max([len(repr(row)) for row in col] + [len(t)] + [len(h)] + [1]) 
+					 for h,t,col 
+					 in zip(colNames,colTypeStrs,zip(*data))]
 		
 		maxRowWidth = int(math.floor(math.log10(ds.getRowCount())))
 		
-		prefixPattern =  '%s %%%dd | ' %  (indent, maxRowWidth + 1)
+		prefixPattern =  '%s %%%dd%s' %  (indent, maxRowWidth + 1, colSep)
 
-		rowPattern = prefixPattern + '  ' + ', '.join(strElePattern % colWidth 
-											   		  if colType in ("<type 'java.lang.String'>",repr(str), repr(unicode)) 
-											  		  else numElePattern % colWidth
-											 		  for colType, colWidth in zip(colTypes,colWidths))
-		hedPattern = indent + '   ' + ' '*(maxRowWidth+1) + '  ' + ', '.join(strElePattern % colWidth
-											 		  for colWidth in colWidths)		
-											 		  
+		rowPattern = prefixPattern + '  ' + colSep.join(strElePattern % colWidth 
+													  if colType in ("<type 'java.lang.String'>",repr(str), repr(unicode)) 
+													  else numElePattern % colWidth
+													  for colType, colWidth in zip(colTypes,colWidths))
+		hedPattern = indent + '   ' + ' '*(maxRowWidth+1) + '  ' + '  ' + colSep.join(strElePattern % colWidth
+													  for colWidth in colWidths)		
+													  
+		out += [hedPattern % tuple(colNames)]
 		out += [hedPattern % tuple(colTypeStrs)]
 		out += ['-'*len(out[-1])]
 		
@@ -202,10 +212,10 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 		
 		# column alignment, if any
 		try:
-			colEleWidths = [max([len(repr(r)) for r in row] + [1]) for row in zip(*l)]
+			colEleWidths = [max([len(repr(r)) for r in row] + [1]) for row in zip(*o)]
 		except:
 			colEleWidths = [max([len(repr(element)) for element in o] + [1])]
-			
+				
 		prefixPattern =  '%s %%%dd ' %  (indent, maxRowWidth + 1)
 		preLisPattern =  '%s[%%%dd]' %  (indent, maxRowWidth + 1)
 		preTupPattern =  '%s(%%%dd)' %  (indent, maxRowWidth + 1)
@@ -237,13 +247,14 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 				rowColPatterns = [strElePattern % w if isinstance(r, (str,unicode)) else numElePattern % w
 													for r,w in zip(element,colEleWidths)]						
 				if isinstance(element, list):
-					rowPattern = preLisPattern + '  ' + ', '.join(rowColPatterns)
+					rowPattern = preLisPattern + '  ' + colSep.join(rowColPatterns)
 				else:
-					rowPattern = preTupPattern + '  ' + ', '.join(rowColPatterns)
+					rowPattern = preTupPattern + '  ' + colSep.join(rowColPatterns)
 					
 				rowRepr = [i] + [rowColPattern % repr(rr) for rowColPattern, rr in zip(rowColPatterns,element)]
 				unaligned = [repr(rr) for i,rr in enumerate(element) if i >= len(rowColPatterns)]
-				rowPattern += ', %s'* len(unaligned)
+				rowPatternPattern = colSep + '%s'
+				rowPattern += rowPatternPattern * len(unaligned)
 				rowRepr = tuple(rowRepr + unaligned)
 				out+= [rowPattern % rowRepr]
 			
@@ -255,7 +266,7 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 				
 	elif isinstance(o, dict):
 		out.append('<%s> of %d elements' % (str(type(o))[6:-1],len(o)))
-
+		
 		# preprocessing
 		maxKeyWidth = max([len(repr(key)) for key in o.keys()] + [1])
 		maxValWidth = max([len(repr(val)) for val in o.values()] + [1])
@@ -289,6 +300,7 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 	else:
 		out += [repr(o)]
 	
+	out += ['']
 	
 	output = '\n'.join(out)
 	if directPrint:
@@ -301,5 +313,8 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 # l = [1,2,3,'wer',6]
 # p(l)
 
-# ll = [[1,2,3],(4,5,6),[9.9,8]]
+# ll = [[1,2,3],(4,5.33,6),[9.9,8]]
 # p(ll)
+
+# pd = system.util.getSessionInfo()
+# p(pd.getUnderlyingDataset())
