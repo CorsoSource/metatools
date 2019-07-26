@@ -5,6 +5,7 @@
 """
 
 import re, math
+from java.lang import Exception as JavaException
 from com.inductiveautomation.ignition.common import BasicDataset
 from shared.corso.meta import getObjectName, getFunctionCallSigs
 
@@ -35,12 +36,12 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 		joinClause = '\n---\n'
 		callExample = '%s' % (getFunctionCallSigs(o, joinClause),)
 		out += callExample.split(joinClause)
-		out += ['-'*max(len(line) for line in callExample.split(joinClause))]
+		out += ['-'*max([len(line) for line in callExample.split(joinClause)] + [1])]
 	except:
 		pass
 	
 	if o.__doc__:
-		maxDocLen = max([len(line) for line in o.__doc__.splitlines()])
+		maxDocLen = max([len(line) for line in o.__doc__.splitlines()] + [1])
 		docPattern = '%%s|  %%-%ds  |' % maxDocLen
 		for line in o.__doc__.splitlines():
 			out += [docPattern % (indent, line)]
@@ -96,7 +97,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 			attrTypeStrings.append(str(e).partition(':')[0])
 			attrReprs.append('n/a')
 			attrDocs.append(None)
-		except IllegalComponentStateException, e:
+		except (Exception, JavaException), e: # IllegalComponentStateException
 			attrTypes.append('unavailable')
 			attrTypeStrings.append(str(e).partition(':')[0])
 			attrReprs.append('n/a')
@@ -173,7 +174,7 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 		colTypes = [repr(t) for t in ds.getColumnTypes()]
 		colTypeStrs = [ct[7:-2] for ct in colTypes]
  
-		colWidths = [max([len(repr(row)) for row in col] + [len(t)]) for t,col in zip(colTypeStrs,data)]
+		colWidths = [max([len(repr(row)) for row in col] + [len(t)] + [1]) for t,col in zip(colTypeStrs,data)]
 		
 		maxRowWidth = int(math.floor(math.log10(ds.getRowCount())))
 		
@@ -201,9 +202,9 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 		
 		# column alignment, if any
 		try:
-			colEleWidths = [max([len(repr(r)) for r in row]) for row in zip(*l)]
+			colEleWidths = [max([len(repr(r)) for r in row] + [1]) for row in zip(*l)]
 		except:
-			colEleWidths = [max([len(repr(element)) for element in o])]
+			colEleWidths = [max([len(repr(element)) for element in o] + [1])]
 			
 		prefixPattern =  '%s %%%dd ' %  (indent, maxRowWidth + 1)
 		preLisPattern =  '%s[%%%dd]' %  (indent, maxRowWidth + 1)
@@ -254,10 +255,10 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 				
 	elif isinstance(o, dict):
 		out.append('<%s> of %d elements' % (str(type(o))[6:-1],len(o)))
-		
+
 		# preprocessing
-		maxKeyWidth = max([len(repr(key)) for key in o.keys()])
-		maxValWidth = max([len(repr(val)) for val in o.values()])
+		maxKeyWidth = max([len(repr(key)) for key in o.keys()] + [1])
+		maxValWidth = max([len(repr(val)) for val in o.values()] + [1])
 		
 		elementPattern = '%s%%%ds : %%-%ds' % (indent, maxKeyWidth, maxValWidth)
 		
