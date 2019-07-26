@@ -27,7 +27,7 @@ def getResourceXML(resourcePath = None, anchor=None):
 	if resourcePath:	
 		resources = [proj.getResource(resourcePath).get()]
 	else:
-		resources = [res.get() for res in proj.getResources()]
+		resources = [res for res in proj.getResources()]
 	
 	resourceData = {}
 	for resource in resources:
