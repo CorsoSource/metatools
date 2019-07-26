@@ -16,10 +16,7 @@ def getResourceXML(resourcePath = None, anchor=None):
 	Args:
 	  - resourcePath (str): The resource to return. Returns all in project if falsy.
 	  - anchor (object):    An object that is a part of the designer. Used to backtrace the context.
-	"""
-	if anchor is None:
-		anchor = system.gui.getWindow(system.gui.getWindowNames()[0])
-	
+	"""	
 	context = getDesignerContext(anchor)
 	
 	deserializer = context.createDeserializer()

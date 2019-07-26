@@ -16,8 +16,15 @@ def getDesignerContext(anchor=None):
 	from com.inductiveautomation.ignition.designer import IgnitionDesigner
 
 	if anchor is None:
-		anchor = system.gui.getWindow(system.gui.getWindowNames()[0])
-
+		for windowName in system.gui.getWindowNames():
+			try:
+				anchor = system.gui.getWindow(windowName)
+				break
+			except:
+				pass
+		else:
+			raise LookupError("No open windows were found, so no context was derived by default.")
+			
 	try:
 		anchor = anchor.source
 	except AttributeError:
