@@ -265,7 +265,7 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 				
 				
 	elif isinstance(o, dict):
-		out.append('<%s> of %d elements' % (str(type(o))[6:-1],len(o)))
+		out.append('"%s" <%s> of %d elements' % (getObjectName(o,estimatedDepth=2), str(type(o))[6:-1],len(o)))
 		
 		# preprocessing
 		maxKeyWidth = max([len(repr(key)) for key in o.keys()] + [1])
@@ -277,7 +277,7 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 		for i,key in enumerate(sorted(o.keys())):
 			element = o[key]
 			
-			if isinstance(element, (list,tuple,dict)):
+			if isinstance(element, (list,tuple,dict)) and element is not o: #don't recurse here!
 				nestedPattern = '%s%%%ds : %%s' % (indent, maxKeyWidth)
 				out += [nestedPattern % (key, p(element, indent+' '*(maxKeyWidth+3), directPrint=False))]
 				continue
