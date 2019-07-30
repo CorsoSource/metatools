@@ -13,7 +13,7 @@ from shared.corso.meta import getObjectByName, GLOBAL_MESSAGE_PROJECT_NAME
 
 
 VISION_CLIENT_MESSAGE_HANDLER = 'Vision Client Log'
-
+PERSPECTIVE_SESSION_MESSAGE_HANDLER = 'Perspective Log Relay'
 
 def autoRepr(obj):
 	"""Cleans up repr() calls, since the string representation add quotes."""
@@ -153,7 +153,7 @@ class Logger(BaseLogger):
 			self.prefix = '{%s} ' % tagPath
 			self.logger = system.util.getLogger(self.loggerName)
 		# Clients!
-		elif scope.startswith('event:') and self._isVisionScope(): 
+		elif self._isVisionScope(): 
 			self.loggerName = '%s %s' % ('Designer' if self._isVisionDesigner() else 'Client', system.util.getClientId())
 			self.logger = system.util.getLogger(self.loggerName)
 			
@@ -168,23 +168,54 @@ class Logger(BaseLogger):
 					label = '<%s>' % component.templatePath
 				componentPath.append(label)
 				component = component.parent
-			self.prefix = '[%s: %s.%s] ' % (window.path, '/'.join(reversed(componentPath[:-3])), scope[6:])
+			functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
+			self.prefix = '[%s: %s.%s] ' % (window.path, '/'.join(reversed(componentPath[:-3])), functionName)
 			if self.relay:
 				self.relayScope = {'scope': 'G'}
 				self.relayHandler = VISION_CLIENT_MESSAGE_HANDLER
 				self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
-	
+		# Perspective!
+		elif self._isPerspective():
+			component = getObjectByName('self', mostDeep=True)
+			assert 'com.inductiveautomation.perspective' in str(type(component)), 'Incorrectly detected Perspective context'
+			session = component.session
+			page = component.page
+			view = component.view
+			componentPath = []
+			while component:
+				componentPath.append(component.name)
+				component = component.parent
+
+			self.loggerName = 'Perspective %s' % session.props.id
+			self.logger = system.util.getLogger(self.loggerName)
+			
+			# parsed as example in 'function: onActionPerformed' or 'custom-method someFunction'
+			functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
+			self.prefix = '[%s - %s.%s] ' % (view.id, '/'.join(reversed(componentPath)), functionName)
+			
+			self.relay = False # NotImplementedError
+#			if self.relay:
+#				self.relayScope = {'scope': 'C', 'hostName': session.props.host}
+#				self.relayHandler = PERSPECTIVE_SESSION_MESSAGE_HANDLER
+#				self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
+
+			
 	@staticmethod
 	def _isVisionScope():
-		sysFlags = system.util.getSystemFlags()
-		return sysFlags & system.util.DESIGNER_FLAG or sysFlags & system.util.CLIENT_FLAG
+		try:
+			sysFlags = system.util.getSystemFlags()
+			return sysFlags & system.util.DESIGNER_FLAG or sysFlags & system.util.CLIENT_FLAG
+		except AttributeError:
+			return False
 	@staticmethod
 	def _isVisionDesigner():
 		return system.util.getSystemFlags() & system.util.DESIGNER_FLAG
 	@staticmethod
 	def _isVisionClient():
 		return system.util.getSystemFlags() & system.util.CLIENT_FLAG
-		
+	@staticmethod
+	def _isPerspective(): # simply check if we have access, if we do, it's Perspective
+		return 'perspective' in dir(system)
 		
 	def _relayMessage(self, level, message):
 		if not self.relay: return
