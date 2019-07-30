@@ -12,6 +12,14 @@ import math,re, sys
 __all__ = [] # This is meant to be empty. No `from corso.meta import *`!
 
 
+def sentinel(iterable, stopValue):
+	"""A helper to make it simpler to implement sentinel values more idomatically.
+	I.e. `for i in iter((x for x in range(5)).next, 3):`
+	becomes 
+	"""
+	return iter((x for x in iterable).next, stopValue)
+
+
 def getDesignerContext(anchor=None):
 	from com.inductiveautomation.ignition.designer import IgnitionDesigner
 
@@ -46,22 +54,52 @@ def getDesignerContext(anchor=None):
 	return context
 
 
-def getObjectName(o, estimatedDepth=1):
+def currentStackDepth():
+	"""From https://stackoverflow.com/a/47956089"""
+	size = 2
+	while True:
+		try:
+			sys._getframe(size)
+			size += 1
+		except ValueError:
+			return size - 1 # ignore this called frame
+
+
+def getObjectByName(objName, estimatedDepth=None, mostDeep=False):
+	"""Grab an item from the stack by its name."""
+	if estimatedDepth: # give a potential shortcut
+		frame = sys._getframe(estimatedDepth)
+		if objName in frame.f_locals:
+			return frame.f_locals[objName]
 	
-	frame = sys._getframe(estimatedDepth)
+	estimatedDepth = currentStackDepth()-1 if mostDeep else 1
+	try:
+		while True:
+			frame = sys._getframe(estimatedDepth)
+			if objName in frame.f_locals:
+				return frame.f_locals[objName]
+			estimatedDepth += -1 if mostDeep else 1
+	except ValueError:
+		return None
+
+
+def getObjectName(o, estimatedDepth=None, mostDeep=False):
+	"""Get an item's name by finding its first reference in the stack."""
+	if estimatedDepth: # give a potential shortcut
+		frame = sys._getframe(estimatedDepth)
+		
+		for key,value in frame.f_locals.items():
+			if value is o:
+				return key
 	
-	for key,value in frame.f_locals.items():
-		if value is o:
-			return key
-	
-	estimatedDepth = 1
+	estimatedDepth = currentStackDepth() if mostDeep else 1
 	try:
 		while True:
 			frame = sys._getframe(estimatedDepth)
 			for key,value in frame.f_locals.items():
 				if value is o:
 					return key
-			estimatedDepth += 1
+			estimatedDepth += -1 if mostDeep else 1
 	except ValueError:
 		return None
 
