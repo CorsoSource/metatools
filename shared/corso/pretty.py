@@ -22,7 +22,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 #	skipTypes = set(['builtin_function_or_method', 'instancemethod', 'java.lang.Class'])
 	skipTypes = set(['builtin_function_or_method', 'java.lang.Class'])
 		
-	dotdotdot = lambda s: s if len(s)<=ellipsisLimit else '%s...' % s[:ellipsisLimit-3]
+	dotdotdot = lambda s: s if not ellipsisLimit or len(s)<=ellipsisLimit else '%s...' % s[:ellipsisLimit-3]
 	
 	out = []	
 	
@@ -114,7 +114,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 	maxReprLen = max([len(attrRepr) 
 						  for attrTypeStr,attrRepr in zip(attrTypeStrings,attrReprs)
 						  if not attrTypeStr in skipTypes] + [0])
-	if maxReprLen > ellipsisLimit:
+	if ellipsisLimit and maxReprLen > ellipsisLimit:
 		maxReprLen = ellipsisLimit
 						  
 	attrPattern = '%s%%-%ds   %%-%ds   %%-%ds'          % (indent, maxAttrLen+2, maxReprLen+2, maxTypeLen+2)
@@ -157,7 +157,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 
 
 
-def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
+def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
 	out = []
 	
 	strElePattern = '%%-%ds'
@@ -231,7 +231,7 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 			
 			if not isinstance(element, (list,tuple)):
 				rElement = repr(element)
-				if len(rElement) > ellipsisLimit:
+				if ellipsisLimit and len(rElement) > ellipsisLimit:
 					if quotePattern.match(rElement):
 						rElement = '%s...%s' % (rElement[:ellipsisLimit-4], rElement[0])
 					else:
@@ -259,7 +259,7 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 				out+= [rowPattern % rowRepr]
 			
 			
-			if i >= listLimit-1:
+			if listLimit and i >= listLimit-1:
 				out += ['%s... %d ellided (of %s total)' % (indent, len(o)-i-1, len(o))]
 				break
 				
@@ -283,7 +283,7 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 				continue
 			
 			rElement = repr(element)
-			if len(rElement) > ellipsisLimit:
+			if ellipsisLimit and len(rElement) > ellipsisLimit:
 				if quotePattern.match(rElement):
 					rElement = '%s...%s' % (rElement[:ellipsisLimit-4], rElement[0])
 				else:
@@ -292,7 +292,7 @@ def p(o, indent='  ', listLimit=8, ellipsisLimit=80, directPrint=True):
 			out += [elementPattern % (key,rElement)]
 				
 						
-			if i >= listLimit-1:
+			if listLimit and i >= listLimit-1:
 				out += ['%s... %d ellided (of %s total)' % (indent, len(o)-i-1, len(o))]
 				break			
 		
