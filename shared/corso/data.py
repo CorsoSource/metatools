@@ -8,6 +8,13 @@ import re
 
 
 def datasetToListDict(dataset):
+	"""Converts a dataset into a list of dictionaries. 
+	Convenient to treat data on a row-by-row basis naturally in Python.
+	
+	>>> from shared.corso.examples import simpleDataset
+	>>> datasetToListDict(simpleDataset)
+	[{'a': 1, 'b': 2, 'c': 3}, {'a': 4, 'b': 5, 'c': 6}, {'a': 7, 'b': 8, 'c': 9}]
+	"""
 	header = [str(name) for name in dataset.getColumnNames()]
 	try:
 		return [dict(zip(header, row)) for row in zip(*dataset.data)]
@@ -16,11 +23,25 @@ def datasetToListDict(dataset):
 
 		
 def datasetToDictList(dataset):
+	"""Converts a dataset into a dictionary of column lists.
+	Convenient for treating data on a specific-column basis.
+	
+	>>> from shared.corso.examples import simpleDataset
+	>>> datasetToDictList(simpleDataset)
+	{'a': [1, 4, 7], 'b': [2, 5, 8], 'c': [3, 6, 9]}
+	"""
 	header = [str(name) for name in dataset.getColumnNames()]
 	return dict(zip( header, [dataset.getColumnAsList(i) for i in range(len(header))] ))
 
 
 def gatherKeys(data):
+	"""Gather all the possible keys in a list of dicts.
+	(Note that voids in a particular row aren't too bad.)
+	
+	>>> from shared.corso.examples import complexListDict
+	>>> gatherKeys(complexListDict)
+	['date', 'double', 'int', 'string']
+	"""
 	keys = set()
 	for row in data:
 		keys.update(row)
@@ -28,6 +49,23 @@ def gatherKeys(data):
 
 
 def listDictToDataset(data, keys=None):
+	"""Converts a list of dictionaries into a dataset.
+	A selection of keys can be requested (and reordered), where missing entries
+	are filled with None values.
+
+	>>> from shared.corso.pretty import p
+	>>> from shared.corso.examples import simpleListDict
+	>>> ld2ds = listDictToDataset(simpleListDict, keys=['c','b'])
+	>>> p(ld2ds)
+	"ld2ds" <DataSet> of 3 elements and 2 columns
+	=============================================
+	          c                     |  b                    
+	           <java.lang.Integer>  |   <java.lang.Integer> 
+	--------------------------------------------------------
+	   0 |                        3 |                      2
+	   1 |                        6 |                      5
+	   2 |                        9 |                      8
+	"""
 	# gather the keys, in case there are voids in the data
 	if not keys:
 		keys = gatherKeys(data)
@@ -112,9 +150,8 @@ def genRecordSet(header):
 				try:
 					return self._tuple[key]
 				except TypeError:
-					raise ValueError('Key out of range or invalid: "%r"' % key)
-					
-	
+					return getattr(super(object, self), key)
+						
 		def __getattr__(self, attribute):
 			"""Allow the keys to be used as direct attributes."""
 			return self[attribute]
