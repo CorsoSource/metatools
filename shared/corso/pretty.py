@@ -164,7 +164,7 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
 	numElePattern = '%%%ds'	
 	colSep = ' |  '
 	
-	if isinstance(o, BasicDataset):
+	if isinstance(o, (BasicDataset,PyDataSet)):
 		ds = o
 		if isinstance(ds, PyDataSet):
 			ds = ds.getUnderlyingDataset()
