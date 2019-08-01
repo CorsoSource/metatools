@@ -3,24 +3,40 @@
 """
 
 
-
 from __future__ import with_statement
 from functools import wraps, partial
 from time import sleep
 
+
 def async(startDelaySeconds=None):
 	"""Decorate a function with this to make it run in another thread asynchronously!
 	If defined with a value, it will wait that many seconds before firing.
+	
+	Note that threads have their own scope, and any output is redirected to their own
+	  sys.stderr writer. It turns out this is simply always the JVM's console, though.
 
-	For a function to immediately run:
-	@async
-	def foo(x,y=5):
-		print x,y
-
-	For a 1.5 second delay before executing:
-	@async(1.5)
-	def bar(a,b,c=5):
-		print a,b,c
+	>>> # For a function to immediately run in another thread, simply decorated it:
+	>>> from shared.corso.logging import BaseLogger
+	>>> @async
+	... def foo(x,y=5):
+	...     print x,y
+	...     BaseLogger().log('x=%(x)r y=%(y)r') # complex delaying calc & shows new stdout
+	>>> tFoo = foo(12)
+	>>> tFoo.getState()
+	RUNNABLE
+	>>> tFoo.getState()
+	TERMINATED
+	>>> 
+	>>> # For a 1.5 second delay before executing, you can provide an argument:
+	>>> from time import sleep
+	>>> @async(1.5)
+	... def bar(a,b,c=5):
+	...     print a,b,c
+	>>> tBar = bar(1,2)
+	>>> sleep(0.2); tBar.getState()
+	TIMED_WAITING
+	>>> sleep(1.5); tBar.getState()
+	TERMINATED
 	"""
 
 	try:
@@ -35,7 +51,7 @@ def async(startDelaySeconds=None):
 		
 				# Create the closure to carry the scope into another thread
 				def full_closure(function, delaySeconds, args=args, kwargs=kwargs):
-					print 'delaying %d' % delaySeconds
+					#print 'delaying %0.3f' % delaySeconds
 					sleep(delaySeconds)
 					_ = function(*args,**kwargs)
 					
