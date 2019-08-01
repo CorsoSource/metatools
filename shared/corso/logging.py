@@ -9,7 +9,7 @@ except ImportError:
 	pass # only needed for when the logger's running on a Vision client; gateway won't have this in scope.
 
 import sys, re
-from shared.corso.meta import getObjectByName, GLOBAL_MESSAGE_PROJECT_NAME
+from shared.corso.meta import currentStackDepth, getObjectByName, GLOBAL_MESSAGE_PROJECT_NAME
 
 
 VISION_CLIENT_MESSAGE_HANDLER = 'Vision Client Log'
@@ -145,7 +145,7 @@ class Logger(BaseLogger):
 		if suffix is not None: self.suffix = '%s%s' % (self.suffix, suffix)
 				
 	def _getScope(self):
-		frame = sys._getframe(self._stackDepth - 1)
+		frame = sys._getframe(self._stackDepth - 1) 
 		return frame.f_code.co_filename
 	
 	def _autoConfigure(self, loggerName=None):
@@ -197,6 +197,12 @@ class Logger(BaseLogger):
 			functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
 			self.prefix = '[%s: %s.%s] ' % (window.path, '/'.join(reversed(componentPath[:-3])), functionName)
 			self._configureVisionClientRelay()
+		# WebDev endpoint!
+		elif self._isWebDev():
+			self.loggerName = loggerName or '[%s] WebDev' % system.util.getProjectName()
+			self.logger = system.util.getLogger(self.loggerName)
+			endpoint,_,eventName = scope.rpartition(':')
+			self.prefix = '[%s %s] ' % (eventName[2:].upper(), '/'.join(endpoint.split('/')[1:]))
 		# Perspective!
 		elif self._isPerspective():
 			component = getObjectByName('self', startRecent=False)
@@ -254,12 +260,19 @@ class Logger(BaseLogger):
 		self.relayScope = {'scope': 'G'}
 		self.relayHandler = VISION_CLIENT_MESSAGE_HANDLER
 		self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
-
+	
 	@staticmethod
 	def _isPerspective():
 		"""Returns True when we simply have access to Perspective module stuff."""
 		return 'perspective' in dir(system)
 	
+	_webDevFunctions = set(['doGet','doPost','doPut','doDelete','doHead','doOptions','doTrace'])
+	@classmethod
+	def _isWebDev(cls):
+		rootFrame = sys._getframe(currentStackDepth()-1)
+		expectedInitialVars = set(['request','session']).intersection(rootFrame.f_locals)
+		expectedFunction = cls._webDevFunctions.intersection(rootFrame.f_globals)
+		return expectedInitialVars and expectedFunction
 	
 	def _log(self, level, *args, **kwargs):
 		message = self._generateMessage(*args, **kwargs)
