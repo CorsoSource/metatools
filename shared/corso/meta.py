@@ -4,6 +4,12 @@
 	WARNING: These provide easy access to wildly powerful objects. Use caution!
 
 	And have fun!
+
+
+	The object retrieval 
+
+
+
 """
 
 import math,re, sys
@@ -14,13 +20,22 @@ __all__ = [] # This is meant to be empty. No `from corso.meta import *`!
 
 def sentinel(iterable, stopValue):
 	"""A helper to make it simpler to implement sentinel values more idomatically.
-	I.e. `for i in iter((x for x in range(5)).next, 3):`
-	becomes 
+	This is a good way to replace a while True loop, removing the need for a break-on-value clause.
+	
+	>>> [i for i in iter((x for x in range(5)).next, 3)]
+	[0, 1, 2]
+	>>> [i for i in sentinel(range(5), 3)]
+	[0, 1, 2]
 	"""
 	return iter((x for x in iterable).next, stopValue)
 
 
 def getDesignerContext(anchor=None):
+	"""Attempts to grab the Ignition designer context.
+	This is most easily done with a Vision object, like a window.
+	If no object is provided as a starting point, it will attempt to 
+	  get one from the designer context.
+	"""
 	from com.inductiveautomation.ignition.designer import IgnitionDesigner
 
 	if anchor is None:
@@ -55,7 +70,14 @@ def getDesignerContext(anchor=None):
 
 
 def currentStackDepth():
-	"""From https://stackoverflow.com/a/47956089"""
+	"""Returns the calling function's stack depth.
+	The easiest way to do this is to simply scan the stack
+	  until the function declares the end of it by ValueError.
+	Remember: 0 is THIS frame, 1 is the previous calling frame,
+	  and there's no globally available stack depth value or length.
+
+	From https://stackoverflow.com/a/47956089
+	"""
 	size = 2
 	while True:
 		try:
@@ -65,47 +87,57 @@ def currentStackDepth():
 			return size - 1 # ignore this called frame
 
 
-def getObjectByName(objName, estimatedDepth=None, mostDeep=False):
-	"""Grab an item from the stack by its name."""
-	if estimatedDepth: # give a potential shortcut
-		frame = sys._getframe(estimatedDepth)
-		if objName in frame.f_locals:
-			return frame.f_locals[objName]
-	
-	estimatedDepth = currentStackDepth()-1 if mostDeep else 1
-	try:
-		while True:
-			frame = sys._getframe(estimatedDepth)
-			if objName in frame.f_locals:
-				return frame.f_locals[objName]
-			estimatedDepth += -1 if mostDeep else 1
-	except ValueError:
-		return None
+def getObjectName(o, estimatedDepth=None, startRecent=True):
+	"""Get an item's name by finding its first reference in the stack.
 
-
-def getObjectName(o, estimatedDepth=None, mostDeep=False):
-	"""Get an item's name by finding its first reference in the stack."""
-	if estimatedDepth: # give a potential shortcut
-		frame = sys._getframe(estimatedDepth)
-		
-		for key,value in frame.f_locals.items():
-			if value is o:
-				return key
-	
-	estimatedDepth = currentStackDepth() if mostDeep else 1
+	If an estimatedDepth is provided, the search will start there,
+	  scanning from that frame and go in the direction startRecent implies.
+	  (If startRecent is True, it will scan from the estimatedDepth
+	   towards the maximum stack depth, going up the call tree.)
+	"""
+	# if no shortcut is provided, start at the furthest point
+	if estimatedDepth is None:
+		estimatedDepth = 1 if startRecent else currentStackDepth()-1 
 	try:
 		while True:
 			frame = sys._getframe(estimatedDepth)
 			for key,value in frame.f_locals.items():
 				if value is o:
 					return key
-			estimatedDepth += -1 if mostDeep else 1
+			estimatedDepth += 1 if startRecent else -1
+	except ValueError:
+		return None
+
+
+def getObjectByName(objName, estimatedDepth=None, startRecent=True):
+	"""Grab an item from the Python stack by its name.
+
+	If an estimatedDepth is provided, the search will start there,
+	  scanning from that frame and go in the direction startRecent implies.
+	  (If startRecent is True, it will scan from the estimatedDepth
+	   towards the maximum stack depth, going up the call tree.)
+	"""
+	# if no shortcut is provided, start at the furthest point
+	if estimatedDepth is None:
+		estimatedDepth = 1 if startRecent else currentStackDepth()-1
+	try:
+		while True:
+			frame = sys._getframe(estimatedDepth)
+			if objName in frame.f_locals:
+				return frame.f_locals[objName]
+			estimatedDepth += 1 if startRecent else -1
 	except ValueError:
 		return None
 
 
 def getFunctionCallSigs(function, joinClause=' -OR- '):
-	
+	"""Explains what you can use when calling a function.
+	The join clause doesn't make as much sense for Python functions,
+	  but is very useful for overloaded Java calls.
+
+	>>> getFunctionCallSigs(getFunctionCallSigs, joinClause=' <> ')
+	"(function, joinClause=' -OR- ')"
+	"""
 	if 'im_func' in dir(function):
 		callMethods = []
 		for reflectedArgs in function.im_func.argslist:

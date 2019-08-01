@@ -7,7 +7,9 @@ from org.apache.commons.lang3.time import DateUtils
 from java.util import Date
 
 
-simpleDataset = system.dataset.toDataSet(list('abc'),[range(i,i+3) for i in range(1,9,3)])
+simpleListList = [range(i,i+3) for i in range(1,9,3)]
+
+simpleDataset = system.dataset.toDataSet(list('abc'),simpleListList)
 
 complexDataset = system.dataset.toDataSet(
 	['string', 'int', 'double', 'date'], 

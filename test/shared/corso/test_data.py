@@ -1,4 +1,4 @@
-import unittest
+import unittest, doctest
 
 from org.apache.commons.lang3.time import DateUtils
 from java.util import Date
