@@ -152,11 +152,12 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 		nargs = function.__code__.co_argcount
 		args = function.__code__.co_varnames[:nargs]
 		defaults = function.__defaults__ or []
-	
+		nnondefault = nargs - len(defaults)
+		
 		out = []
-		for i in range(len(args) - len(defaults)):
+		for i in range(nnondefault):
 			out += [args[i]]
-		for i in reversed(range(len(defaults))):
-			out += ['%s=%r' % (args[-i-1],defaults[-i])]
+		for i in range(len(defaults)):
+			out += ['%s=%r' % (args[nnondefault + i],defaults[i])]
 	
 		return '(%s)' % ', '.join(out)
