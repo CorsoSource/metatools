@@ -134,7 +134,7 @@ class PrintLogger(object):
 class Logger(BaseLogger):
 	"""Autoconfiguring logger. This detects its calling environment and tries to set itself up.
 	"""		
-	def __init__(self, loggerName=None, prefix=None, suffix=None, relay=True):
+	def __init__(self, loggerName=None, prefix=None, suffix=None, relay=False):
 		#raise NotImplementedError('This is under development and is not fully functional yet.')
 		
 		self.relay = relay
@@ -162,11 +162,13 @@ class Logger(BaseLogger):
 		if scope == 'buffer':
 			self.loggerName = loggerName or 'Script Console'
 			self.logger = PrintLogger()
-			self.relay = False
 		# Scripts!
 		elif scope.startswith('module:'):
 			self.loggerName = loggerName or scope[7:]
 			self.logger = system.util.getLogger(self.loggerName)
+			if self._isVisionDesigner() or self._isVisionClient():
+				self._configureVisionClientRelay()			
+				self.suffix = ' [in %s]' % self._getVisionClientID()
 		# Tags!
 		elif scope.startswith('tagevent:'):
 			tagPath = getObjectByName('tagPath')
@@ -174,12 +176,14 @@ class Logger(BaseLogger):
 			self.loggerName = loggerName or '[%s] Tag %s Event' % (provider, scope[9:])
 			self.prefix = '{%s} ' % tagPath
 			self.logger = system.util.getLogger(self.loggerName)
+			if provider == 'client':
+				self._configureVisionClientRelay()			
 		# Clients!
 		elif self._isVisionScope(): 
-			self.loggerName = '%s %s' % ('Designer' if self._isVisionDesigner() else 'Client', system.util.getClientId())
+			self.loggerName = self._getVisionClientID()
 			self.logger = system.util.getLogger(self.loggerName)
 			
-			event = getObjectByName('event', mostDeep=True)
+			event = getObjectByName('event', startRecent=False)
 			window = system.gui.getParentWindow(event)
 			component = event.source
 			
@@ -192,13 +196,10 @@ class Logger(BaseLogger):
 				component = component.parent
 			functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
 			self.prefix = '[%s: %s.%s] ' % (window.path, '/'.join(reversed(componentPath[:-3])), functionName)
-			if self.relay:
-				self.relayScope = {'scope': 'G'}
-				self.relayHandler = VISION_CLIENT_MESSAGE_HANDLER
-				self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
+			self._configureVisionClientRelay()
 		# Perspective!
 		elif self._isPerspective():
-			component = getObjectByName('self', mostDeep=True)
+			component = getObjectByName('self', startRecent=False)
 			assert 'com.inductiveautomation.perspective' in str(type(component)), 'Incorrectly detected Perspective context'
 			session = component.session
 			page = component.page
@@ -244,6 +245,16 @@ class Logger(BaseLogger):
 	def _isVisionClient():
 		return system.util.getSystemFlags() & system.util.CLIENT_FLAG
 	
+	@classmethod
+	def _getVisionClientID(cls):
+		return '%s %s' % ('Designer' if cls._isVisionDesigner() else 'Client', system.util.getClientId())
+
+	def _configureVisionClientRelay(self):
+		self.relay = True
+		self.relayScope = {'scope': 'G'}
+		self.relayHandler = VISION_CLIENT_MESSAGE_HANDLER
+		self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
+
 	@staticmethod
 	def _isPerspective():
 		"""Returns True when we simply have access to Perspective module stuff."""
@@ -277,7 +288,7 @@ class Logger(BaseLogger):
 	_logLevels = ['trace', 'debug', 'info', 'warn', 'error', 'log']
 
 	@classmethod
-	def _validatePayload(payload):
+	def _validatePayload(cls, payload):
 		"""Make sure the log payload is sane."""
 		payloadKeys = set(payload.keys())
 		assert payloadKeys.issuperset(cls._messagePayloadKeys), 'Missing message payload key(s): %s' % cls._messagePayloadKeys.difference(payloadKeys)
