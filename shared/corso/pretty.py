@@ -18,8 +18,18 @@ quotePattern = re.compile("""^('.*'|".*")$""")
 
 
 def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True, directPrint=True):
+	"""Pretty print the dir() function for Ignition things. This is designed to be used in the 
+	  script console. Use it to explore objects and functions.
 
-#	skipTypes = set(['builtin_function_or_method', 'instancemethod', 'java.lang.Class'])
+	Functions will show their call methods, with Python functions returning their defaults, if any.
+	Attributes that are objects will be printed directly, and otherwise the type will be displayed.
+
+	Disable direct print if the output of the function should be returned for use elsewhere
+	  (perhaps to a file or something).
+
+	When in doubt, pdir(pdir) is a handy thing to remember. Or help(pdir), too!
+	"""
+	# skipTypes = set(['builtin_function_or_method', 'instancemethod', 'java.lang.Class'])
 	skipTypes = set(['builtin_function_or_method', 'java.lang.Class'])
 		
 	dotdotdot = lambda s: s if not ellipsisLimit or len(s)<=ellipsisLimit else '%s...' % s[:ellipsisLimit-3]
@@ -28,23 +38,26 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 	
 	name = getObjectName(o,estimatedDepth=2)
 	if name:
-		out += ['Properties of "%s" <%s>' % (name, str(type(o))[6:-1])]
+		out += ['%sProperties of "%s" <%s>' % (indent, name, str(type(o))[6:-1])]
 	else:
-		out += ['Properties of <%s>' % str(type(o))[6:-1]]
-	out += ['='*len(out[0])]
+		out += ['%sProperties of <%s>' % (indent, str(type(o))[6:-1])]
+	out += ['%s%s' % (indent, '='*len(out[0]))]
 	
 	try:
 		joinClause = '\n---\n'
-		callExample = '%s' % (getFunctionCallSigs(o, joinClause),)
+		callExample = '%s%s' % (indent, getFunctionCallSigs(o, joinClause),)
 		out += callExample.split(joinClause)
-		out += ['-'*max([len(line) for line in callExample.split(joinClause)] + [1])]
+		out += ['%s%s' % (indent, '-'*max([len(line) for line in callExample.split(joinClause)] + [1]))]
 	except:
 		pass
 	
 	if o.__doc__:
-		maxDocLen = max([len(line) for line in o.__doc__.splitlines()] + [1])
-		docPattern = '%%s|  %%-%ds  |' % maxDocLen
-		for line in o.__doc__.splitlines():
+		docstringLines = o.__doc__.splitlines()
+		if len(docstringLines) > 1:
+			docstringLines = [docstringLines[0]] + textwrap.dedent('\n'.join(docstringLines[1:])).splitlines()
+		maxDocLen = max([len(line) for line in docstringLines] + [1])
+		docPattern = '%%s%%-%ds' % maxDocLen
+		for line in docstringLines:
 			out += [docPattern % (indent, line)]
 		else:
 			out += ['']
@@ -148,7 +161,9 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 		
 		outStr = ' -- '.join(outStr.splitlines())
 		out += [outStr]
-		
+	
+	out += ['']
+
 	output = '\n'.join(out)
 	if directPrint:
 		print output
@@ -158,6 +173,9 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 
 
 def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
+	"""Pretty print objects. This helps make lists, dicts, and other things easier to understand.
+	Handy for quickly looking at datasets and lists of lists, too, since it aligns columns.
+	"""
 	out = []
 	
 	strElePattern = '%%-%ds'
