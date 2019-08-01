@@ -28,23 +28,29 @@ class BaseLogger(object):
 	"""
 	
 	argsSeparator = ' ' # to allow for print-style argument concatenation
-	_stackDepth = 3
+	# (0) <calling scope> > (1) self.log > (2) self._log > (3) self._generateMessage > (4) self._formatString
+	_stackDepth = 4
 	
-	def bracketString(self, message):
+	def _bracketString(self, message):
+		"""Applies a prefix and suffix to the message (if any available).
+		Missing values are assumed to be empty string.
+		>>> baseLogger = BaseLogger()
+		>>> baseLogger.prefix = '[log] '
+		>>> baseLogger._bracketString('This is a log message.')
+		'[log] This is a log message.'
+		"""
 		prefix = getattr(self, 'prefix', '')
 		suffix = getattr(self, 'suffix', '')
 		return '%s%s%s' % (prefix, message, suffix)
 
-	def formatString(self, message, *args, **kwargs):
+	def _formatString(self, message, *args, **kwargs):
 		"""Looks back on the stack and injects values in the calling scope.
-		
-		For example, this allows the following to work:
-		
-		def foo(x):
-			y = 4
-			BaseLogger()._log('asdf %(y)s %(x)r %(foo)r')	
-		foo(11)
-		>>> [info] ('asdf 4 11 <function foo at 0xc>',)
+		Note that this is dead reckoning
+		>>> def foo(x):
+		...   y = 4
+		...   BaseLogger().log('asdf %(y)s %(x)r %(foo)r')	
+		>>> foo(11)
+		asdf 4 11 <function foo at ...>
 		"""
 		## Add positional arguments to the interpolation
 		#for i,arg in enumerate(args):
@@ -56,23 +62,33 @@ class BaseLogger(object):
 	
 	def _generateMessage(self, *args, **kwargs):
 		"""Given arguments and some specific values generate the message.
-		For example: BaseLogger()._log('asdf', 3, '%(qwer)r', qwer=45)
-		>>> asdf 3 45
+		
+		>>> z = 'zxcv'
+		>>> BaseLogger().log('asdf %(z)s', 3, '%(qwer)r', qwer=45)
+		asdf zxcv 3 45
 		"""
 		message = self.argsSeparator.join(autoRepr(arg) for arg in args)
-		message = self.bracketString(message)
-		message = self.formatString(message, *args, **kwargs)
+		message = self._bracketString(message)
+		message = self._formatString(message, *args, **kwargs)
 		return message
 			
 	def _log(self, *args, **kwargs):
+		"""A wrapper to ensure the call stack depth is consistent."""
 		message = self._generateMessage(*args, **kwargs)
 		print message
 
+	def log(self, *args, **kwargs):
+		"""Logs a message.
+		The args are concatenated strings (like print), and the kwargs 
+		  are used to fill in string interpolation references.
+		"""
+		self._log(*args, **kwargs)
+
 
 class ConsoleLogger(BaseLogger):
-	
-	_stackDepth = 4
-	
+	"""A basic logger that prints log messages.
+	This exposes the more sophisticated message formatting utilities.
+	"""	
 	def _log(self, level, *args, **kwargs):
 		message = self._generateMessage(*args, **kwargs)
 		print '[%s] %s' % (level, message)
@@ -95,7 +111,9 @@ class ConsoleLogger(BaseLogger):
 
 
 class PrintLogger(object):
-	"""The most basic logger."""
+	"""The most basic logger. 
+	Essentially, this just a printer, but it interfaces like a logger.
+	"""
 	@staticmethod
 	def trace(message):
 		print '[%s] %s' % ('trace', message)
@@ -114,9 +132,8 @@ class PrintLogger(object):
 
 
 class Logger(BaseLogger):
-
-	_stackDepth = 4
-		
+	"""Autoconfiguring logger. This detects its calling environment and tries to set itself up.
+	"""		
 	def __init__(self, loggerName=None, prefix=None, suffix=None, relay=True):
 		#raise NotImplementedError('This is under development and is not fully functional yet.')
 		
@@ -132,6 +149,11 @@ class Logger(BaseLogger):
 		return frame.f_code.co_filename
 	
 	def _autoConfigure(self, loggerName=None):
+		"""The master configuration routine. This will branch down and check if a known state is set.
+		If so, it will try to name itself something appropriate, with a focus on making gateway logs
+		  easier to filter for the specific situation getting logged.
+		Additional information may be bolted on via the prefix/suffix to provide context.
+		"""
 		scope = self._getScope()[1:-1] # remove the angle brackets
 		self.prefix = ''
 		self.suffix = ''
@@ -194,43 +216,46 @@ class Logger(BaseLogger):
 			self.prefix = '[%s - %s.%s] ' % (view.id, '/'.join(reversed(componentPath)), functionName)
 			
 			self.relay = False # NotImplementedError
-#			if self.relay:
-#				self.relayScope = {'scope': 'C', 'hostName': session.props.host}
-#				self.relayHandler = PERSPECTIVE_SESSION_MESSAGE_HANDLER
-#				self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
+			# if self.relay:
+			# 	self.relayScope = {'scope': 'C', 'hostName': session.props.host}
+			# 	self.relayHandler = PERSPECTIVE_SESSION_MESSAGE_HANDLER
+			# 	self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
+		else:
+			self.loggerName = loggerName or 'Logger'
+			self.logger = system.util.getLogger(self.loggerName)
 
 			
 	@staticmethod
 	def _isVisionScope():
+		"""Returns True if the system flags imply this is a designer or client. 
+		(Gateway will throw an AttributeError, since system.util.getSystemFlags is out of scope for it.) 
+		"""
 		try:
 			sysFlags = system.util.getSystemFlags()
 			return sysFlags & system.util.DESIGNER_FLAG or sysFlags & system.util.CLIENT_FLAG
 		except AttributeError:
 			return False
+
 	@staticmethod
 	def _isVisionDesigner():
 		return system.util.getSystemFlags() & system.util.DESIGNER_FLAG
+	
 	@staticmethod
 	def _isVisionClient():
 		return system.util.getSystemFlags() & system.util.CLIENT_FLAG
+	
 	@staticmethod
-	def _isPerspective(): # simply check if we have access, if we do, it's Perspective
+	def _isPerspective():
+		"""Returns True when we simply have access to Perspective module stuff."""
 		return 'perspective' in dir(system)
-		
-	def _relayMessage(self, level, message):
-		if not self.relay: return
-		
-		payload = {'logLevel': level, 'message': message, 'loggerName': self.loggerName}
-		results = system.util.sendMessage(self.relayProject, self.relayHandler, payload, **self.relayScope)
-		if not results: # sure hope someone sees this...
-			print "WARNING: Logger message handler not found!" 
+	
 	
 	def _log(self, level, *args, **kwargs):
 		message = self._generateMessage(*args, **kwargs)
 		getattr(self.logger, level)(message)
 		if self.relay:
 			self._relayMessage(level, message)
-	
+
 	
 	def trace(self, *args, **kwargs):
 		self._log('trace', *args, **kwargs)
@@ -248,18 +273,47 @@ class Logger(BaseLogger):
 		self._log('error', *args, **kwargs)
 
 
-	_messagePayloadKeys = set(['message', 'logLevel', 'loggerName'])
+	_messagePayloadKeys = set(['message', 'level', 'loggerName'])
+	_logLevels = ['trace', 'debug', 'info', 'warn', 'error', 'log']
+
+	@classmethod
+	def _validatePayload(payload):
+		"""Make sure the log payload is sane."""
+		payloadKeys = set(payload.keys())
+		assert payloadKeys.issuperset(cls._messagePayloadKeys), 'Missing message payload key(s): %s' % cls._messagePayloadKeys.difference(payloadKeys)
+		assert payload['level'] in cls._logLevels, 'Log levels must be one of: %r (not %s)' % (cls._logLevels, level)
+		assert payload['message'], 'Log messages should not be blank. Really now.'
+		assert payload['loggerName'], "Logger needs a name. Don't leave messages with no filterable context."
+
+	def _relayMessage(self, level, message):
+		"""Some logging contexts do not output to a convenient location for remote troubleshooting.
+		Adding a relay helps simplify this. For example, with a relay vision clients can emit logs
+		  that show on the gateway (similar in effect to how Perspective does).
+		Be sure to place the Logger.messageHandler(payload) script in the gateway.
+		"""
+		if not self.relay: return
+		
+		payload = {'level': level, 'message': message, 'loggerName': self.loggerName}
+		self._validatePayload(payload)
+
+		results = system.util.sendMessage(self.relayProject, self.relayHandler, payload, **self.relayScope)
+		if not results: # sure hope someone sees this...
+			print "WARNING: Logger message handler not found!" 
+
 	@classmethod
 	def messageHandler(cls, payload):
-		"""This is the relay handler. Place this in a gateway message event script:	
+		"""This is the relay handler. Note that by this should be placed in a message handler
+		  that matches whatever is in self.relayHandler (typically VISION_CLIENT_MESSAGE_HANDLER). 
+
+		Copy and paste the following directly into a gateway message event script:	
+		
 		from shared.corso.logging import Logger
 		Logger.messageHandler(payload)
 		"""
-		payloadKeys = set(payload.keys())
-		assert payloadKeys.issuperset(cls._messagePayloadKeys), 'Missing message payload key(s): %s' % cls._messagePayloadKeys.difference(payloadKeys)
+		cls._validatePayload(payload)
 		
 		message = payload['message']
-		logLevel = payload['logLevel']
+		level = payload['level']
 		loggerName = payload['loggerName']
 		
-		getattr(system.util.getLogger(loggerName), logLevel)(message)
+		getattr(system.util.getLogger(loggerName), level)(message)

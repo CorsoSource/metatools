@@ -5,17 +5,17 @@
 
 	And have fun!
 
-
-	The object retrieval 
-
-
-
+	The object retrieval functions reach backwards in the Python call stack. It's useful
+	  to keep in mind that low number call stack frame numbers are closer to the most recent.
 """
 
 import math,re, sys
 
 
 __all__ = [] # This is meant to be empty. No `from corso.meta import *`!
+
+
+GLOBAL_MESSAGE_PROJECT_NAME = None #'global'
 
 
 def sentinel(iterable, stopValue):
