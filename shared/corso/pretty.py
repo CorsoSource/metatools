@@ -4,7 +4,7 @@
 	These are meant to be used with a console.
 """
 
-import re, math
+import re, math, textwrap
 from java.lang import Exception as JavaException
 from com.inductiveautomation.ignition.common import BasicDataset
 from com.inductiveautomation.ignition.common.script.builtin.DatasetUtilities import PyDataSet
