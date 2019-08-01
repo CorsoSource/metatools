@@ -3,48 +3,41 @@
 """
 
 
-
 import sys,imp
 
 from shared.corso.meta import currentStackDepth
 from shared.corso.pretty import p,pdir
-
-try:
-	_ = sys.modules.pop('asdf')
-	_ = sys.modules.pop('asdf.qwer')
-	_ = sys.modules.pop('asdf.qwer.zxcv')
-	
-except:
-	pass
 
 
 class Venv(object):
 	"""Hoists a block of code as a module. 
 	Use to test and virtually bootstrap code in environments where globals can not be easily modified.
 	
-	Example for generating scope: the commented lines bring a NameError
-		def someFunctionScope():
-			modGen = Venv('asdf.qwer.zxcv').anchorModuleStart()
-			def foo():
-				print 'foo!'
-			modGen.anchorModuleEnd().bootstrapModule()
-		#someFunctionScope()              # uncomment to fix ImportError on asdf
-		#from asdf.qwer.zxcv import foo   # uncomment to fix NameError on foo
-		foo()
-
-	Example in using it as an in-line virtual environment:
-		def createEnvironment():
-			venv = Venv('asdf.qwer.zxcv').anchorModuleStart()
-			def foo():
-				print 'foo!'
-			venv.anchorModuleEnd()
-			return venv
-
-		with createEnvironment():
-			from asdf.qwer.zxcv import foo
-			abc = 123
-			foo()
-		# attempt to reference abc, or foo, or to import asdf.qwer.zxcv
+	>>> # Example for generating scope: (the commented lines generate specific errors)
+	>>> from __future__ import with_statement
+	>>> import sys
+	>>> def createScopeInFunction():
+	... 	modGen = Venv('examples.venv.functionScope').anchorModuleStart()
+	... 	def foo():
+	... 		print 'foo!'
+	... 	modGen.anchorModuleEnd().bootstrapModule()
+	>>> createScopeInFunction()							# uncomment to fix ImportError on examples
+	>>> from examples.venv.functionScope import foo		# uncomment to fix NameError on foo
+	>>> foo()
+	foo!
+	>>> # Example in using it as an in-line virtual environment:
+	>>> def createEnvironment():
+	... 	venv = Venv('examples.venv.presetScope').anchorModuleStart()
+	... 	def bar():
+	... 		print 'bar!'
+	... 	venv.anchorModuleEnd()
+	... 	return venv
+	>>> 
+	>>> with createEnvironment():
+	... 	from examples.venv.presetScope import bar
+	... 	abc = 123
+	... 	bar()
+	bar!
 	"""
 	
 	def __init__(self, modulePath=None, overwriteInterlock=False):
