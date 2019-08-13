@@ -7,7 +7,7 @@ import array.array, base64, os, re
 from shared.corso.meta import getDesignerContext
 
 
-__all__ = ['getResourceXML']
+__all__ = ['serializeToXML', 'getResources', 'dumpProject']
 
 
 def serializeToXML(obj, anchor=None):
@@ -89,7 +89,8 @@ def getResources(resourcePattern = '.*', anchor=None):
 			else:
 				resourceData[resDataKey] = [base64.b64encode(resData)]
 	
-	print 'Errors with de/serialization:\n%s' % '\n'.join(errors)
+	if errors:
+		print 'Errors with de/serialization:\n%s' % '\n'.join(errors)
 	
 	return resourceData
 
