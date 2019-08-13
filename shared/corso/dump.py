@@ -2,7 +2,8 @@
 	Plonk objects to disk!
 """
 
-import array.array, base64, os
+
+import array.array, base64, os, re
 from shared.corso.meta import getDesignerContext
 
 
@@ -46,7 +47,7 @@ def resolveToObject(objBinary, failsafe=5):
 	return objects
 
 
-def getResource(resourcePath = None, anchor=None):
+def getResources(resourcePattern = '.*', anchor=None):
 	"""Given a resource path, this will return the human-readable
 	text XML version of that resource.
 	
@@ -58,8 +59,9 @@ def getResource(resourcePath = None, anchor=None):
 	
 	proj = context.getProject()
 	
-	if resourcePath:	
-		resources = [proj.getResource(resourcePath).get()]
+	if resourcePattern:
+		rePattern = re.compile(resourcePattern)
+		resources = [res for res in proj.getResources() if rePattern.match(str(res.getResourcePath()))]
 	else:
 		resources = [res for res in proj.getResources()]
 	
@@ -94,7 +96,7 @@ def getResource(resourcePath = None, anchor=None):
 
 def dumpProject(dumpDir):
 
-	resourceData = getResource()
+	resourceData = getResources()
 	for dataKey,objects in resourceData.items():
 		for i,obj in enumerate(objects):
 			
