@@ -2,7 +2,7 @@
 	Mapping helpers for persisting things with databases.
 """
 
-import functools
+import functools, textwrap
 
 from shared.data.recordset import RecordSet
 
@@ -16,13 +16,13 @@ MYSQL_CONNECTION_CONFIG = dict(
     user='root',
     password='hunter2',
     use_pure=True,
-    autocommit=True
+    autocommit=True,
 )
 
 class SimpleORM_Connection(object):
-	"""Helper class for connecting to the database.
+    """Helper class for connecting to the database.
 	Replace and override as needed.
-	"""
+    """
     def __init__(self, config=MYSQL_CONNECTION_CONFIG):
         self.config = config
         self.connection = None
@@ -114,10 +114,14 @@ class MetaSimpleORM(type):
         return super(MetaSimpleORM,cls).__new__(cls, clsname, bases, attributes)
     
     def __init__(cls, clsname, bases, attributes):
-        cls._table = cls._table or (clsname if not clsname == 'SimpleORM' else '')
-        cls._table = cls._table.lower()
+        # Do a null setup for the base class
+        if clsname == 'SimpleORM':
+            cls._table = ''
+        else:
+            cls._table = cls._table or clsname
+            cls._table = cls._table.lower()
+            cls._verify_columns()
         cls._pending = []
-        cls._verify_columns()
         
         for ix,column in enumerate(cls._columns):
             setattr(cls,column,None)
@@ -175,15 +179,15 @@ class MetaSimpleORM(type):
 
             
 class SimpleORM(object):
-	"""Base class that connects a class to the database.
+    """Base class that connects a class to the database.
 
 	When declaring the subclass, set the defaults to persist them.
 
 	NOTE: If no columns are configured, the class will attempt to autoconfigure
 	  regardless of whether _autoconfigure is set.
-	"""
+    """
     __metaclass__ = MetaSimpleORM
-
+    
     # set defaults for derived classes here
     _autocommit = False
     _autoconfigure = False
