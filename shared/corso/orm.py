@@ -1,12 +1,14 @@
 """
 	Mapping helpers for persisting things with databases.
+
+	StORM - SimpleORMwasTakenORM
 """
 
 import functools, textwrap
 
 from shared.data.recordset import RecordSet
 
-# MySQL connector implementation for SimpleORM
+# MySQL connector implementation for StORM
 import mysql.connector
 
 MYSQL_CONNECTION_CONFIG = dict(
@@ -19,7 +21,7 @@ MYSQL_CONNECTION_CONFIG = dict(
     autocommit=True,
 )
 
-class SimpleORM_Connection(object):
+class StORM_Connection(object):
     """Helper class for connecting to the database.
 	Replace and override as needed.
     """
@@ -107,15 +109,15 @@ class SimpleORM_Connection(object):
 
 
 
-class MetaSimpleORM(type):
-    """Metaclass that allows new SimpleORM classes to autoconfigure themselves.
+class MetaStORM(type):
+    """Metaclass that allows new StORM classes to autoconfigure themselves.
     """
     def __new__(cls, clsname, bases, attributes):        
-        return super(MetaSimpleORM,cls).__new__(cls, clsname, bases, attributes)
+        return super(MetaStORM,cls).__new__(cls, clsname, bases, attributes)
     
     def __init__(cls, clsname, bases, attributes):
         # Do a null setup for the base class
-        if clsname == 'SimpleORM':
+        if clsname == 'StORM':
             cls._table = ''
         else:
             cls._table = cls._table or clsname
@@ -126,14 +128,14 @@ class MetaSimpleORM(type):
         for ix,column in enumerate(cls._columns):
             setattr(cls,column,None)
                         
-        return super(MetaSimpleORM,cls).__init__(clsname, bases, attributes)
+        return super(MetaStORM,cls).__init__(clsname, bases, attributes)
         
 
     def _verify_columns(cls):
                 
         if cls._autoconfigure or not (cls._primary_key_cols and cls._primary_key_auto):
             pkQuery = textwrap.dedent("""
-                -- Query for primary keys for SimpleORM
+                -- Query for primary keys for StORM
                 select c.COLUMN_NAME
                 ,	case when c.extra like '%auto_increment%' 
                             then 1
@@ -145,13 +147,13 @@ class MetaSimpleORM(type):
                     and lower(c.table_schema) = lower(%s)
                 order by c.ordinal_position
                 """)
-            pkCols = SimpleORM_Connection().query(pkQuery, [cls._table, cls._schema])
+            pkCols = StORM_Connection().query(pkQuery, [cls._table, cls._schema])
             if pkCols:
                 cls._primary_key_cols, cls._primary_key_auto = zip(*(r._tuple for r in pkCols))    
         
         if cls._autoconfigure or not cls._columns:
             columnQuery = textwrap.dedent("""
-                -- Query for column names for SimpleORM 
+                -- Query for column names for StORM 
                 select c.COLUMN_NAME,
                     case when c.IS_NULLABLE = 'NO' then 0
                         else 1
@@ -161,7 +163,7 @@ class MetaSimpleORM(type):
                     and c.table_schema = %s
                 order by c.ordinal_position
                 """)
-            columns = SimpleORM_Connection().query(columnQuery, [cls._table, cls._schema])
+            columns = StORM_Connection().query(columnQuery, [cls._table, cls._schema])
             if columns:
                 cls._columns, cls._non_null_cols = zip(*[r._tuple for r in columns])
                 # change to column names
@@ -178,7 +180,7 @@ class MetaSimpleORM(type):
                             
 
             
-class SimpleORM(object):
+class StORM(object):
     """Base class that connects a class to the database.
 
 	When declaring the subclass, set the defaults to persist them.
@@ -186,7 +188,7 @@ class SimpleORM(object):
 	NOTE: If no columns are configured, the class will attempt to autoconfigure
 	  regardless of whether _autoconfigure is set.
     """
-    __metaclass__ = MetaSimpleORM
+    __metaclass__ = MetaStORM
     
     # set defaults for derived classes here
     _autocommit = False
@@ -204,7 +206,7 @@ class SimpleORM(object):
         if attribute in self._columns and getattr(self, attribute) <> value:
             self._pending.append(attribute)
             
-        super(SimpleORM,self).__setattr__(attribute, value)
+        super(StORM,self).__setattr__(attribute, value)
         
         if self._autocommit and self._pending:
             self._commit()
@@ -239,7 +241,7 @@ class SimpleORM(object):
         
         values = [getattr(self,column) for column in columns]
         
-        with SimpleORM_Connection() as c:
+        with StORM_Connection() as c:
             rowID = c.insert(self._table, columns, values)
             # I can't think of a case where there's more than one autocolumn, but /shrug
             # they're already iterables, so I'm just going to hit it with zip
@@ -263,7 +265,7 @@ class SimpleORM(object):
                          for keyColumn
                          in self._primary_key_cols)
         
-        with SimpleORM_Connection() as c:
+        with StORM_Connection() as c:
             c.update(self._table, setValues, keyValues)
             
         self._pending = []
