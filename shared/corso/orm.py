@@ -1,14 +1,14 @@
 """
 	Mapping helpers for persisting things with databases.
 
-	StORM - SimpleORMwasTakenORM
+	PlasticORM - SimpleORMwasTakenORM
 """
 
 import functools, textwrap
 
 from shared.data.recordset import RecordSet
 
-# MySQL connector implementation for StORM
+# MySQL connector implementation for PlasticORM
 import mysql.connector
 
 MYSQL_CONNECTION_CONFIG = dict(
@@ -21,7 +21,7 @@ MYSQL_CONNECTION_CONFIG = dict(
     autocommit=True,
 )
 
-class StORM_Connection(object):
+class PlasticORM_Connection(object):
     """Helper class for connecting to the database.
 	Replace and override as needed.
     """
@@ -64,7 +64,7 @@ class StORM_Connection(object):
         return rs
 
     def queryOne(self,q,p=[]):
-        return query(q,p,connection)[0]
+        return self.query(q,p)[0]
 
     @dumpCore
     def update(self, table, setDict, keyDict):
@@ -106,18 +106,71 @@ class StORM_Connection(object):
             cursor = c.connection.cursor()
             cursor.execute(insertQuery,params=values)
             return cursor.lastrowid
+            
+
+class PlasticColumn(object):
+    __slots__ = ('_parent', '_column')
+    
+    def __init__(self, parentClass, columnName):
+        # anchor to the parent class to ensure runtime modifications are considered
+        self._parent = parentClass
+        self._column = columnName
+    
+    def dereference(self, selector):
+        if isinstance(selector, PlasticColumn):
+            return selector.fqn
+        else:
+            return selector
+
+    @property
+    def fullyQualifiedIdentifier(self):
+        return '%s.%s.%s' % (self._parent._schema, self._parent._table, self._column)
+    
+    @property
+    def fqn(self):
+        return self.fullyQualifiedIdentifier()
+    
+    def __getitem__(self, selector):
+        if isinstance(selector, slice):
+            if selector.step:
+                raise NotImplementedError("No mapping to step exists yet.")
+            
+            # We break slicing semantics a bit here so that we can cover all cases inclusively
+            # Between is inclusive, so 'at least' and 'up to' should be exclusive.
+            # That way you can apply all three and get all combinations
+            elif selector.start is not None and selector.stop is not None:
+                return ' (%s between %%s and %%s) ' % self.fqn, (self.dereference(selector.start), self.dereference(selector.stop))
+            elif selector.start is None:
+                return ' (%s > %%s) ' % self.fqn, (self.dereference(selector.start),)
+            elif selector.stop:
+                return ' (%s < %%s) ' % self.fqn, (self.dereference(selector.stop),)
+        elif isinstance(selector, (tuple,list)):
+            if len(selector) == 1:
+                return ' (%s = %%s) ' % self.fqn, (self.dereference(selector),)
+            else:
+                return ' (%s in (%s)) ' % (self.fqn, ','.join(['%s']*len(selector))), tuple(selector)
+        else:
+            return ' (%s = %%s) ' % self.fqn, (self.dereference(selector),)
+    
+    def isNull(self):
+        return ' (%s is null) ' % self.fqn, tuple()
+    def isNotNull(self):
+        return ' (not %s is null) ' % self.fqn, tuple()
+    
+    def __bool__(self):
+        # Always appear like None when not in comparisons
+        return None
 
 
-
-class MetaStORM(type):
-    """Metaclass that allows new StORM classes to autoconfigure themselves.
+class MetaPlasticORM(type):
+    """Metaclass that allows new PlasticORM classes to autoconfigure themselves.
     """
     def __new__(cls, clsname, bases, attributes):        
-        return super(MetaStORM,cls).__new__(cls, clsname, bases, attributes)
+        return super(MetaPlasticORM,cls).__new__(cls, clsname, bases, attributes)
     
     def __init__(cls, clsname, bases, attributes):
         # Do a null setup for the base class
-        if clsname == 'StORM':
+        if clsname == 'PlasticORM':
             cls._table = ''
         else:
             cls._table = cls._table or clsname
@@ -126,16 +179,16 @@ class MetaStORM(type):
         cls._pending = []
         
         for ix,column in enumerate(cls._columns):
-            setattr(cls,column,None)
+            setattr(cls,column,PlasticColumn(cls, column))
                         
-        return super(MetaStORM,cls).__init__(clsname, bases, attributes)
+        return super(MetaPlasticORM,cls).__init__(clsname, bases, attributes)
         
 
     def _verify_columns(cls):
                 
         if cls._autoconfigure or not (cls._primary_key_cols and cls._primary_key_auto):
             pkQuery = textwrap.dedent("""
-                -- Query for primary keys for StORM
+                -- Query for primary keys for PlasticORM
                 select c.COLUMN_NAME
                 ,	case when c.extra like '%auto_increment%' 
                             then 1
@@ -147,13 +200,13 @@ class MetaStORM(type):
                     and lower(c.table_schema) = lower(%s)
                 order by c.ordinal_position
                 """)
-            pkCols = StORM_Connection().query(pkQuery, [cls._table, cls._schema])
+            pkCols = PlasticORM_Connection().query(pkQuery, [cls._table, cls._schema])
             if pkCols:
                 cls._primary_key_cols, cls._primary_key_auto = zip(*(r._tuple for r in pkCols))    
         
         if cls._autoconfigure or not cls._columns:
             columnQuery = textwrap.dedent("""
-                -- Query for column names for StORM 
+                -- Query for column names for PlasticORM 
                 select c.COLUMN_NAME,
                     case when c.IS_NULLABLE = 'NO' then 0
                         else 1
@@ -163,7 +216,7 @@ class MetaStORM(type):
                     and c.table_schema = %s
                 order by c.ordinal_position
                 """)
-            columns = StORM_Connection().query(columnQuery, [cls._table, cls._schema])
+            columns = PlasticORM_Connection().query(columnQuery, [cls._table, cls._schema])
             if columns:
                 cls._columns, cls._non_null_cols = zip(*[r._tuple for r in columns])
                 # change to column names
@@ -178,9 +231,8 @@ class MetaStORM(type):
                 cls._non_null_cols = tuple()
                 cls._values = []
                             
-
             
-class StORM(object):
+class PlasticORM(object):
     """Base class that connects a class to the database.
 
 	When declaring the subclass, set the defaults to persist them.
@@ -188,7 +240,7 @@ class StORM(object):
 	NOTE: If no columns are configured, the class will attempt to autoconfigure
 	  regardless of whether _autoconfigure is set.
     """
-    __metaclass__ = MetaStORM
+    __metaclass__ = MetaPlasticORM
     
     # set defaults for derived classes here
     _autocommit = False
@@ -202,11 +254,37 @@ class StORM(object):
     
     _pending = False
     
+    def delayAutocommit(function):
+        @functools.wraps(function)
+        def resumeAfter(self, *args, **kwargs):
+            try:
+                bufferAutocommit = self._autocommit
+                self._autocommit = False
+                return function(self, *args, **kwargs)
+            finally:
+                self._autocommit = bufferAutocommit
+        return resumeAfter
+    
+    @delayAutocommit
+    def __init__(self, *args, **kwargs):
+        """Initialize the object with the given values.
+        If key columns are given, then pull the rest.
+        """
+        values = dict((col,val) for col,val in zip(self._columns,args))
+        values.update(kwargs)
+        
+        if all(key in values for key in self._primary_key_cols):
+            self._retrieveSelf(values)
+            
+        for column,value in values.items():
+            setattr(self, column, value)
+            
+    
     def __setattr__(self, attribute, value):
         if attribute in self._columns and getattr(self, attribute) <> value:
             self._pending.append(attribute)
             
-        super(StORM,self).__setattr__(attribute, value)
+        super(PlasticORM,self).__setattr__(attribute, value)
         
         if self._autocommit and self._pending:
             self._commit()
@@ -224,6 +302,54 @@ class StORM(object):
                    for pkcol,auto
                    in zip(self._primary_key_cols, self._primary_key_auto)
                    if not auto)
+    
+    @property
+    def _nonKeyColumns(self):
+        return set(self._columns).difference(self._primary_key_cols)
+
+    
+    @delayAutocommit
+    def _retrieveSelf(self, values=None):
+        if values:
+            keyDict = dict((key,values[key]) 
+                           for key 
+                           in self._primary_key_cols)
+        else:
+            keyDict = dict((key,getattr(self,key)) 
+                           for key 
+                           in self._primary_key_cols)
+            
+        if any(value is None or isinstance(value, PlasticColumn)
+               for value 
+               in keyDict.values()):
+            raise ValueError('Can not retrieve record missing key values: %s' % 
+                             ','.join(col 
+                                      for col 
+                                      in keyDict 
+                                      if keyDict[key] is None))
+        
+        with PlasticORM_Connection() as c:
+            
+            keyColumns,keyValues = zip(*sorted(keyDict.items()))
+
+            recordQuery = textwrap.dedent("""
+            select %s
+            from %s
+            where %s
+            """)
+            recordQuery %= (
+                ','.join(sorted(self._nonKeyColumns)),
+                self._table,
+                ','.join('%s = %%s' % keyColumn 
+                         for keyColumn 
+                         in sorted(keyColumns)))
+
+            entry = c.queryOne(q, keyValues)    
+            
+            for column in self._nonKeyColumns:
+                setattr(self, column, entry[column])
+            
+        self._pending = []
         
     
     def _insert(self):
@@ -241,7 +367,7 @@ class StORM(object):
         
         values = [getattr(self,column) for column in columns]
         
-        with StORM_Connection() as c:
+        with PlasticORM_Connection() as c:
             rowID = c.insert(self._table, columns, values)
             # I can't think of a case where there's more than one autocolumn, but /shrug
             # they're already iterables, so I'm just going to hit it with zip
@@ -265,7 +391,7 @@ class StORM(object):
                          for keyColumn
                          in self._primary_key_cols)
         
-        with StORM_Connection() as c:
+        with PlasticORM_Connection() as c:
             c.update(self._table, setValues, keyValues)
             
         self._pending = []
@@ -277,9 +403,9 @@ class StORM(object):
         
         # Insert if we don't have the key values yet (at least one of )
         if not all(getattr(self, keyColumn) is not None 
+                    and not isinstance(getattr(self, keyColumn), PlasticFilter)
                    for keyColumn 
                    in self._primary_key_cols):
             self._insert()
         else:
             self._update()
-        
