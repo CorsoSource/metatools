@@ -128,7 +128,7 @@ class PlasticColumn(object):
     
     @property
     def fqn(self):
-        return self.fullyQualifiedIdentifier()
+        return self.fullyQualifiedIdentifier
     
     def __getitem__(self, selector):
         if isinstance(selector, slice):
@@ -141,9 +141,9 @@ class PlasticColumn(object):
             elif selector.start is not None and selector.stop is not None:
                 return ' (%s between %%s and %%s) ' % self.fqn, (self.dereference(selector.start), self.dereference(selector.stop))
             elif selector.start is None:
-                return ' (%s > %%s) ' % self.fqn, (self.dereference(selector.start),)
-            elif selector.stop:
                 return ' (%s < %%s) ' % self.fqn, (self.dereference(selector.stop),)
+            elif selector.stop:
+                return ' (%s > %%s) ' % self.fqn, (self.dereference(selector.start),)
         elif isinstance(selector, (tuple,list)):
             if len(selector) == 1:
                 return ' (%s = %%s) ' % self.fqn, (self.dereference(selector),)
@@ -235,10 +235,10 @@ class MetaPlasticORM(type):
 class PlasticORM(object):
     """Base class that connects a class to the database.
 
-	When declaring the subclass, set the defaults to persist them.
+    When declaring the subclass, set the defaults to persist them.
 
-	NOTE: If no columns are configured, the class will attempt to autoconfigure
-	  regardless of whether _autoconfigure is set.
+    NOTE: If no columns are configured, the class will attempt to autoconfigure
+      regardless of whether _autoconfigure is set.
     """
     __metaclass__ = MetaPlasticORM
     
@@ -273,11 +273,16 @@ class PlasticORM(object):
         values = dict((col,val) for col,val in zip(self._columns,args))
         values.update(kwargs)
         
-        if all(key in values for key in self._primary_key_cols):
-            self._retrieveSelf(values)
+        if kwargs.get('_bypass_validation', False):
+            for column,value in values.items():
+                setattr(self, column, value)
+            self._pending = []
+        else:
+            if all(key in values for key in self._primary_key_cols):
+                self._retrieveSelf(values)
             
-        for column,value in values.items():
-            setattr(self, column, value)
+            for column,value in values.items():
+                setattr(self, column, value)
             
     
     def __setattr__(self, attribute, value):
@@ -307,7 +312,39 @@ class PlasticORM(object):
     def _nonKeyColumns(self):
         return set(self._columns).difference(self._primary_key_cols)
 
-    
+    @classmethod
+    @delayAutocommit
+    def find(cls, *filters):
+        
+        filters,values = zip(*filters)
+        values = [value 
+                  for conditionValues in values
+                  for value in conditionValues]
+        
+        with PlasticORM_Connection() as c:
+            
+            recordsQuery = textwrap.dedent("""
+            select %s
+            from %s
+            where %s
+            """)
+            recordsQuery %= (
+                ','.join(cls._columns),
+                cls._table,
+                '\n\t and '.join(condition for condition in filters)
+                )
+            
+            records = c.query(recordsQuery, values)
+        
+        objects = []
+        for record in records:
+            initDict = record._asdict()
+            initDict['_bypass_validation'] = True
+            objects.append(cls(**initDict))
+
+        return objects
+        
+        
     @delayAutocommit
     def _retrieveSelf(self, values=None):
         if values:
@@ -344,7 +381,7 @@ class PlasticORM(object):
                          for keyColumn 
                          in sorted(keyColumns)))
 
-            entry = c.queryOne(q, keyValues)    
+            entry = c.queryOne(recordQuery, keyValues)    
             
             for column in self._nonKeyColumns:
                 setattr(self, column, entry[column])
@@ -409,3 +446,8 @@ class PlasticORM(object):
             self._insert()
         else:
             self._update()
+            
+    def __repr__(self):
+        return '%s(%s)' % (self._table, ','.join('%s=%s' % (col,repr(getattr(self,col)))
+                                                 for col
+                                                 in self._columns))
