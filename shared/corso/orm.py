@@ -1,32 +1,133 @@
 """
-	Mapping helpers for persisting things with databases.
+    Mapping helpers for persisting things with databases.
 
-	PlasticORM - SimpleORMwasTakenORM
+    PlasticORM - SimpleORMwasTakenORM
 """
 
 import functools, textwrap
+import sys
 
 from shared.data.recordset import RecordSet
 
 # MySQL connector implementation for PlasticORM
 import mysql.connector
 
-MYSQL_CONNECTION_CONFIG = dict(
-    host='mysql8-test.corso.systems',
-    port='31825',
-    database='test',
-    user='root',
-    password='hunter2',
-    use_pure=True,
-    autocommit=True,
-)
 
-class PlasticORM_Connection(object):
-    """Helper class for connecting to the database.
-	Replace and override as needed.
-    """
-    def __init__(self, config=MYSQL_CONNECTION_CONFIG):
-        self.config = config
+META_QUERIES = {
+    None: {
+        'insert': textwrap.dedent("""
+            -- Insert from PlasticORM_Connection
+            insert into %s
+                (%s)
+            values
+                (%s)
+            """),
+        'update': textwrap.dedent("""
+            -- Update from PlasticORM_Connection
+            update %s
+            set %s
+            where %s
+            """),
+        'basic_filtered': textwrap.dedent("""
+            -- A Basic filteres query for PlasticORM
+            select %s
+            from %s
+            where %s
+            """)
+    },
+    'MYSQL':{
+        'primaryKeys': textwrap.dedent("""
+                -- Query for primary keys for PlasticORM
+                select c.COLUMN_NAME
+                ,   case when c.extra like '%auto_increment%' 
+                            then 1
+                        else 0
+                    end as autoincrements
+                from information_schema.columns as c
+                where lower(c.table_name) = lower(PARAM_TOKEN)
+                    and c.column_key = 'PRI'
+                    and lower(c.table_schema) = lower(PARAM_TOKEN)
+                order by c.ordinal_position
+                """),
+        'columns': textwrap.dedent("""
+                -- Query for column names for PlasticORM 
+                select c.COLUMN_NAME,
+                    case when c.IS_NULLABLE = 'NO' then 0
+                        else 1
+                    end as IS_NULLABLE
+                from information_schema.columns as c
+                where c.table_name = PARAM_TOKEN
+                    and c.table_schema = PARAM_TOKEN
+                order by c.ordinal_position
+                """),
+    }
+}
+
+
+def isIgnition():
+    try:
+        _ = getattr(system, 'db')
+        return True
+    except:
+        return False
+
+
+class PlasticORM_Ignition(object):
+    _engine = None
+    _param_token = '?'
+    
+    def __init__(self, dbName):
+        self.dbName = dbName
+        self._engine = system.db.getConnectionInfo(self.dbName).getValueAt(0,'DBType')
+        self.tx = None
+        
+    def __enter__(self):
+        if self.tx == None:
+            self.tx = system.db.beginTransaction(self.dbName)
+        return self
+    
+    def __exit__(self, *args):
+        if self.tx:
+            system.db.commitTransaction(tx)
+            system.db.closeTransaction(tx)
+            self.tx = None
+            
+    def _execute_query(self, query, values):
+        if self.tx:
+            return RecordSet(initialData=system.db.runPrepQuery(query, values, self.dbName, self.tx))
+        else:
+            return RecordSet(initialData=system.db.runPrepQuery(query, values, self.dbName))
+    
+    def _execute_insert(self, insertQuery, insertValues):
+        if self.tx:
+            return system.db.runPrepUpdate(insertQuery, insertValues, self.dbName, self.tx, getKey=1)
+        else:
+            return system.db.runPrepUpdate(insertQuery, insertValues, self.dbName, getKey=1)
+
+    def _execute_update(self, updateQuery, updateValues):
+        if self.tx:
+            system.db.runPrepUpdate(updateQuery, updateValues, self.dbName, self.tx, getKey=0)
+        else:
+            system.db.runPrepUpdate(updateQuery, updateValues, self.dbName, getKey=0)
+
+
+class PlasticORM_MySQL(object):
+    _engine = 'MYSQL'
+    _param_token = '%s'
+    
+    MYSQL_CONNECTION_CONFIG = dict(
+        host='mysql8-test.corso.systems',
+        port='31825',
+        database='test',
+        user='root',
+        password='********',
+        use_pure=True,
+        autocommit=True,
+        auth_plugin='mysql_native_password',
+    )
+    
+    def __init__(self, configDict=None):
+        self.config = configDict or self.MYSQL_CONNECTION_CONFIG
         self.connection = None
         
     def __enter__(self):
@@ -36,77 +137,127 @@ class PlasticORM_Connection(object):
     
     def __exit__(self, *args):
         if not self.connection == None:
+            # Commit changes before closing
+            if not self.connection.autocommit:
+                self.connection.commit()
             self.connection.close()
             self.connection = None
+    
+    # Override these depending on the DB engine
+    def _execute_query(self, query, values):
+        """Execute a query. Returns rows of data."""
+        with self as plasticDB:
+            cursor = plasticDB.connection.cursor()
+            cursor.execute(query,params=values)
+            rs = RecordSet(initialData=cursor.fetchall(), recordType=cursor.column_names)
+        return rs    
+    
+    def _execute_insert(self, insertQuery, insertValues):
+        """Execute an insert query. Returns an integer for the row inserted."""
+        with self as plasticDB:
+            cursor = plasticDB.connection.cursor()
+            cursor.execute(insertQuery,params=insertValues)
+            return cursor.lastrowid
+        
+    def _execute_update(self, updateQuery, updateValues):
+        """Execute an updated query. Returns nothing."""
+        with self as plasticDB:
+            cursor = plasticDB.connection.cursor()
+            cursor.execute(updateQuery,params=updateValues)
+
+
+class _Template_PlasticORM_Connection(object):
+    """Enables mixins to be properly error'd if missing methods."""
+    def __init__(self, *args, **kwargs):
+        raise NotImplementedError("DB engines should be made as a mixin.")
+        
+    def __enter__(self):
+        raise NotImplementedError("DB engines should be made as a mixin.")
+        return self
+    
+    def __exit__(self, *args):
+        raise NotImplementedError("DB engines should be made as a mixin.")
+    
+    def _execute_query(self, query, values):
+        raise NotImplementedError("DB engines should be made as a mixin.")
+
+    def _execute_insert(self, insertQuery, insertValues):
+        raise NotImplementedError("DB engines should be made as a mixin.")
+
+    def _execute_update(self, updateQuery, updateValues):
+        raise NotImplementedError("DB engines should be made as a mixin.")
+
+
+class MetaPlasticORM_Connection(type):
+    
+    def __new__(cls, clsname, bases, attributes):
+        if isIgnition():
+            bases = (PlasticORM_Ignition,) + bases
+        elif 'mysql' in sys.modules:
+            bases = (PlasticORM_MySQL,) + bases
+            
+        return super(MetaPlasticORM_Connection,cls).__new__(cls, clsname, bases, attributes)
+
+
+class PlasticORM_Connection(_Template_PlasticORM_Connection):
+    """Helper class for connecting to the database.
+    Replace and override as needed.
+    """
+    __metaclass__ = MetaPlasticORM_Connection
             
     def dumpCore(function):
         @functools.wraps(function)
         def handle_error(self,*args,**kwargs):
             try:
                 return function(self,*args,**kwargs)
-            except mysql.connector.ProgrammingError as error:
-                print 'MySQL Error: ', str(error)
+            except Exception as error:
+                print 'DB Error: ', str(error)
                 if args:
                     print 'Arguments: ', args
                 if kwargs:
                     print 'Key word arguments: ', kwargs
-                    
                 raise error
         return handle_error
     
+    def _get_query_template(self, queryType):
+        qt = META_QUERIES[self._engine].get(queryType) or META_QUERIES[None][queryType]
+        return qt.replace('PARAM_TOKEN',self._param_token)
     
     @dumpCore
-    def query(self,q,p=[]):
-        with self as c:
-            cursor = c.connection.cursor()
-            cursor.execute(q,params=p)
-            rs = RecordSet(initialData=cursor.fetchall(), recordType=cursor.column_names)
-        return rs
+    def query(self,query,params=[]):
+        query = query.replace('PARAM_TOKEN', self._param_token)
+        return self._execute_query(query,params)
 
-    def queryOne(self,q,p=[]):
-        return self.query(q,p)[0]
+    def queryOne(self,query,params=[]):
+        return self.query(query,params)[0]
 
+    @dumpCore
+    def insert(self, table, columns, values):
+        insertQuery = self._get_query_template('insert')
+        insertQuery %= (table, 
+                        ','.join(columns), 
+                        ','.join([self._param_token]*len(values)))
+        
+        insertQuery = insertQuery.replace('PARAM_TOKEN', self._param_token)
+        return self._execute_insert(insertQuery,values)
+    
     @dumpCore
     def update(self, table, setDict, keyDict):
         setColumns,setValues = zip(*sorted(setDict.items()))
         keyColumns,keyValues = zip(*sorted(keyDict.items()))
         
-        updateQuery = textwrap.dedent("""
-            -- Update from Connect class
-            update %s
-            set %s
-            where %s
-            """)
+        updateQuery = self._get_query_template('update')
         updateQuery %= (table, 
-                        ','.join('%s=%%s' % setColumn 
+                        ','.join('%s=%s' % (setColumn, self._param_token)
                                  for setColumn 
                                  in setColumns), 
-                        '\n\t and '.join('%s=%%s' % keyColumn 
+                        '\n\t and '.join('%s=%s' % (keyColumn, self._param_token)
                                          for keyColumn 
                                          in keyColumns))
         
-        with self as c:
-            cursor = c.connection.cursor()
-            cursor.execute(updateQuery,params=setValues+keyValues)
+        updateQuery = updateQuery.replace('PARAM_TOKEN', self._param_token)
+        self._execute_update(updateQuery, setValues+keyValues)
 
-    @dumpCore
-    def insert(self, table, columns, values):
-        insertQuery = textwrap.dedent("""
-            -- Insert from Connect class
-            insert into %s
-                (%s)
-            values
-                (%s)
-            """)
-        insertQuery %= (table, 
-                        ','.join(columns), 
-                        ','.join(['%s']*len(values)))
-        
-        with self as c:
-            cursor = c.connection.cursor()
-            cursor.execute(insertQuery,params=values)
-            return cursor.lastrowid
-            
 
 class PlasticColumn(object):
     __slots__ = ('_parent', '_column')
@@ -139,18 +290,18 @@ class PlasticColumn(object):
             # Between is inclusive, so 'at least' and 'up to' should be exclusive.
             # That way you can apply all three and get all combinations
             elif selector.start is not None and selector.stop is not None:
-                return ' (%s between %%s and %%s) ' % self.fqn, (self.dereference(selector.start), self.dereference(selector.stop))
+                return ' (%s between PARAM_TOKEN and PARAM_TOKEN) ' % self.fqn, (self.dereference(selector.start), self.dereference(selector.stop))
             elif selector.start is None:
-                return ' (%s < %%s) ' % self.fqn, (self.dereference(selector.stop),)
+                return ' (%s < PARAM_TOKEN) ' % self.fqn, (self.dereference(selector.stop),)
             elif selector.stop:
-                return ' (%s > %%s) ' % self.fqn, (self.dereference(selector.start),)
+                return ' (%s > PARAM_TOKEN) ' % self.fqn, (self.dereference(selector.start),)
         elif isinstance(selector, (tuple,list)):
             if len(selector) == 1:
-                return ' (%s = %%s) ' % self.fqn, (self.dereference(selector),)
+                return ' (%s = PARAM_TOKEN) ' % self.fqn, (self.dereference(selector),)
             else:
-                return ' (%s in (%s)) ' % (self.fqn, ','.join(['%s']*len(selector))), tuple(selector)
+                return ' (%s in (%s)) ' % (self.fqn, ','.join(['PARAM_TOKEN']*len(selector))), tuple(selector)
         else:
-            return ' (%s = %%s) ' % self.fqn, (self.dereference(selector),)
+            return ' (%s = PARAM_TOKEN) ' % self.fqn, (self.dereference(selector),)
     
     def isNull(self):
         return ' (%s is null) ' % self.fqn, tuple()
@@ -181,42 +332,20 @@ class MetaPlasticORM(type):
         for ix,column in enumerate(cls._columns):
             setattr(cls,column,PlasticColumn(cls, column))
                         
-        return super(MetaPlasticORM,cls).__init__(clsname, bases, attributes)
-        
+        return super(MetaPlasticORM,cls).__init__(clsname, bases, attributes)   
 
     def _verify_columns(cls):
                 
         if cls._autoconfigure or not (cls._primary_key_cols and cls._primary_key_auto):
-            pkQuery = textwrap.dedent("""
-                -- Query for primary keys for PlasticORM
-                select c.COLUMN_NAME
-                ,	case when c.extra like '%auto_increment%' 
-                            then 1
-                        else 0
-                    end as autoincrements
-                from information_schema.columns as c
-                where lower(c.table_name) = lower(%s)
-                    and c.column_key = 'PRI'
-                    and lower(c.table_schema) = lower(%s)
-                order by c.ordinal_position
-                """)
-            pkCols = PlasticORM_Connection().query(pkQuery, [cls._table, cls._schema])
-            if pkCols:
-                cls._primary_key_cols, cls._primary_key_auto = zip(*(r._tuple for r in pkCols))    
+            with PlasticORM_Connection(cls._dbInfo) as plasticDB:
+                pkQuery = plasticDB._get_query_template('primaryKeys')
+                pkCols = plasticDB.query(pkQuery, [cls._table, cls._schema])
+                if pkCols:
+                    cls._primary_key_cols, cls._primary_key_auto = zip(*(r._tuple for r in pkCols))    
         
         if cls._autoconfigure or not cls._columns:
-            columnQuery = textwrap.dedent("""
-                -- Query for column names for PlasticORM 
-                select c.COLUMN_NAME,
-                    case when c.IS_NULLABLE = 'NO' then 0
-                        else 1
-                    end as IS_NULLABLE
-                from information_schema.columns as c
-                where c.table_name = %s
-                    and c.table_schema = %s
-                order by c.ordinal_position
-                """)
-            columns = PlasticORM_Connection().query(columnQuery, [cls._table, cls._schema])
+            columnQuery = plasticDB._get_query_template('columns')
+            columns = PlasticORM_Connection(cls._dbInfo).query(columnQuery, [cls._table, cls._schema])
             if columns:
                 cls._columns, cls._non_null_cols = zip(*[r._tuple for r in columns])
                 # change to column names
@@ -243,6 +372,8 @@ class PlasticORM(object):
     __metaclass__ = MetaPlasticORM
     
     # set defaults for derived classes here
+    _dbInfo = None
+
     _autocommit = False
     _autoconfigure = False
     _table = ''
@@ -321,20 +452,16 @@ class PlasticORM(object):
                   for conditionValues in values
                   for value in conditionValues]
         
-        with PlasticORM_Connection() as c:
+        with PlasticORM_Connection(cls._dbInfo) as plasticDB:
             
-            recordsQuery = textwrap.dedent("""
-            select %s
-            from %s
-            where %s
-            """)
+            recordsQuery = plasticDB._get_query_template('basic_filtered')
             recordsQuery %= (
                 ','.join(cls._columns),
                 cls._table,
                 '\n\t and '.join(condition for condition in filters)
                 )
             
-            records = c.query(recordsQuery, values)
+            records = plasticDB.query(recordsQuery, values)
         
         objects = []
         for record in records:
@@ -365,15 +492,11 @@ class PlasticORM(object):
                                       in keyDict 
                                       if keyDict[key] is None))
         
-        with PlasticORM_Connection() as c:
+        with PlasticORM_Connection(self._dbInfo) as plasticDB:
             
             keyColumns,keyValues = zip(*sorted(keyDict.items()))
 
-            recordQuery = textwrap.dedent("""
-            select %s
-            from %s
-            where %s
-            """)
+            recordQuery = plasticDB._get_query_template('basic_filtered')
             recordQuery %= (
                 ','.join(sorted(self._nonKeyColumns)),
                 self._table,
@@ -381,7 +504,7 @@ class PlasticORM(object):
                          for keyColumn 
                          in sorted(keyColumns)))
 
-            entry = c.queryOne(recordQuery, keyValues)    
+            entry = plasticDB.queryOne(recordQuery, keyValues)    
             
             for column in self._nonKeyColumns:
                 setattr(self, column, entry[column])
@@ -404,8 +527,8 @@ class PlasticORM(object):
         
         values = [getattr(self,column) for column in columns]
         
-        with PlasticORM_Connection() as c:
-            rowID = c.insert(self._table, columns, values)
+        with PlasticORM_Connection(self._dbInfo) as plasticDB:
+            rowID = plasticDB.insert(self._table, columns, values)
             # I can't think of a case where there's more than one autocolumn, but /shrug
             # they're already iterables, so I'm just going to hit it with zip
             for column in self._autoKeyColumns:
@@ -428,8 +551,8 @@ class PlasticORM(object):
                          for keyColumn
                          in self._primary_key_cols)
         
-        with PlasticORM_Connection() as c:
-            c.update(self._table, setValues, keyValues)
+        with PlasticORM_Connection(self._dbInfo) as plasticDB:
+            plasticDB.update(self._table, setValues, keyValues)
             
         self._pending = []
 
