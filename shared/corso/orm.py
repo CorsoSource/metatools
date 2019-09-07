@@ -10,8 +10,10 @@ import sys
 from shared.data.recordset import RecordSet
 
 # MySQL connector implementation for PlasticORM
-import mysql.connector
+#import mysql.connector
 
+# SQLite connector needs
+import sqlite3
 
 META_QUERIES = {
     None: {
@@ -35,7 +37,7 @@ META_QUERIES = {
             where %s
             """)
     },
-    'MYSQL':{
+    'MYSQL': {
         'primaryKeys': textwrap.dedent("""
                 -- Query for primary keys for PlasticORM
                 select c.COLUMN_NAME
@@ -60,7 +62,19 @@ META_QUERIES = {
                     and c.table_schema = PARAM_TOKEN
                 order by c.ordinal_position
                 """),
-    }
+    },
+    'SQLITE': {
+        'primaryKeys': textwrap.dedent("""
+                -- Query for primary keys for PlasticORM using SQLite3
+                -- NOTE: requires additional processing!
+                PRAGMA table_info(PARAM_TOKEN)
+                """),
+        'columns': textwrap.dedent("""
+                -- Query for column names for PlasticORM using SQLite3
+                -- NOTE: requires additional processing!
+                PRAGMA table_info(PARAM_TOKEN)
+                """),
+    },
 }
 
 
@@ -166,6 +180,71 @@ class PlasticORM_MySQL(object):
             cursor.execute(updateQuery,params=updateValues)
 
 
+class PlasticORM_SQLite3(object):
+    _engine = 'SQLITE'
+    _param_token = '?'
+    
+    
+    def __init__(self, dbFile=':memory:'):
+        self.config = dbFile
+        self.connection = None
+        
+    def __enter__(self):
+        if self.connection == None:
+            self.connection = sqlite3.connect(self.config)
+        return self
+    
+    def __exit__(self, *args):
+        if not self.connection == None:
+            # Commit changes before closing (sqlite doesn't autocommit)
+            self.connection.commit()
+            self.connection.close()
+            self.connection = None
+    
+    # Override these depending on the DB engine
+    def _execute_query(self, query, values):
+        """Execute a query. Returns rows of data."""
+        with self as plasticDB:
+            cursor = plasticDB.connection.cursor()
+            cursor.execute(query,values)
+            rs = RecordSet(initialData=cursor.fetchall(), recordType=zip(*cursor.description)[0])
+        return rs    
+    
+    def _execute_insert(self, insertQuery, insertValues):
+        """Execute an insert query. Returns an integer for the row inserted."""
+        with self as plasticDB:
+            cursor = plasticDB.connection.cursor()
+            cursor.execute(insertQuery, insertValues)
+            return cursor.lastrowid
+        
+    def _execute_update(self, updateQuery, updateValues):
+        """Execute an updated query. Returns nothing."""
+        with self as plasticDB:
+            cursor = plasticDB.connection.cursor()
+            cursor.execute(updateQuery, updateValues)
+
+    # SQLite retrieves these a bit differently...
+    def primaryKeys(self, schema, table):
+        """PK and autoincrement"""
+        pkQuery = self._get_query_template('primaryKeys')
+        pkQuery = pkQuery.replace('?', table) # can't var a pragma...
+        results = self.query(pkQuery, [])
+        pkCols = []
+        for row in results:
+            if row['pk']:                  # sqlite autoincrements int primary keys
+                pkCols.append( (row['name'], 1 if row['type'] == 'integer' else 0) )
+        return RecordSet(initialData=pkCols, recordType=('COLUMN_NAME', 'autoincrements'))
+
+    def columnConfig(self, schema, table):
+        columnQuery = self._get_query_template('columns')
+        columnQuery = columnQuery.replace('?', table) # can't var a pragma...
+        results = self.query(columnQuery, [])
+        cols = []
+        for row in results:
+            cols.append( (row['name'], not row['notnull']) )
+        return RecordSet(initialData=cols, recordType=('COLUMN_NAME', 'IS_NULLABLE'))
+
+
 class _Template_PlasticORM_Connection(object):
     """Enables mixins to be properly error'd if missing methods."""
     def __init__(self, *args, **kwargs):
@@ -187,13 +266,26 @@ class _Template_PlasticORM_Connection(object):
     def _execute_update(self, updateQuery, updateValues):
         raise NotImplementedError("DB engines should be made as a mixin.")
 
+    def primaryKeys(self, schema, table):
+        pkQuery = self._get_query_template('primaryKeys')
+        return self.query(pkQuery, [table, schema])
+
+    def columnConfig(self, schema, table):
+        columnQuery = self._get_query_template('columns')
+        return self.query(columnQuery, [table, schema])
+
 
 class MetaPlasticORM_Connection(type):
     
     def __new__(cls, clsname, bases, attributes):
         if isIgnition():
+            print 'PlasticORM setting up on Ignition interfaces'
             bases = (PlasticORM_Ignition,) + bases
+        elif 'sqlite3' in sys.modules:
+            print 'PlasticORM setting up on SQLite'
+            bases = (PlasticORM_SQLite3,) + bases
         elif 'mysql' in sys.modules:
+            print 'PlasticORM setting up on MySQL'
             bases = (PlasticORM_MySQL,) + bases
             
         return super(MetaPlasticORM_Connection,cls).__new__(cls, clsname, bases, attributes)
@@ -275,7 +367,10 @@ class PlasticColumn(object):
 
     @property
     def fullyQualifiedIdentifier(self):
-        return '%s.%s.%s' % (self._parent._schema, self._parent._table, self._column)
+        if self._parent._schema:
+            return '%s.%s.%s' % (self._parent._schema, self._parent._table, self._column)
+        else:
+            return '%s.%s' % (self._parent._table, self._column)
     
     @property
     def fqn(self):
@@ -338,14 +433,12 @@ class MetaPlasticORM(type):
                 
         if cls._autoconfigure or not (cls._primary_key_cols and cls._primary_key_auto):
             with PlasticORM_Connection(cls._dbInfo) as plasticDB:
-                pkQuery = plasticDB._get_query_template('primaryKeys')
-                pkCols = plasticDB.query(pkQuery, [cls._table, cls._schema])
+                pkCols = plasticDB.primaryKeys(cls._schema, cls._table)
                 if pkCols:
                     cls._primary_key_cols, cls._primary_key_auto = zip(*(r._tuple for r in pkCols))    
         
         if cls._autoconfigure or not cls._columns:
-            columnQuery = plasticDB._get_query_template('columns')
-            columns = PlasticORM_Connection(cls._dbInfo).query(columnQuery, [cls._table, cls._schema])
+            columns = plasticDB.columnConfig(cls._schema, cls._table)
             if columns:
                 cls._columns, cls._non_null_cols = zip(*[r._tuple for r in columns])
                 # change to column names
@@ -385,7 +478,7 @@ class PlasticORM(object):
     
     _pending = False
     
-    def delayAutocommit(function):
+    def _delayAutocommit(function):
         @functools.wraps(function)
         def resumeAfter(self, *args, **kwargs):
             try:
@@ -396,7 +489,7 @@ class PlasticORM(object):
                 self._autocommit = bufferAutocommit
         return resumeAfter
     
-    @delayAutocommit
+    @_delayAutocommit
     def __init__(self, *args, **kwargs):
         """Initialize the object with the given values.
         If key columns are given, then pull the rest.
@@ -444,7 +537,7 @@ class PlasticORM(object):
         return set(self._columns).difference(self._primary_key_cols)
 
     @classmethod
-    @delayAutocommit
+    @_delayAutocommit
     def find(cls, *filters):
         
         filters,values = zip(*filters)
@@ -472,7 +565,7 @@ class PlasticORM(object):
         return objects
         
         
-    @delayAutocommit
+    @_delayAutocommit
     def _retrieveSelf(self, values=None):
         if values:
             keyDict = dict((key,values[key]) 
