@@ -8,7 +8,7 @@ import re, math, textwrap
 from java.lang import Exception as JavaException
 from com.inductiveautomation.ignition.common import BasicDataset
 from com.inductiveautomation.ignition.common.script.builtin.DatasetUtilities import PyDataSet
-from shared.corso.meta import getObjectName, getFunctionCallSigs
+from shared.corso.meta import getObjectName, getFunctionCallSigs, sentinel
 
 
 __all__ = ['p','pdir']
@@ -193,7 +193,13 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
 		
 		# preprocessing
 		# Get the width of each column in the dataset
-		data = zip(*ds.data)
+		try:
+			data = zip(*ds.data)
+		except AttributeError:
+			data = []
+			for rix in sentinel(range(ds.getRowCount()),listLimit):
+				data.append([ds.getValueAt(rix,cix) for cix in range(ds.getColumnCount())])
+
 		colTypes = [repr(t) for t in ds.getColumnTypes()]
 		colTypeStrs = [' <%s> ' % ct[7:-2] for ct in colTypes]
 		colNames = [h for h in ds.getColumnNames()]
