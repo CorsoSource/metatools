@@ -69,22 +69,25 @@ def getDesignerContext(anchor=None):
 	return context
 
 
-def currentStackDepth():
+def currentStackDepth(maxDepth=100):
 	"""Returns the calling function's stack depth.
 	The easiest way to do this is to simply scan the stack
 	  until the function declares the end of it by ValueError.
 	Remember: 0 is THIS frame, 1 is the previous calling frame,
 	  and there's no globally available stack depth value or length.
-
+	
+	For safety's sake, this will stop at maxDepth.
+	
 	From https://stackoverflow.com/a/47956089
 	"""
-	size = 2
-	while True:
+	for size in range(2,maxDepth):
 		try:
-			sys._getframe(size)
+			_ = sys._getframe(size)
 			size += 1
 		except ValueError:
 			return size - 1 # ignore this called frame
+	else:
+		return None
 
 
 def getObjectName(o, estimatedDepth=None, startRecent=True):

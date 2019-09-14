@@ -144,10 +144,50 @@ class Logger(BaseLogger):
 		if prefix is not None: self.prefix = '%s%s' % (prefix, self.prefix)
 		if suffix is not None: self.suffix = '%s%s' % (self.suffix, suffix)
 				
+				
 	def _getScope(self):
 		frame = sys._getframe(self._stackDepth - 1) 
 		return frame.f_code.co_filename
 	
+	
+	def _generatePerspectiveComponentPath(self, scope, component=None):
+		# parsed as example in 'function: onActionPerformed' or 'custom-method someFunction'
+		functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
+
+		if not component:
+			component = getObjectByName('self', startRecent=False)
+		assert 'com.inductiveautomation.perspective' in str(type(component)), 'Incorrectly detected Perspective context'
+		session = component.session
+		page = component.page
+		view = component.view
+		componentPath = []
+		while component:
+			componentPath.append(component.name)
+			component = component.parent
+			
+		return '[%s - %s.%s] ' % (view.id, '/'.join(reversed(componentPath)), functionName)
+	
+	
+	def _generateVisionComponentPath(self, scope, event=None, component=None):
+		functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
+
+		if not event:
+			event = getObjectByName('event', startRecent=False)
+			window = system.gui.getParentWindow(event)
+		if not component:
+			component = event.source
+
+		componentPath = []
+		while not isinstance(component, FPMIWindow):
+			label = component.name
+			if isinstance(component, TemplateHolder):
+				label = '<%s>' % component.templatePath
+			componentPath.append(label)
+			component = component.parent
+					
+		return '[%s: %s.%s] ' % (window.path, '/'.join(reversed(componentPath[:-3])), functionName)
+				
+				
 	def _autoConfigure(self, loggerName=None):
 		"""The master configuration routine. This will branch down and check if a known state is set.
 		If so, it will try to name itself something appropriate, with a focus on making gateway logs
@@ -168,7 +208,11 @@ class Logger(BaseLogger):
 			self.logger = system.util.getLogger(self.loggerName)
 			if self._isVisionDesigner() or self._isVisionClient():
 				self._configureVisionClientRelay()			
-				self.suffix = ' [in %s]' % self._getVisionClientID()
+				self.prefix = self._generateVisionComponentPath(scope)
+				self.suffix = ' [Vision %s]' % self._getVisionClientID()
+			elif self._isPerspective():
+				self.prefix = self._generatePerspectiveComponentPath(scope)
+				self.suffix = ' [%s]' % self._getPerspectiveClientID()
 		# Tags!
 		elif scope.startswith('tagevent:'):
 			tagPath = getObjectByName('tagPath')
@@ -178,24 +222,23 @@ class Logger(BaseLogger):
 			self.logger = system.util.getLogger(self.loggerName)
 			if provider == 'client':
 				self._configureVisionClientRelay()			
+		# Perspective!
+		elif self._isPerspective():
+			self.loggerName = self._getPerspectiveClientID()
+			self.logger = system.util.getLogger(self.loggerName)
+			
+			self.prefix = self._generatePerspectiveComponentPath(scope)
+			self.relay = False # NotImplementedError
+			# if self.relay:
+			# 	self.relayScope = {'scope': 'C', 'hostName': session.props.host}
+			# 	self.relayHandler = PERSPECTIVE_SESSION_MESSAGE_HANDLER
+			# 	self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
 		# Clients!
 		elif self._isVisionScope(): 
 			self.loggerName = self._getVisionClientID()
 			self.logger = system.util.getLogger(self.loggerName)
 			
-			event = getObjectByName('event', startRecent=False)
-			window = system.gui.getParentWindow(event)
-			component = event.source
-			
-			componentPath = []
-			while not isinstance(component, FPMIWindow):
-				label = component.name
-				if isinstance(component, TemplateHolder):
-					label = '<%s>' % component.templatePath
-				componentPath.append(label)
-				component = component.parent
-			functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
-			self.prefix = '[%s: %s.%s] ' % (window.path, '/'.join(reversed(componentPath[:-3])), functionName)
+			self.prefix = self._generateVisionComponentPath(scope)
 			self._configureVisionClientRelay()
 		# WebDev endpoint!
 		elif self._isWebDev():
@@ -203,30 +246,6 @@ class Logger(BaseLogger):
 			self.logger = system.util.getLogger(self.loggerName)
 			endpoint,_,eventName = scope.rpartition(':')
 			self.prefix = '[%s %s] ' % (eventName[2:].upper(), '/'.join(endpoint.split('/')[1:]))
-		# Perspective!
-		elif self._isPerspective():
-			component = getObjectByName('self', startRecent=False)
-			assert 'com.inductiveautomation.perspective' in str(type(component)), 'Incorrectly detected Perspective context'
-			session = component.session
-			page = component.page
-			view = component.view
-			componentPath = []
-			while component:
-				componentPath.append(component.name)
-				component = component.parent
-
-			self.loggerName = 'Perspective %s' % session.props.id
-			self.logger = system.util.getLogger(self.loggerName)
-			
-			# parsed as example in 'function: onActionPerformed' or 'custom-method someFunction'
-			functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
-			self.prefix = '[%s - %s.%s] ' % (view.id, '/'.join(reversed(componentPath)), functionName)
-			
-			self.relay = False # NotImplementedError
-			# if self.relay:
-			# 	self.relayScope = {'scope': 'C', 'hostName': session.props.host}
-			# 	self.relayHandler = PERSPECTIVE_SESSION_MESSAGE_HANDLER
-			# 	self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
 		else:
 			self.loggerName = loggerName or 'Logger'
 			self.logger = system.util.getLogger(self.loggerName)
@@ -237,23 +256,34 @@ class Logger(BaseLogger):
 		"""Returns True if the system flags imply this is a designer or client. 
 		(Gateway will throw an AttributeError, since system.util.getSystemFlags is out of scope for it.) 
 		"""
-		try:
+		if getattr(system.util, 'getSystemFlags', None):
 			sysFlags = system.util.getSystemFlags()
 			return sysFlags & system.util.DESIGNER_FLAG or sysFlags & system.util.CLIENT_FLAG
-		except AttributeError:
-			return False
+		return False
 
 	@staticmethod
 	def _isVisionDesigner():
-		return system.util.getSystemFlags() & system.util.DESIGNER_FLAG
+		if getattr(system.util, 'getSystemFlags', None):
+			return system.util.getSystemFlags() & system.util.DESIGNER_FLAG
+		return False
 	
 	@staticmethod
 	def _isVisionClient():
-		return system.util.getSystemFlags() & system.util.CLIENT_FLAG
-	
+		if getattr(system.util, 'getSystemFlags', None):
+			return system.util.getSystemFlags() & system.util.CLIENT_FLAG
+		return False
+			
 	@classmethod
 	def _getVisionClientID(cls):
 		return '%s %s' % ('Designer' if cls._isVisionDesigner() else 'Client', system.util.getClientId())
+	
+	@classmethod
+	def _getPerspectiveClientID(cls):
+		#session = getObjectByName('session', startRecent=False)
+		try:
+			return 'Perspective %s' % session.props.id
+		except NameError:
+			return 'Perspective on %s' % (system.tag.read('[System]Client/Network/IPAddress').value)
 
 	def _configureVisionClientRelay(self):
 		self.relay = True
