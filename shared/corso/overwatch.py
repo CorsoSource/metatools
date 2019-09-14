@@ -1,5 +1,13 @@
 import sys
 
+
+def isPerspectiveDesigner():
+	try:
+		return self.session.props.device.type == 'Designer'
+	except:
+		return False
+
+
 class MetaOverwatch(type):
     
     def __new__(cls, clsname, bases, attrs):
@@ -72,7 +80,10 @@ class Overwatch(BlindOverwatch):
     _callback_function = sys.settrace
     _callback_current  = sys.gettrace
     
-    def __init__(self, replaceExisting=False):
+    def __init__(self, replaceExisting=False, debugDesignerOnly=True):
+    	if debugDesignerOnly and not isPerspectiveDesigner():
+    		return
+    		
         # Buffer any current callbacks, if desired
         if replaceExisting:
             self._previous_callback = None
