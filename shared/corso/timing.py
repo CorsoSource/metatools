@@ -1,18 +1,33 @@
-from java.lang.System import currentTimeMillis as now
+"""Timing helper functions
+
+These add the side effect of delay to for loops or exectution.
+
+Internally, the functions are millisecond-centric, but they maintain the
+  API usage of normal Python calls by being outwardly second-centric.
+"""
+
+try:
+	from java.lang.System import currentTimeMillis as now
+except ImportError:
+	from time import time
+	now = lambda: int(round(time() * 1000))
+
 from time import sleep
 
 
 class AtLeastThisDelay(object):
 	"""Force a with statement to take a minimum amount of time before
 	returning execution to the thread.
-	
+
+	Time is in units of seconds. (Internally it is in milliseconds.)
+
 	Test code to see how it works:
-		with AtLeastThisDelay(1000) as remainingTime:
+		with AtLeastThisDelay(1.0) as remainingTime:
 			pass
 		print 'done!' # will not print for one second
 	"""
-	def __init__(self, minClampMS=0):
-		self.delay = minClampMS
+	def __init__(self, minClamp=0):
+		self.delay = minClamp / 1000.0
 	def __enter__(self):
 		self.startTime = now()
 		self.endTime = self.startTime + self.delay
@@ -27,17 +42,23 @@ class EveryFixedRate(object):
 	"""Use in a for loop, making each loop iterate on the step times given
 	(up to the max time provided).
 	
+	Time is in units of seconds. (Internally it is in milliseconds.)
+
 	If the loop takes too long, it will skip the missed window and wait until the next.
 	
 	If steps are provided _instead_ of step times, then the needed step times
 	  will be calculated instead.
 	
-	for windowNumber,lastStepTimeMS in EveryFixedDelay(1000, 100):
+	for windowNumber,lastStepTime in EveryFixedDelay(1.0, 0.100):
 		pass # iterates ten times
-	for windowNumber,lastStepTimeMS in EveryFixedDelay(1000, numSteps=3):
+	for windowNumber,lastStepTime in EveryFixedDelay(1.0, numSteps=3):
 		pass # iterates three times, about 333ms each
 	"""
-	def __init__(self, maxTimeMS=0.0, stepTimeMS=0.0, numSteps=0, initialIteration=True):
+	def __init__(self, maxTime=0.0, stepTime=0.0, numSteps=0, initialIteration=True):
+
+		maxTimeMS = maxTime / 1000.0
+		stepTimeMS = stepTime / 1000.0
+
 		if maxTimeMS and numSteps and not stepTimeMS:
 			stepTimeMS = maxTimeMS / numSteps
 		self.stepTime = stepTimeMS
@@ -72,7 +93,7 @@ class EveryFixedRate(object):
 				sleep( remainingWaitTime / 1000.0 )
 			
 			newCurrentTime = now()
-			lastStepDuration = newCurrentTime - self.lastStepTime
+			lastStepDuration = (newCurrentTime - self.lastStepTime) * 1000.0
 			self.lastStepTime = newCurrentTime
 			
 			
@@ -83,18 +104,24 @@ class EveryFixedDelay(object):
 	"""Use in a for loop, making each loop take at least the step time given
 	(up to the max time provided).
 	
+	Time is in units of seconds. (Internally it is in milliseconds.)
+
 	If a particular iteration takes a long time that merely delays the next iteration.
 	If the current time exceeds the max time, the loop simply exits.
 
 	If steps are provided _instead_ of step times, then the needed step times
 	  will be calculated instead.
 	
-	for iterNum,lastStepTimeMS in EveryFixedDelay(1000, 100):
+	for iterNum,lastStepTime in EveryFixedDelay(1.0, 0.100):
 		pass # iterates ten times
-	for iterNum,lastStepTimeMS in EveryFixedDelay(1000, numSteps=3):
+	for iterNum,lastStepTime in EveryFixedDelay(1.0, numSteps=3):
 		pass # iterates three times, about 333ms each
 	"""
-	def __init__(self, maxTimeMS=0.0, stepTimeMS=0.0, numSteps=0, initialIteration=True):
+	def __init__(self, maxTime=0.0, stepTime=0.0, numSteps=0, initialIteration=True):
+
+		maxTimeMS = maxTime / 1000.0
+		stepTimeMS = stepTime / 1000.0
+
 		if maxTimeMS and numSteps and not stepTimeMS:
 			stepTimeMS = maxTimeMS / (numSteps - initialIteration)
 		self.stepTime = stepTimeMS
@@ -126,7 +153,7 @@ class EveryFixedDelay(object):
 			
 			self.count += 1
 			newCurrentTime = now()
-			lastStepDuration = newCurrentTime - self.lastStepTime
+			lastStepDuration = (newCurrentTime - self.lastStepTime) * 1000.0
 			self.lastStepTime = newCurrentTime
 			yield self.count, lastStepDuration
 
@@ -134,8 +161,8 @@ class EveryFixedDelay(object):
 #start = now()
 #print 'start %d' % start
 #
-##for windowNumber,lastStepTime in EveryFixedRate(1000, numSteps=3, initialIteration=True):
-##for windowNumber,lastStepTime in EveryFixedRate(1000, 300, initialIteration=False):
+##for windowNumber,lastStepTime in EveryFixedRate(1.000, numSteps=3, initialIteration=True):
+##for windowNumber,lastStepTime in EveryFixedRate(1.000, 0.300, initialIteration=False):
 ##for windowNumber,lastStepTime in EveryFixedRate(0, 0, initialIteration=False):
 ##for windowNumber,lastStepTime in EveryFixedRate(0, 0, initialIteration=True):
 ##for windowNumber,lastStepTime in EveryFixedDelay(0, 0, initialIteration=False):
@@ -144,11 +171,11 @@ class EveryFixedDelay(object):
 ##	if windowNumber == 1:
 ##		sleep(0.4)
 #
-##for iterNum,lastStepTime in EveryFixedDelay(1000, numSteps=3, initialIteration=True):
-##for iterNum,lastStepTime in EveryFixedDelay(1000, numSteps=3, initialIteration=False):
-##for iterNum,lastStepTime in EveryFixedDelay(1000, 250, initialIteration=True):
-##for iterNum,lastStepTime in EveryFixedDelay(1000, 300, initialIteration=True):
-##for iterNum,lastStepTime in EveryFixedDelay(1000, 300, initialIteration=False):
+##for iterNum,lastStepTime in EveryFixedDelay(1.000, numSteps=3, initialIteration=True):
+##for iterNum,lastStepTime in EveryFixedDelay(1.000, numSteps=3, initialIteration=False):
+##for iterNum,lastStepTime in EveryFixedDelay(1.000, 0.250, initialIteration=True):
+##for iterNum,lastStepTime in EveryFixedDelay(1.000, 0.300, initialIteration=True):
+##for iterNum,lastStepTime in EveryFixedDelay(1.000, 0.300, initialIteration=False):
 ##	print '%3d  %5d   %d' % (iterNum, lastStepTime, now() - start)
 ##	if iterNum == 1:
 ##		sleep(0.4)
