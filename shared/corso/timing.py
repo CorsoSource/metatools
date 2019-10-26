@@ -137,7 +137,7 @@ class EveryFixedDelay(object):
 
 		self.startTimeMS = now()
 		self.count = -1
-		self.endTimeMS = self.startTimeMS + self.maxTime
+		self.endTimeMS = self.startTimeMS + self.maxTimeMS
 		self.lastStepTimeMS = self.startTimeMS
 		
 	def __iter__(self):
