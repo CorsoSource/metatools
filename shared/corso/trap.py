@@ -1,4 +1,26 @@
+import sys, re
+from copy import deepcopy
+from collections import deque
+
 from .overwatch import Overwatch
+
+
+# Make the interface slightly more generic
+try:
+    ipython_connection = get_ipython().__class__.__name__
+    # jupyter
+    if ipython_connection == 'ZMQInteractiveShell':
+        from IPython.core.debugger import Tracer
+        BreakpointFunction = Tracer()
+    # terminal
+    elif ipython_connection == 'TerminalInteractiveShell':
+        from IPython.core.debugger import Tracer
+        BreakpointFunction = Tracer()
+    else:
+        raise ImportError
+except NameError, ImportError:
+    import pdb
+    BreakpointFunction = lambda : pdb.set_trace()
 
 
 class Context(object):
@@ -47,16 +69,21 @@ class TrapException(Exception):
 
 class Trap(Overwatch):
     
-    __slots__ = ('traps', 'prev_frames', 'disarmed', 'tripped',)
-    _previous_callback = None
-    
-    max_buffered_frames = 20
-    
-    break_point = Tracer()
+    __slots__ = ('traps', 'prev_frames', 'disarmed', 'tripped',
+                 'max_buffered_frames')
+    _previous_callback = None    
+    _default_break_point = BreakpointFunction
     
     frame_file_pattern = re.compile(r'(<.*>|[\/]sequencer[\/])', re.I)
     
-    def __init__(self, *args, **kwargs):
+    def __init__(self, max_frames = 10, break_point=None, *args, **kwargs):
+        if not break_point:
+            self.break_point = break_point
+        else:
+            self.break_point = self._default_break_point
+
+        self.max_buffered_frames = max_frames
+
         self.clear()
         
         # remove the leading underscore and map it to the event
@@ -173,7 +200,7 @@ class Trap(Overwatch):
     
     # SETUP
     
-    def add_trigger(self, function, expected_result):
+    def add_trigger(self, function, expected_result=True):
         print '+    adding trap: %r against %r' % (function, expected_result)
         self.traps[function] = expected_result
     
