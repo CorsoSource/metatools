@@ -1,5 +1,12 @@
 import sys
 
+NOP = lambda x: None
+
+try:
+    sys_current_trace = sys.gettrace
+except AttributeError:
+    sys_current_trace = NOP
+
 
 def isPerspectiveDesigner():
     try:
@@ -35,8 +42,8 @@ class MetaOverwatch(type):
 
 class BlindOverwatch(object):
     """Template class that sets the basis for the rest."""
-    _callback_function = lambda x: None
-    _callback_current = lambda x: None
+    _callback_function = NOP
+    _callback_current = NOP
     
     _configured_events = set()
 
@@ -71,14 +78,14 @@ class Overwatch(BlindOverwatch):
     __slots__ = ('_previous_callback', '_cb_retval')
         
     _callback_function = sys.settrace
-    _callback_current  = sys.gettrace
+    _callback_current  = sys_current_trace
     
     def __init__(self, replaceExisting=False, debugDesignerOnly=True):
         if debugDesignerOnly and not isPerspectiveDesigner():
             return
             
         # Buffer any current callbacks, if desired
-        if replaceExisting:
+        if replaceExisting or sys_current_trace is NOP:
             self._previous_callback = None
         else:
             self._previous_callback = self._callback_current()

@@ -1,40 +1,52 @@
-import sys, re
+import sys, re, traceback
 from copy import deepcopy
 from collections import deque
 
 from .overwatch import MetaOverwatch, Overwatch
+from sequencer.compat import property
 
 
 # Make the interface slightly more generic
 try:
-    ipython_connection = get_ipython().__class__.__name__
-    # jupyter
-    if ipython_connection == 'ZMQInteractiveShell':
-        from IPython.core.debugger import Tracer
-        BreakpointFunction = Tracer()
-    # terminal
-    elif ipython_connection == 'TerminalInteractiveShell':
-        from IPython.core.debugger import Tracer
-        BreakpointFunction = Tracer()
-    else:
-        raise ImportError
-except NameError, ImportError:
-    import pdb
-    BreakpointFunction = lambda : pdb.set_trace()
+    raise ImportError
+    import web_pdb
+    BreakpointFunction = lambda host='localhost', port=5678: web_pdb.set_trace(host,port)
+
+except ImportError:
+    try:
+        ipython_connection = get_ipython().__class__.__name__
+        # jupyter
+        if ipython_connection == 'ZMQInteractiveShell':
+            from IPython.core.debugger import Tracer
+            BreakpointFunction = Tracer()
+        # terminal
+        elif ipython_connection == 'TerminalInteractiveShell':
+            from IPython.core.debugger import Tracer
+            BreakpointFunction = Tracer()
+        else:
+            raise ImportError
+    except NameError, ImportError:
+        import pdb
+        BreakpointFunction = lambda self: pdb.set_trace
 
 
 class Context(object):
     
-    __slots__ = ('_locals', '_event', '_arg', '_caller', '_filename', '_line')
+    __slots__ = ('_locals', '_event', '_arg', 
+                 '_caller', '_filename', '_line',
+                 '_local_unsafe')
     
     def __init__(self, frame, event, arg):
         
         local_copy = {}
+        local_unsafe = {}
         for key,value in frame.f_locals.items():
             try:
-                local_copy[key] = deepcopy(value)
+                local_copy[key]   = deepcopy(value)
+                local_unsafe[key] = value
             except:
                 local_copy[key] = NotImplemented
+                local_unsafe[key] = value
                 
         self._locals   = local_copy
         self._event    = event
@@ -42,7 +54,8 @@ class Context(object):
         self._caller   = frame.f_code.co_name
         self._filename = frame.f_code.co_filename
         self._line     = frame.f_lineno
-    
+        self._local_unsafe = local_unsafe
+
     @property
     def local(self):
         return self._locals
@@ -63,9 +76,28 @@ class Context(object):
     def line(self):
         return self._line
 
+    @property
+    def unsafe(self):
+        return self._local_unsafe
+    
+    @property
+    def unsafe_locals(self):
+        local = {}
+        for key,value in self.local.items():
+            if value is NotImplemented:
+                local['<%s>' % key] = self.unsafe[key]
+            else:
+                local[key] = value
+        return local
+
     def as_dict(self):
-        props = 'local event arg caller filename line'.split()
-        return dict((prop,getattr(self,prop)) for prop in props)
+        props = 'event arg caller filename line'.split()
+        rep_dict = dict((prop,getattr(self,prop)) for prop in props)
+
+        # locals
+        rep_dict['local'] = self.unsafe_locals
+
+        return rep_dict
 
 
 class TrapException(Exception):
@@ -194,13 +226,15 @@ class Trap(Overwatch):
     # TRACE CALLBACKS
     
     def _exception(self, context):
-        exception, value, traceback = context.arg
+        exception, value, stacktrace = context.arg
         if self.verbose:
-            print 'FAIL Exception  %s   %s in %s' % (str(exception), context.caller, context.filename)
+            print r'/!\ Exception  %s   %s in %s' % (str(exception), context.caller, context.filename)
 
         if isinstance(exception, TrapException):
             self.disarmed = True
-            
+        else:
+            print '---  Traceback  ---------------------------------------------------------------'
+            traceback.print_tb(stacktrace)
         raise exception
     
    
@@ -237,7 +271,16 @@ class Trap(Overwatch):
                 
     def trip_triggers(self, context):
         for function,expectation in self.traps.items():
-            kwargs = set(function.__code__.co_varnames)
+            try:
+                function_code = function.__code__
+            except AttributeError:
+                try:
+                    function_code = function.func_code
+                except AttributeError:
+                    function_code = function.im_code.func_code
+
+            kwargs = set(function_code.co_varnames)
+            
             if kwargs <= (set(context.local)|set(['context'])):
 
                 arg_scope = dict((v,context.local[v] if v is not 'context' else context) for v in kwargs)
@@ -268,7 +311,8 @@ class Trap(Overwatch):
     def history(self):
         return self._prev_frames
 
-    def summarize(self):        
+    def summarize(self, limit=0):        
+        limit = limit or self.max_buffered_frames
         for ix, context in enumerate(reversed(self.history)):
             print '[%3d]>  %-7s   ----------------------------------------------------------------' % (ix, context.event,)
             print '    |   Line %-5d' % (context.line,)
@@ -277,8 +321,12 @@ class Trap(Overwatch):
                 print '    |     returning %r' % (context.arg,)
             elif context.arg:
                 print '    |     with %r' % (context.arg,)
-            for key,value in context.local.items():
+            for key,value in context.unsafe_locals.items():
                 print '    |   %-20s : %r' % (key,value,)
+
+            limit -= 1
+            if not limit:
+                break
 
     def __call__(self):
         self.summarize()
