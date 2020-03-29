@@ -2,9 +2,16 @@
 		Helper functions for interacting with data a bit easier.
 """
 
+
 from com.inductiveautomation.ignition.common import BasicDataset
 from itertools import izip as zip
 import re
+
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
 
 
 def datasetToListDict(dataset):
@@ -59,8 +66,8 @@ def listDictToDataset(data, keys=None):
 	>>> p(ld2ds)
 	"ld2ds" <DataSet> of 3 elements and 2 columns
 	=============================================
-	          c                     |  b                    
-	           <java.lang.Integer>  |   <java.lang.Integer> 
+			  c                     |  b                    
+			   <java.lang.Integer>  |   <java.lang.Integer> 
 	--------------------------------------------------------
 	   0 |                        3 |                      2
 	   1 |                        6 |                      5

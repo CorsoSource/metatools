@@ -9,8 +9,14 @@
 	  to keep in mind that low number call stack frame numbers are closer to the most recent.
 """
 
+
 import math,re, sys
 
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
 
 __all__ = [] # This is meant to be empty. No `from corso.meta import *`!
 

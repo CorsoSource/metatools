@@ -1,9 +1,10 @@
-"""Timing helper functions
+"""
+	Timing helper functions
 
-These add the side effect of delay to for loops or exectution.
+	These add the side effect of delay to for loops or exectution.
 
-Internally, the functions are millisecond-centric, but they maintain the
-  API usage of normal Python calls by being outwardly second-centric.
+	Internally, the functions are millisecond-centric, but they maintain the
+	  API usage of normal Python calls by being outwardly second-centric.
 """
 
 try:
@@ -13,6 +14,12 @@ except ImportError:
 	now = lambda: int(round(time() * 1000))
 
 from time import sleep
+
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
 
 
 class AtLeastThisDelay(object):

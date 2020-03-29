@@ -8,6 +8,12 @@ from functools import wraps, partial
 from time import sleep
 
 
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
+
+
 def async(startDelaySeconds=None):
 	"""Decorate a function with this to make it run in another thread asynchronously!
 	If defined with a value, it will wait that many seconds before firing.

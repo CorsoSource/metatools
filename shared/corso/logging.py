@@ -2,6 +2,7 @@
 	Make logging easier!
 """
 
+
 try:
 	from com.inductiveautomation.factorypmi.application import FPMIWindow
 	from com.inductiveautomation.factorypmi.application.components.template import TemplateHolder
@@ -12,8 +13,15 @@ import sys, re
 from shared.corso.meta import currentStackDepth, getObjectByName, GLOBAL_MESSAGE_PROJECT_NAME
 
 
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
+
+
 VISION_CLIENT_MESSAGE_HANDLER = 'Vision Client Log'
 PERSPECTIVE_SESSION_MESSAGE_HANDLER = 'Perspective Log Relay'
+
 
 def autoRepr(obj):
 	"""Cleans up repr() calls, since the string representation add quotes."""

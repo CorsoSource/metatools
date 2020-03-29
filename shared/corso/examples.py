@@ -7,6 +7,12 @@ from org.apache.commons.lang3.time import DateUtils
 from java.util import Date
 
 
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
+
+
 simpleListList = [range(i,i+3) for i in range(1,9,3)]
 
 simpleDataset = system.dataset.toDataSet(list('abc'),simpleListList)

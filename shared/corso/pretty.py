@@ -4,12 +4,18 @@
 	These are meant to be used with a console.
 """
 
+
 import re, math, textwrap
 from java.lang import Exception as JavaException
 from com.inductiveautomation.ignition.common import BasicDataset
 from com.inductiveautomation.ignition.common.script.builtin.DatasetUtilities import PyDataSet
 from shared.corso.meta import getObjectName, getFunctionCallSigs, sentinel
 
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
 
 __all__ = ['p','pdir']
 
