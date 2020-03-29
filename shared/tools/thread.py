@@ -22,7 +22,7 @@ def async(startDelaySeconds=None):
 	  sys.stderr writer. It turns out this is simply always the JVM's console, though.
 
 	>>> # For a function to immediately run in another thread, simply decorated it:
-	>>> from shared.corso.logging import BaseLogger
+	>>> from shared.tools.logging import BaseLogger
 	>>> @async
 	... def foo(x,y=5):
 	...     print x,y

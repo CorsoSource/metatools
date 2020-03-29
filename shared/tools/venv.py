@@ -5,8 +5,8 @@
 
 import sys,imp
 
-from shared.corso.meta import currentStackDepth
-from shared.corso.pretty import p,pdir
+from shared.tools.meta import currentStackDepth
+from shared.tools.pretty import p,pdir
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""

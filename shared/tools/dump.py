@@ -4,7 +4,7 @@
 
 
 import array.array, base64, os, re
-from shared.corso.meta import getDesignerContext
+from shared.tools.meta import getDesignerContext
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""

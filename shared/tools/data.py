@@ -18,7 +18,7 @@ def datasetToListDict(dataset):
 	"""Converts a dataset into a list of dictionaries. 
 	Convenient to treat data on a row-by-row basis naturally in Python.
 	
-	>>> from shared.corso.examples import simpleDataset
+	>>> from shared.tools.examples import simpleDataset
 	>>> datasetToListDict(simpleDataset)
 	[{'a': 1, 'b': 2, 'c': 3}, {'a': 4, 'b': 5, 'c': 6}, {'a': 7, 'b': 8, 'c': 9}]
 	"""
@@ -33,7 +33,7 @@ def datasetToDictList(dataset):
 	"""Converts a dataset into a dictionary of column lists.
 	Convenient for treating data on a specific-column basis.
 	
-	>>> from shared.corso.examples import simpleDataset
+	>>> from shared.tools.examples import simpleDataset
 	>>> datasetToDictList(simpleDataset)
 	{'a': [1, 4, 7], 'b': [2, 5, 8], 'c': [3, 6, 9]}
 	"""
@@ -45,7 +45,7 @@ def gatherKeys(data):
 	"""Gather all the possible keys in a list of dicts.
 	(Note that voids in a particular row aren't too bad.)
 	
-	>>> from shared.corso.examples import complexListDict
+	>>> from shared.tools.examples import complexListDict
 	>>> gatherKeys(complexListDict)
 	['date', 'double', 'int', 'string']
 	"""
@@ -60,8 +60,8 @@ def listDictToDataset(data, keys=None):
 	A selection of keys can be requested (and reordered), where missing entries
 	are filled with None values.
 
-	>>> from shared.corso.pretty import p
-	>>> from shared.corso.examples import simpleListDict
+	>>> from shared.tools.pretty import p
+	>>> from shared.tools.examples import simpleListDict
 	>>> ld2ds = listDictToDataset(simpleListDict, keys=['c','b'])
 	>>> p(ld2ds)
 	"ld2ds" <DataSet> of 3 elements and 2 columns

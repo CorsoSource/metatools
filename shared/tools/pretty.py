@@ -9,7 +9,7 @@ import re, math, textwrap
 from java.lang import Exception as JavaException
 from com.inductiveautomation.ignition.common import BasicDataset
 from com.inductiveautomation.ignition.common.script.builtin.DatasetUtilities import PyDataSet
-from shared.corso.meta import getObjectName, getFunctionCallSigs, sentinel
+from shared.tools.meta import getObjectName, getFunctionCallSigs, sentinel
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""

@@ -10,7 +10,7 @@ except ImportError:
 	pass # only needed for when the logger's running on a Vision client; gateway won't have this in scope.
 
 import sys, re
-from shared.corso.meta import currentStackDepth, getObjectByName, GLOBAL_MESSAGE_PROJECT_NAME
+from shared.tools.meta import currentStackDepth, getObjectByName, GLOBAL_MESSAGE_PROJECT_NAME
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -369,7 +369,7 @@ class Logger(BaseLogger):
 
 		Copy and paste the following directly into a gateway message event script:	
 		
-		from shared.corso.logging import Logger
+		from shared.tools.logging import Logger
 		Logger.messageHandler(payload)
 		"""
 		cls._validatePayload(payload)
