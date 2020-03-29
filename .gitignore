@@ -1,0 +1,4 @@
+*.pyc
+*.class
+*.sublime-*
+**/.ipynb_checkpoints/*
