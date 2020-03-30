@@ -14,7 +14,7 @@ class MetaEnumValue(type):
 	
 	def __init__(cls, clsname, bases, attributes):
 		for base in bases:
-			if base.__name__ is not 'EnumValue':
+			if base.__name__ != 'EnumValue':
 				setattr(cls, '_type', base)
 				break
 		
