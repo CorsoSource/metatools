@@ -80,7 +80,7 @@ def async(startDelaySeconds=None):
 			def asyncWrapper(*args, **kwargs):
 				# Create the closure to carry the scope into another thread
 				def full_closure(function, args=args, kwargs=kwargs):
-					print 'running immediately'
+					#print 'running immediately'
 					_ = function(*args,**kwargs)
 				
 				# Wrap the function and delay values to prevent early GC of function and delay
