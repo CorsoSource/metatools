@@ -1,9 +1,11 @@
 """
-	StashCache - Hold computed objects in memory.
+	ExtraGlobal - Hold computed objects in memory from anywhere in the JVM.
+
+	This is a manual form of memoization.
 
 	NOTE: This is *specifically* not thread safe!
 		  Use this to hold immutable objects that could be shared between threads.
-		  Or use it (carefully!) to continue partial calculations. 
+		  Or use it (carefully!) to continue partial calculations.
 """
 
 from shared.tools.thread import async
@@ -12,6 +14,13 @@ from weakref import WeakKeyDictionary
 from functools import wraps
 from java.lang import Thread
 
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
+
+__all__ = ['ExtraGlobal']
 
 class CacheEntry(object):
 
@@ -64,8 +73,8 @@ class CacheEntry(object):
 			return '<CacheEntry "%s" (global)>' % (self.label,)
 
 
-class MetaStashCache(type):
-	"""Force the StashCache to be a singleton object.
+class MetaGlobalCache(type):
+	"""Force the GlobalCache to be a singleton object.
 	This enforces that any (effectively all) global state is accessible.
 
 	This also ensures there is a cleanup scrip to scrub out the cache, as needed.
@@ -208,8 +217,8 @@ class MetaStashCache(type):
 		return '<%s with %d items>' % (cls.__name__, len(cls._cache))
 
 
-class StashCache(object):
-	__metaclass__ = MetaStashCache
+class GlobalCache(object):
+	__metaclass__ = MetaGlobalCache
 
 	def __new__(cls):
 		raise NotImplementedError("%s does not support instantiation." % cls.__name__) 
@@ -220,34 +229,37 @@ class StashCache(object):
 	def __setattr__(cls, key, value):
 		raise AttributeError("%s attributes are not mutable. Use methods to manipulate them." % cls.__name__) 
 
+# I like this name more
+ExtraGlobal = GlobalCache
 
-#>>> StashCache._cache
+
+#>>> GlobalCache._cache
 #\{}
-#>>> StashCache['asdf'] = 234
-#>>> StashCache._cache
+#>>> GlobalCache['asdf'] = 234
+#>>> GlobalCache._cache
 #{(None, 'asdf'): <__main__.CacheEntry object at 0x4>}
-#>>> StashCache._cleanup_monitor
+#>>> GlobalCache._cleanup_monitor
 #Thread[Thread-16,5,main]
-#>>> StashCache._cache
+#>>> GlobalCache._cache
 #{}
-#>>> StashCache['asdf'] = 234
-#>>> StashCache._cache
+#>>> GlobalCache['asdf'] = 234
+#>>> GlobalCache._cache
 #{(None, 'asdf'): <__main__.CacheEntry object at 0x5>}
-#>>> del StashCache['asdf']
-#>>> StashCache._cache
+#>>> del GlobalCache['asdf']
+#>>> GlobalCache._cache
 #{}
-#>>> StashCache['asdf'] = 234
-#>>> StashCache._cache
+#>>> GlobalCache['asdf'] = 234
+#>>> GlobalCache._cache
 #{(None, 'asdf'): <__main__.CacheEntry object at 0x6>}
-#>>> StashCache.trash('asdf')
-#>>> StashCache._cache
+#>>> GlobalCache.trash('asdf')
+#>>> GlobalCache._cache
 #{}
-#>>> StashCache['asdf':'playground':5] = 234
-#>>> StashCache._cache
+#>>> GlobalCache['asdf':'playground':5] = 234
+#>>> GlobalCache._cache
 #{('playground', 'asdf'): <__main__.CacheEntry object at 0x7>}
-#>>> StashCache._cache
+#>>> GlobalCache._cache
 #{('playground', 'asdf'): <__main__.CacheEntry object at 0x7>}
-#>>> StashCache._cache
+#>>> GlobalCache._cache
 #{('playground', 'asdf'): <__main__.CacheEntry object at 0x7>}
-#>>> StashCache._cache
+#>>> GlobalCache._cache
 #{}
