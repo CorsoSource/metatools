@@ -9,8 +9,59 @@
 from shared.tools.thread import async
 from time import time, sleep
 from weakref import WeakKeyDictionary
-
+from functools import wraps
 from java.lang import Thread
+
+
+class CacheEntry(object):
+
+	__slots__ = ('_obj', 
+		         'label', 'scope', 'lifespan', 
+		         '_last_used', 
+		         '_callback')
+
+	def __init__(self, obj, label, scope, lifespan, callback=None):
+		self._obj = obj
+		self.label = label
+		self.scope = scope
+		self.lifespan = lifespan
+
+		self._last_used = time()
+		self._callback = callback
+
+	@property
+	def obj(self):
+		self._last_used = time()
+		return self._obj
+
+	@property
+	def last_used(self):
+		return self._last_used
+
+	@property 
+	def expired(self):
+		return time() - self.last_used > self.lifespan
+
+	def refresh(self):
+		if self._callback:
+			ret_val = self._callback()
+			if ret_val is not None:
+				self._obj = ret_val
+				self._last_used = time()
+	
+	@property
+	def key(self):
+		return self.gen_key(self.label, self.scope)
+
+	@staticmethod
+	def gen_key(label, scope):
+		return (scope, label)
+
+	def __repr__(self):
+		if self.scope is not None:
+			return '<CacheEntry "%s" of "%s">' % (self.label, self.scope)
+		else:
+			return '<CacheEntry "%s" (global)>' % (self.label,)
 
 
 class MetaStashCache(type):
@@ -19,59 +70,65 @@ class MetaStashCache(type):
 
 	This also ensures there is a cleanup scrip to scrub out the cache, as needed.
 
-	Externally, all references are (key:scope), interally they are (scope, key)
+	Externally, all references are (label:scope), interally they are (scope, label)
 	Objects are all saved with their last checked time
 	"""
 
-	def _update(cls, scope, key, obj, lifespan):
-		cls._cache[(scope, key)] = (obj, lifespan, time())
+	DEFAULT_LIFESPAN = 60 # seconds
+	CHECK_PERIOD = 10 # seconds
+
+	_cleanup_monitor = None
+
+	_cache = {}
+
+
+	def clear_cache(cls):
+		cls._cache = {}
+		cls._cleanup_monitor = None
+
+
+	def stash(cls, obj, label=None, scope=None, lifespan=None, callback=None):
+		assert label is not None, "Objects stashed need to have a label associated with them."
+
+		if lifespan is None:
+			lifespan = cls.DEFAULT_LIFESPAN
+
+		cache_entry = CacheEntry(obj, label, scope, lifespan, callback)
+		cls._cache[cache_entry.key] = cache_entry
+		
+		cls.spawn_cache_monitor()
+		return cache_entry.key
+
+
+	def access(cls, label, scope=None):
+		try:
+			cache_entry = cls._cache[CacheEntry.gen_key(label, scope)]
+		except KeyError:
+			scope = None
+			cache_entry = cls._cache[CacheEntry.gen_key(label, scope)]
+				
+		cls.spawn_cache_monitor()
+		return cache_entry.obj
+
+
+	def trash(cls, label=None, scope=None):
+		del cls._cache[CacheEntry.gen_key(label, scope)]
 		cls.spawn_cache_monitor()
 
 
-	def stash(cls, obj, key=None, scope=None, lifespan=None):
-		assert key is not None, "Objects stashed need to have a key associated with them."
-
-		if key is None:
-			key = hash(obj)
-		elif not isinstance(key, (str,unicode,int,long)):
-			key = hash(key)
-
-		if lifespan is None:
-			lifespan = cls.TIMEOUT
-
-		cls._update(scope, key, obj, lifespan)
-
-		return key
-
-
-	def access(cls, key, scope=None):
-		try:
-			obj, lifespan, _ = cls._cache[(scope,key)]
-		except KeyError:
-			scope = None
-			obj, lifespan, _ = cls._cache[(scope,key)]
-				
-		cls._update(scope, key, obj, lifespan)
-
-		return obj
-
-
-	def trash(cls, key=None, scope=None):
-		del cls._cache[(scope,key)]
-
-
-	def _resolve(cls, reference):
+	@classmethod
+	def resolve(cls, reference):
 		if isinstance(reference, slice):
 			if reference.stop and not isinstance(reference.stop, (str, unicode, int, long)):
 				scope = reference.stop.__class__.__name__
 			else:
 				scope = reference.stop
-			key = reference.start
-			lifespan = reference.step or cls.TIMEOUT
+			label = reference.start
+			lifespan = reference.step or cls.DEFAULT_LIFESPAN
 		elif isinstance(reference, (tuple,list)):
 			assert 1 <= len(reference) <= 3, "References must either be slices or iterables between 1 and 3 elements"
 
-			key = reference[0]
+			label = reference[0]
 			
 			if len(reference) >= 2:
 				scope = reference[1]
@@ -81,33 +138,28 @@ class MetaStashCache(type):
 			if len(reference) == 3:
 				lifespan = reference[2]
 			else:
-				lifespan = cls.TIMEOUT
+				lifespan = cls.DEFAULT_LIFESPAN
 		else:
-			key = reference
+			label = reference
 			scope = None
-			lifespan = cls.TIMEOUT
+			lifespan = cls.DEFAULT_LIFESPAN
 
-		return key, scope, lifespan
+		return label, scope, lifespan
 
 
 	def __getitem__(cls, reference):
-		key, scope, _ = cls._resolve(reference)
-		return cls.access(key, scope)
+		label, scope, _ = cls.resolve(reference)
+		return cls.access(label, scope)
 
 
 	def __setitem__(cls, reference, obj):
-		key, scope, lifespan = cls._resolve(reference)
-		return cls.stash(obj, key, scope, lifespan)
+		label, scope, lifespan = cls.resolve(reference)
+		return cls.stash(obj, label, scope, lifespan)
 
 
 	def __delitem__(cls, reference):
-		key, scope, _ = cls._resolve(reference)
-		cls.trash(key, scope)
-
-
-	def clear_cache(cls):
-		cls._cache = {}
-		cls._cleanup_monitor = None
+		label, scope, _ = cls.resolve(reference)
+		cls.trash(label, scope)
 
 
 	def spawn_cache_monitor(cls):
@@ -130,26 +182,34 @@ class MetaStashCache(type):
 					return
 
 				now = time()
-				for scope, key in cls._cache:
-					_, lifespan, last = cls._cache[(scope,key)]
+				for key in cls._cache:
+					entry = cls._cache[key]
 
-					if now - last > lifespan:
-						cls.trash(key, scope)
+					if entry.expired:
+						entry.refresh()
+						if entry.expired:
+							cls.trash(entry.label, entry.scope)
 
 				sleep(cls.CHECK_PERIOD)
 
 		cls._cleanup_monitor = monitor()
 
 
+	def keys(cls):
+		return iter(sorted(cls._cache.keys()))
+
+	def values(cls):
+		raise NotImplementedError("Cache should not be iterated across values.")
+
+	def __iter__(cls):
+		return cls.keys()
+
+	def __repr__(cls):
+		return '<%s with %d items>' % (cls.__name__, len(cls._cache))
+
+
 class StashCache(object):
 	__metaclass__ = MetaStashCache
-
-	TIMEOUT = 60 # seconds
-	CHECK_PERIOD = 10 # seconds
-
-	_cleanup_monitor = None
-
-	_cache = {}
 
 	def __new__(cls):
 		raise NotImplementedError("%s does not support instantiation." % cls.__name__) 
@@ -159,3 +219,35 @@ class StashCache(object):
 
 	def __setattr__(cls, key, value):
 		raise AttributeError("%s attributes are not mutable. Use methods to manipulate them." % cls.__name__) 
+
+
+#>>> StashCache._cache
+#\{}
+#>>> StashCache['asdf'] = 234
+#>>> StashCache._cache
+#{(None, 'asdf'): <__main__.CacheEntry object at 0x4>}
+#>>> StashCache._cleanup_monitor
+#Thread[Thread-16,5,main]
+#>>> StashCache._cache
+#{}
+#>>> StashCache['asdf'] = 234
+#>>> StashCache._cache
+#{(None, 'asdf'): <__main__.CacheEntry object at 0x5>}
+#>>> del StashCache['asdf']
+#>>> StashCache._cache
+#{}
+#>>> StashCache['asdf'] = 234
+#>>> StashCache._cache
+#{(None, 'asdf'): <__main__.CacheEntry object at 0x6>}
+#>>> StashCache.trash('asdf')
+#>>> StashCache._cache
+#{}
+#>>> StashCache['asdf':'playground':5] = 234
+#>>> StashCache._cache
+#{('playground', 'asdf'): <__main__.CacheEntry object at 0x7>}
+#>>> StashCache._cache
+#{('playground', 'asdf'): <__main__.CacheEntry object at 0x7>}
+#>>> StashCache._cache
+#{('playground', 'asdf'): <__main__.CacheEntry object at 0x7>}
+#>>> StashCache._cache
+#{}
