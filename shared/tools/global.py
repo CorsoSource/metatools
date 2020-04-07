@@ -19,6 +19,8 @@
 """
 
 from shared.tools.thread import async
+from shared.tools.timing import EveryFixedDelay
+
 from time import time, sleep
 from weakref import WeakKeyDictionary
 from functools import wraps
@@ -114,8 +116,14 @@ class MetaGlobalCache(type):
 	  (assuming they do not autorenew themselves.)
 	"""
 
+	# Default period a cache entry should live in the cache before garbage collection
 	DEFAULT_LIFESPAN = 60 # seconds
+
+	# Monitor (garbage collecing) thread configuraiton
+	# Period to check the cache for expired entries
 	CHECK_PERIOD = 10 # seconds
+	# Period to check if the monitor has been replaced or should be shut down.
+	RELEVANCE_CHECK_PERIOD = 1 # second
 
 	_cleanup_monitor = None
 
@@ -276,23 +284,32 @@ class MetaGlobalCache(type):
 		def monitor(cls=cls):
 
 			while True:
-				# die if disconnected reference or unneeded
-				if not (cls._cleanup_monitor and cls._cache):
-					return
-				# die if another monitor has somehow been spun up instead
-				if cls._cleanup_monitor != Thread.currentThread():
-					return
+				# Wait for CHECK_PERIOD, but check occasionally if the monitor
+				# should be replaced. (Once scan starts, thread won't die until it's done.)
+				for iterNum,lastStepTime in EveryFixedDelay(cls.CHECK_PERIOD, cls.RELEVANCE_CHECK_PERIOD):
+					# die if disconnected reference or unneeded
+					if not (cls._cleanup_monitor and cls._cache):
+						return
+					# die if another monitor has somehow been spun up instead
+					if cls._cleanup_monitor != Thread.currentThread():
+						return
 
-				now = time()
-				for key in cls._cache:
-					entry = cls._cache[key]
+				# Scan the cache, removing entries as needed.
+				for key in frozenset(cls._cache):
+					try:
+						entry = cls._cache[key]
+					except KeyError:
+						continue # the key has been deleted mid-scan
 
 					if entry.expired:
-						entry.refresh()
+						# in case of failure, cull move on
+						try:
+							entry.refresh()
+						except:
+							pass
+						# check if the refresh updated the cache entry
 						if entry.expired:
 							cls.trash(entry.label, entry.scope)
-
-				sleep(cls.CHECK_PERIOD)
 
 		cls._cleanup_monitor = monitor()
 
