@@ -58,8 +58,11 @@ class CacheEntry(object):
 	@property
 	def obj(self):
 		"""Set as a property to prevent getting easily written to."""
-		self._last_used = time()
-		return self._obj
+		if self.expired:
+			return None
+		else:
+			self._last_used = time()
+			return self._obj
 
 	@property
 	def last_used(self):
@@ -68,8 +71,10 @@ class CacheEntry(object):
 
 	@property 
 	def expired(self):
-		"""Returns true when the entry is past when it should be cleaned up."""
-		return time() - self.last_used > self.lifespan
+		"""Returns true when the entry is past when it should be cleaned up.
+		If a garbage collector catches the referenced object, mark it dead
+		"""
+		return (time() - self.last_used > self.lifespan) or (self._obj is None)
 
 	def refresh(self):
 		"""Run the callback, if any was provided.
