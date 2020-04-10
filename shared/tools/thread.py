@@ -14,9 +14,10 @@ __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
 
 
-def async(startDelaySeconds=None):
+def async(startDelaySeconds=None, name=None):
 	"""Decorate a function with this to make it run in another thread asynchronously!
 	If defined with a value, it will wait that many seconds before firing.
+	If a name is provided the thread will be named. Handy for the gateway thread status page.
 	
 	Note that threads have their own scope, and any output is redirected to their own
 	  sys.stderr writer. It turns out this is simply always the JVM's console, though.
@@ -45,7 +46,9 @@ def async(startDelaySeconds=None):
 	TERMINATED
 	"""
 
-	try:
+	if name or isinstance(startDelaySeconds, (int, long, float)):
+		if name and startDelaySeconds is None:
+			startDelaySeconds = 0.0
 		# Convert to check param... Clamps to millisecond multiples
 		delaySeconds = int(startDelaySeconds*1000.0)/1000.0
 		
@@ -66,12 +69,14 @@ def async(startDelaySeconds=None):
 				
 				# Async calls should return the thread handle. 
 				# They will _not_ return whatever the function returned. That gets dumped to _.
-				return system.util.invokeAsynchronous(closure)				
+				thread_handle = system.util.invokeAsynchronous(closure)
+				if name:
+					thread_handle.setName(name)
+				return thread_handle
 			return asyncWrapper
 		return asyncDecoWrapper
-		
-	except TypeError:
-		
+	
+	else:		
 		# Decorator didn't have a param, so this is actually a function
 		function = startDelaySeconds
 		
@@ -89,12 +94,11 @@ def async(startDelaySeconds=None):
 				# Async calls should return the thread handle. 
 				# They will _not_ return whatever the function returned. That gets dumped to _.
 				return system.util.invokeAsynchronous(closure)
-			
 			return asyncWrapper
 
 		# If the @async decorator was called with empty parenthesis, then the Python engine
 		# will assume the results are _themselves_ a decorator. This leads to an AttributeError.
 		# Simply call it correctly here.
 		except AttributeError:
-			assert startDelaySeconds is None, 'The @async decorator was likely called wrong.'
+			assert startDelaySeconds is None and name is None, 'The @async decorator was likely called wrong.\nSimply do not use () with no params.'
 			return async(0)
