@@ -327,6 +327,17 @@ class MetaGlobalCache(type):
 		"""All the values in the cache. Note: this shouldn't ever be used."""
 		raise NotImplementedError("Cache should not be iterated across values.")
 
+	def __contains__(cls, reference):
+		if reference in cls._cache:
+			return True
+		label, scope, _ = cls.resolve(reference)
+
+		if CacheEntry(label, scope) in cls._cache:
+			return True
+		
+		return False  
+
+
 	def __iter__(cls):
 		"""Maintaining the illusion of a dict..."""
 		return cls.keys()
