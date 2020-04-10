@@ -42,18 +42,33 @@ class CacheEntry(object):
 	"""
 	__slots__ = ('_obj', 
 		         'label', 'scope', 'lifespan', 
-		         '_last_used', 
-		         '_callback')
+		         '_last_time', 'callback')
 
 	def __init__(self, obj, label, scope, lifespan, callback=None):
-		"""Set up the cache object. A callback may be used to generate a new value."""
+		"""Set up the cache object. A callback may be given to generate a new value on expiration.
+		
+		Lifespan determines when death should occur.
+		 - If a callback is given, wait for the lifespan then refresh
+		 - Otherwise lifespan is the timeout for the cache entry cooling off
+		"""
 		self._obj = obj
 		self.label = label
 		self.scope = scope
 		self.lifespan = lifespan
 
-		self._last_used = time()
-		self._callback = callback
+		self._last_time = time()
+		self.callback = callback
+		
+	def update(self, obj=None):
+		"""Change the cache entry to what's in obj. Resets the last_time for expiration/refresh.
+		If nothing is provided, triggers the entry to update itself, if possible.
+		"""
+		if obj is None:
+			if self.callback:
+				self.refresh()
+		else:
+			self._obj = obj
+			self._last_time = time()
 
 	@property
 	def obj(self):
@@ -61,20 +76,54 @@ class CacheEntry(object):
 		if self.expired:
 			return None
 		else:
-			self._last_used = time()
+			if self.callback is None:
+				self._last_time = time()
 			return self._obj
 
 	@property
-	def last_used(self):
+	def last_time(self):
 		"""Set as a property to prevent getting easily written to."""
-		return self._last_used
+		return self._last_time
 
 	@property 
 	def expired(self):
 		"""Returns true when the entry is past when it should be cleaned up.
 		If a garbage collector catches the referenced object, mark it dead
 		"""
-		return (time() - self.last_used > self.lifespan) or (self._obj is None)
+		# Don't cache null pointers...
+		if self._obj is None:
+			return True
+		
+		# If time expired...
+		if (time() - self._last_time > self.lifespan):
+			# ... check if it can be refreshed
+			if self.callback:
+				
+				self.refresh()
+				
+				# Either the refresh worked, or it didn't. 
+				# If the refresh callback replaced the entry, then it'll return None
+				#   and the new entry will be fine and this one will just get GC'd by JVM,
+				#   and we want to signal to the monitor the new one is ok.
+				# If the refresh wrote back directly, then this entry will still work.
+				# Either way, GlobalCache has the correct entry to check
+				#   so for simplicity this is tightly coupled here.
+				gc_entry = GlobalCache._cache[self.key]
+
+				# if this CacheEntry *has* been replaced,
+				#   then copy the object to be consistent until the GC catches self
+				if self is not gc_entry:
+					self._obj = gc_entry._obj
+					
+				return gc_entry.expired
+			
+			# otherwise there's nothing to fix it, so mark this entry for destruction		
+			else:
+				return True
+		
+		# Otherwise no death condition was detected.
+		return False
+
 
 	def refresh(self):
 		"""Run the callback, if any was provided.
@@ -82,11 +131,17 @@ class CacheEntry(object):
 		  updated the cache on its own (or not - perhaps it's a cleanup...)
 		Otherwise save the value and reset the clock. 
 		"""
-		if self._callback:
-			ret_val = self._callback()
+		if self.callback:
+			# in case of failure, mark to cull and move on
+			try:
+				ret_val = self.callback()
+			except:
+				self._obj = None
+				return
+				
 			if ret_val is not None:
 				self._obj = ret_val
-				self._last_used = time()
+				self._last_time = time()
 	
 	@property
 	def key(self):
@@ -101,9 +156,9 @@ class CacheEntry(object):
 
 	def __repr__(self):
 		if self.scope is not None:
-			return '<CacheEntry "%s" of "%s">' % (self.label, self.scope)
+			return '<CacheEntry [% 9.3fs] "%s" of "%s">'  % (time() - self._last_time, self.label, self.scope,)
 		else:
-			return '<CacheEntry "%s" (global)>' % (self.label,)
+			return '<CacheEntry [% 9.3fs] "%s" (global)>' % (time() - self._last_time, self.label,)
 
 
 
@@ -134,7 +189,7 @@ class MetaGlobalCache(type):
 
 	_cache = {}
 
-	def clear_cache(cls):
+	def clear(cls):
 		"""Hard reset the cache."""
 		cls._cache = {}
 		cls._cleanup_monitor = None
@@ -185,41 +240,7 @@ class MetaGlobalCache(type):
 		"""Remove an item from the cache directly."""
 		del cls._cache[CacheEntry.gen_key(label, scope)]
 		cls.spawn_cache_monitor()
-
-
-	# Convenience (dict-like) methods
-
-	def __getitem__(cls, reference):
-		"""Retrieve an item from the cache. 
-		Acts like a dictionary lookup, but can reference a scope as well.
-
-		Reference as either [label], [label:scope], or [label, scope] 
-		"""
-		label, scope, _ = cls.resolve(reference)
-		return cls.access(label, scope)
-
-
-	def __setitem__(cls, reference, obj):
-		"""Add an item to the cache.
-		Acts like a dictionary reference, but both a scope and a lifespan can be provided.
-
-		Reference as either [label], [label:scope], [label:scope:lifespan], [label::lifespan],
-		  or [label, scope], [label, scope, lifespan], [label, , lifespan] 
-		"""
-
-		label, scope, lifespan = cls.resolve(reference)
-		return cls.stash(obj, label, scope, lifespan)
-
-
-	def __delitem__(cls, reference):
-		"""Remove an item from the cache.
-		Acts like a dictionary, but can reference a scope as well.
-
-		Reference as either [label], [label:scope], or [label, scope] 
-		"""
-		label, scope, _ = cls.resolve(reference)
-		cls.trash(label, scope)
-
+				
 
 	@classmethod
 	def resolve(cls, reference):
@@ -305,34 +326,134 @@ class MetaGlobalCache(type):
 						entry = cls._cache[key]
 					except KeyError:
 						continue # the key has been deleted mid-scan
-
+					
+					# Check if the entry is expired
+					# (remember, the entry will refresh itself if it can, referencing the new entry if needed)
 					if entry.expired:
-						# in case of failure, cull move on
-						try:
-							entry.refresh()
-						except:
-							pass
-						# check if the refresh updated the cache entry
-						if entry.expired:
-							cls.trash(entry.label, entry.scope)
+						cls.trash(entry.label, entry.scope)
 
 		cls._cleanup_monitor = monitor()
 
 
+	# Convenience (dict-like) methods
+		
+	def __getitem__(cls, reference):
+		"""Retrieve an item from the cache. 
+		Acts like a dictionary lookup, but can reference a scope as well.
+
+		Reference as either [label], [label:scope], or [label, scope] 
+		"""
+		label, scope, _ = cls.resolve(reference)
+		return cls.access(label, scope)
+
+
+	def __setitem__(cls, reference, obj):
+		"""Add an item to the cache.
+		Acts like a dictionary reference, but both a scope and a lifespan can be provided.
+
+		Reference as either [label], [label:scope], [label:scope:lifespan], [label::lifespan],
+		  or [label, scope], [label, scope, lifespan], [label, , lifespan] 
+		"""
+
+		label, scope, lifespan = cls.resolve(reference)
+		return cls.stash(obj, label, scope, lifespan)
+
+
+	def __delitem__(cls, reference):
+		"""Remove an item from the cache.
+		Acts like a dictionary, but can reference a scope as well.
+
+		Reference as either [label], [label:scope], or [label, scope] 
+		"""
+		label, scope, _ = cls.resolve(reference)
+		cls.trash(label, scope)
+
+	# Additional Dict convenience methods
+	
+	def get(cls, label, scope=None, default=None):
+		"""Return a value without a KeyError if the reference is missing. (Like a dict)"""
+		key = CacheEntry.gen_key(label, scope)
+		if key in cls._cache:
+			return cls.access(label, scope)
+		else:
+			return default
+
+	def setdefault(cls, label, scope=None, default=None, lifespan=None, callback=None):
+		"""Return a value without a KeyError, adding default if key was missing. (Like a dict)"""
+		key = CacheEntry.gen_key(label, scope)
+		if key in cls._cache:
+			return cls.access(label, scope)
+		else:
+			cls.stash(default, label, scope, lifespan, callback)
+			return default
+
+
 	def keys(cls):
+		"""Currently available keys in the cache. (Like a dict, but sorted)"""
+		return sorted(cls._cache.keys())
+
+	def iterkeys(cls):
 		"""Currently available keys in the cache. (Like a dict)"""
-		return iter(sorted(cls._cache.keys()))
+		return iter(cls.keys())
 
 	def values(cls):
 		"""All the values in the cache. Note: this shouldn't ever be used."""
 		raise NotImplementedError("Cache should not be iterated across values.")
+
+	def items(cls):
+		raise NotImplementedError("Cache should not be iterated across values.")
+		
+	def update(cls, new_values=None, **kwargs):
+		"""Updates the cache with new_values, updating existing cache entries.
+		
+		Acceptable values are:
+			new_values may be a dict, where keys are references and values are replacements.
+			new_values may be a list of references to force the entries to update themselves.
+			  where references will be decoded like dict[...] references.
+			keyword arguments are all interpreted as labels and objects, with scope=None.
+			
+		Note that the cache entries maintain their settings, and new entries get defaults.
+		Also note that this does _not_ fail to global scope - references must be explicit
+		"""
+		if new_values is None:
+			pass
+		
+		elif isinstance(new_values, dict):
+			for reference, obj in new_values.items():
+				label, scope, lifespan = cls.resolve(reference)
+				
+				# keyword arguments override given dict, so skip and leave for kwargs handling
+				if scope is None and label in kwargs:
+					continue
+					
+				key = CacheEntry.gen_key(label, scope)
+				if key in cls._cache:
+					cls._cache[key].update(obj)
+				else:
+					cls.stash(obj, label, scope, lifespan)
+			
+		# assume an iterable of references
+		else:
+			for reference in new_values:
+				label, scope, _ = cls.resolve(reference)
+				
+				key = CacheEntry.gen_key(label, scope)
+				cls._cache[key].update()
+		
+		for local, obj in kwargs.items():
+			key = CacheEntry.gen_key(label, scope=None)
+			if key in cls._cache:
+				cls._cache[key].update(obj)
+			else:
+				cls.stash(obj, local)
+		
 
 	def __contains__(cls, reference):
 		if reference in cls._cache:
 			return True
 		label, scope, _ = cls.resolve(reference)
 
-		if CacheEntry(label, scope) in cls._cache:
+		if CacheEntry.gen_key(label, scope) in cls._cache:
 			return True
 		
 		return False  
@@ -363,33 +484,39 @@ class GlobalCache(object):
 ExtraGlobal = GlobalCache
 
 
-#>>> GlobalCache._cache
-#\{}
-#>>> GlobalCache['asdf'] = 234
-#>>> GlobalCache._cache
-#{(None, 'asdf'): <__main__.CacheEntry object at 0x4>}
-#>>> GlobalCache._cleanup_monitor
-#Thread[Thread-16,5,main]
-#>>> GlobalCache._cache
-#{}
-#>>> GlobalCache['asdf'] = 234
-#>>> GlobalCache._cache
-#{(None, 'asdf'): <__main__.CacheEntry object at 0x5>}
-#>>> del GlobalCache['asdf']
-#>>> GlobalCache._cache
-#{}
-#>>> GlobalCache['asdf'] = 234
-#>>> GlobalCache._cache
-#{(None, 'asdf'): <__main__.CacheEntry object at 0x6>}
-#>>> GlobalCache.trash('asdf')
-#>>> GlobalCache._cache
-#{}
-#>>> GlobalCache['asdf':'playground':5] = 234
-#>>> GlobalCache._cache
-#{('playground', 'asdf'): <__main__.CacheEntry object at 0x7>}
-#>>> GlobalCache._cache
-#{('playground', 'asdf'): <__main__.CacheEntry object at 0x7>}
-#>>> GlobalCache._cache
-#{('playground', 'asdf'): <__main__.CacheEntry object at 0x7>}
-#>>> GlobalCache._cache
-#{}
+#from shared.tools.pretty import p,pdir
+#from time import sleep
+#
+#from shared.tools.global import GlobalCache
+#
+#GlobalCache.DEFAULT_LIFESPAN = 5
+#
+#assert GlobalCache._cache == {}
+#
+#GlobalCache['asdf'] = 234
+#p(GlobalCache._cache)
+## {(None, 'asdf'): <__main__.CacheEntry object at 0x4>}
+#
+#print GlobalCache._cleanup_monitor
+##~ Thread[Thread-16,5,main]
+#
+#sleep(6)
+#assert GlobalCache._cache == {}
+#
+#GlobalCache['asdf'] = 234
+#del GlobalCache['asdf']
+#assert GlobalCache._cache == {}
+#
+#
+#GlobalCache['asdf'] = 234
+#GlobalCache.trash('asdf')
+#assert GlobalCache._cache == {}
+#
+#
+#GlobalCache['asdf':'playground':3] = 234
+#p(GlobalCache._cache)
+#assert GlobalCache._cache[('playground', 'asdf')] == 234
+#sleep(1)
+#assert GlobalCache._cache[('playground', 'asdf')] == 234
+#sleep(2)
+#assert GlobalCache._cache == {}
