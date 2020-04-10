@@ -153,6 +153,14 @@ class CacheEntry(object):
 		"""Reference this method to generate the key schema for the cache."""
 		return (scope, label)
 
+	
+	def __eq__(self, other):
+		"""Don't reset timer when merely checked (like in testing)"""
+		return self._obj == other
+		
+	def __ne__(self, other):
+		"""Don't reset timer when merely checked (like in testing)"""
+		return self._obj != other
 
 	def __repr__(self):
 		if self.scope is not None:
@@ -160,7 +168,7 @@ class CacheEntry(object):
 		else:
 			return '<CacheEntry [% 9.3fs] "%s" (global)>' % (time() - self._last_time, self.label,)
 
-
+	
 
 class MetaGlobalCache(type):
 	"""Force the GlobalCache to be a singleton object.
@@ -175,6 +183,8 @@ class MetaGlobalCache(type):
 	Objects are all saved with their last checked time and will be scrubbed when the expire
 	  (assuming they do not autorenew themselves.)
 	"""
+	# Interlock for once-and-only-once setup
+	_initialized = False
 
 	# Default period a cache entry should live in the cache before garbage collection
 	DEFAULT_LIFESPAN = 60 # seconds
@@ -185,16 +195,36 @@ class MetaGlobalCache(type):
 	# Period to check if the monitor has been replaced or should be shut down.
 	RELEVANCE_CHECK_PERIOD = 1 # second
 
-	_cleanup_monitor = None
+	_CLEANUP_MONITOR = None
 
 	_cache = {}
+	
+	def __new__(cls, clsname, bases, attrs):
+		"""Run when GlobalCache is created. Set to run once and only once."""
+		if not cls._initialized:
+			newclass = super(MetaGlobalCache, cls).__new__(cls, clsname, bases, attrs)	
+			cls._initialized = newclass
+			return newclass
+		else:
+			init_class_name = cls._initialized.__name__
+			raise RuntimeError("MetaGlobalCache can initialize one class globally. Use %s instead." % (init_class_name,))
 
 	def clear(cls):
 		"""Hard reset the cache."""
 		cls._cache = {}
-		cls._cleanup_monitor = None
+		cls._CLEANUP_MONITOR = None
 
-	
+
+	def __setattr__(cls, key, value):
+		"""Further control what can be changed. This will essentially trap the (meta)class into a singleton framework."""
+		# allow global constants to change
+		if key.upper() == key:
+			setattr(type(cls), key, value)
+		elif not cls._initialized:
+			setattr(cls, key, value)
+		else:
+			raise AttributeError("Only global (all uppercase) attributes on %s can be changed" % repr(cls))
+
 	# Primary access methods
 
 	def stash(cls, obj, label=None, scope=None, lifespan=None, callback=None):
@@ -291,8 +321,8 @@ class MetaGlobalCache(type):
 		If the thread that was watching is dead for some reason, replace it.
 
 		The monitoring script will run in perpetuity, but will die if:
-		 - the class' _cleanup_monitor is cleared
-		 - the class' _cleanup_monitor no longer references the monitoring script
+		 - the class' _CLEANUP_MONITOR is cleared
+		 - the class' _CLEANUP_MONITOR no longer references the monitoring script
 		 - the cache is empty
 		
 		Once started, the monitor will scan all objects in the cache to determine
@@ -300,11 +330,11 @@ class MetaGlobalCache(type):
 		  to refresh it. If the refresh brought the object back, then it will be skipped.
 		  Otherwise the cache entry will be trashed.
 		"""
-		if cls._cleanup_monitor:
-			if cls._cleanup_monitor.getState() != Thread.State.TERMINATED:
+		if cls._CLEANUP_MONITOR:
+			if cls._CLEANUP_MONITOR.getState() != Thread.State.TERMINATED:
 				return
 			else:
-				cls._cleanup_monitor = None
+				cls._CLEANUP_MONITOR = None
 
 		@async(0.001)
 		def monitor(cls=cls):
@@ -314,10 +344,10 @@ class MetaGlobalCache(type):
 				# should be replaced. (Once scan starts, thread won't die until it's done.)
 				for iterNum,lastStepTime in EveryFixedDelay(cls.CHECK_PERIOD, cls.RELEVANCE_CHECK_PERIOD):
 					# die if disconnected reference or unneeded
-					if not (cls._cleanup_monitor and cls._cache):
+					if not (cls._CLEANUP_MONITOR and cls._cache):
 						return
 					# die if another monitor has somehow been spun up instead
-					if cls._cleanup_monitor != Thread.currentThread():
+					if cls._CLEANUP_MONITOR != Thread.currentThread():
 						return
 
 				# Scan the cache, removing entries as needed.
@@ -332,7 +362,7 @@ class MetaGlobalCache(type):
 					if entry.expired:
 						cls.trash(entry.label, entry.scope)
 
-		cls._cleanup_monitor = monitor()
+		cls._CLEANUP_MONITOR = monitor()
 
 
 	# Convenience (dict-like) methods
@@ -487,36 +517,48 @@ ExtraGlobal = GlobalCache
 #from shared.tools.pretty import p,pdir
 #from time import sleep
 #
-#from shared.tools.global import GlobalCache
-#
+#from shared.tools.global import GlobalCache, MetaGlobalCache
+#	
 #GlobalCache.DEFAULT_LIFESPAN = 5
+#GlobalCache.CHECK_PERIOD = 0.1
+#GlobalCache.RELEVANCE_CHECK_PERIOD = 0.05
 #
 #assert GlobalCache._cache == {}
 #
+#print "\nTesting basic timeout - wait 5s"
 #GlobalCache['asdf'] = 234
 #p(GlobalCache._cache)
 ## {(None, 'asdf'): <__main__.CacheEntry object at 0x4>}
 #
-#print GlobalCache._cleanup_monitor
+#print GlobalCache._CLEANUP_MONITOR
 ##~ Thread[Thread-16,5,main]
 #
 #sleep(6)
 #assert GlobalCache._cache == {}
 #
+#print "\nTesting del"
 #GlobalCache['asdf'] = 234
 #del GlobalCache['asdf']
 #assert GlobalCache._cache == {}
 #
-#
+#print "\nTesting trash"
 #GlobalCache['asdf'] = 234
 #GlobalCache.trash('asdf')
 #assert GlobalCache._cache == {}
 #
-#
+#print "\nTesting partial timeout - 3 checks in 3 seconds"
 #GlobalCache['asdf':'playground':3] = 234
 #p(GlobalCache._cache)
 #assert GlobalCache._cache[('playground', 'asdf')] == 234
 #sleep(1)
 #assert GlobalCache._cache[('playground', 'asdf')] == 234
-#sleep(2)
+#sleep(2.5)
 #assert GlobalCache._cache == {}
+#
+#try:
+#	# raises RuntimeError
+#	class BARGLE(object):
+#		__metaclass__ = MetaGlobalCache
+#	raise AssertionError("Failed to catch singleton definition case.")
+#except RuntimeError:
+#	pass	
