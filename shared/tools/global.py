@@ -84,6 +84,10 @@ class CacheEntry(object):
 	def last_time(self):
 		"""Set as a property to prevent getting easily written to."""
 		return self._last_time
+		
+	@property
+	def time_remaining(self):
+		return max(0, self.lifespan - (time() - self._last_time))
 
 	@property 
 	def expired(self):
@@ -211,7 +215,7 @@ class MetaGlobalCache(type):
 
 	def clear(cls):
 		"""Hard reset the cache."""
-		cls._cache = {}
+		cls._cache.clear()
 		cls._CLEANUP_MONITOR = None
 
 
@@ -336,7 +340,7 @@ class MetaGlobalCache(type):
 			else:
 				cls._CLEANUP_MONITOR = None
 
-		@async(0.001)
+		@async(0.001, 'GlobalCache Monitor')
 		def monitor(cls=cls):
 
 			while True:
@@ -363,7 +367,6 @@ class MetaGlobalCache(type):
 						cls.trash(entry.label, entry.scope)
 
 		cls._CLEANUP_MONITOR = monitor()
-
 
 	# Convenience (dict-like) methods
 		
@@ -425,6 +428,9 @@ class MetaGlobalCache(type):
 	def iterkeys(cls):
 		"""Currently available keys in the cache. (Like a dict)"""
 		return iter(cls.keys())
+
+	def __len__(cls):
+		return len(cls._cache)
 
 	def values(cls):
 		"""All the values in the cache. Note: this shouldn't ever be used."""
