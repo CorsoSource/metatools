@@ -7,6 +7,9 @@ from __future__ import with_statement
 from functools import wraps, partial
 from time import sleep
 
+from java.lang import Thread, ThreadGroup
+from jarray import array, zeros
+
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
 __license__ = 'Apache 2.0'
@@ -102,3 +105,50 @@ def async(startDelaySeconds=None, name=None):
 		except AttributeError:
 			assert startDelaySeconds is None and name is None, 'The @async decorator was likely called wrong.\nSimply do not use () with no params.'
 			return async(0)
+
+
+def findThread(thread_name_pattern='.*', thread_group=None, recursive=False, sandbagging_percent=110):
+	"""Find a thread in reachable scope that matches the pattern provided.
+
+	Pattern is a regular expression, so an explicit name will work.
+
+	Returns a list of threads. Names are _not_ guaranteed to be unique!
+	  Thus, even a direct name reference can't be used directly. Only the `getId()` value
+	  is unique.
+
+	By default, it only looks in the local thread group.
+	If recursive is selected, it will also look at any lower thread_groups.
+	If both are default, it scans all threads available.
+	"""
+	
+	# Guess scope and search all groups if need. 
+	# Otherwise start with a hint
+	if thread_group is None:
+		my_thread = Thread.currentThread()
+		search_group = my_thread.getThreadGroup()
+		
+		if recursive:
+			while search_group.parent is not None:
+				search_group = search_group.parent
+		
+	# Get all the threads in the group
+	# Docs note that this may change moment to moment,
+	#   so use it as a guide and check
+	est_num_threads = my_group.activeCount()
+	
+	# As a sanity check, ask for more and then be sure we didn't exceed it
+	overshot_estimate = int(est_num_threads * (sandbagging_percent/100.0))
+	
+	all_threads = zeros(overshot_estimate, Thread)
+	
+	search_group.enumerate(my_group_threads, recursive)
+
+	matching_threads = []
+	match_pattern = re.compile(thread_name_pattern)
+	for thread in my_group_threads:
+		if not thread:
+			continue
+		if match_pattern.match(thread.getName()):
+			matching_threads.append(thread)
+	
+	return matching_threads
