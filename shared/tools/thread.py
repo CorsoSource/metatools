@@ -12,10 +12,16 @@ from java.lang import Thread, ThreadGroup
 from jarray import array, zeros
 
 
+from org.python.core import ThreadStateMapping
+
+
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
 __license__ = 'Apache 2.0'
 __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
+
+
+__all__ = ['async', 'findThread', 'getThreadObject']
 
 
 def async(startDelaySeconds=None, name=None):
@@ -152,3 +158,12 @@ def findThread(thread_name_pattern='.*', search_group=None, recursive=False, san
 			matching_threads.append(thread)
 	
 	return matching_threads
+
+
+def getThreadObject(target_thread, object_name):
+	"""Abuse optimizations in Jython to get objects in other frames.
+
+	See Jython commit 8f00d52031a5dbce833ec6e3b0bc7f6e90d56513
+	  and http://bugs.jython.org/issue2321
+	"""
+	return ThreadStateMapping._current_frames()[target_thread.getId()].f_locals[object_name]
