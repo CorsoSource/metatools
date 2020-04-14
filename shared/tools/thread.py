@@ -6,6 +6,7 @@
 from __future__ import with_statement
 from functools import wraps, partial
 from time import sleep
+import re
 
 from java.lang import Thread, ThreadGroup
 from jarray import array, zeros
@@ -107,7 +108,7 @@ def async(startDelaySeconds=None, name=None):
 			return async(0)
 
 
-def findThread(thread_name_pattern='.*', thread_group=None, recursive=False, sandbagging_percent=110):
+def findThread(thread_name_pattern='.*', search_group=None, recursive=False, sandbagging_percent=110):
 	"""Find a thread in reachable scope that matches the pattern provided.
 
 	Pattern is a regular expression, so an explicit name will work.
@@ -123,29 +124,28 @@ def findThread(thread_name_pattern='.*', thread_group=None, recursive=False, san
 	
 	# Guess scope and search all groups if need. 
 	# Otherwise start with a hint
-	if thread_group is None:
-		my_thread = Thread.currentThread()
-		search_group = my_thread.getThreadGroup()
+	if search_group is None:
+		search_group = Thread.currentThread().getThreadGroup()
 		
 		if recursive:
 			while search_group.parent is not None:
 				search_group = search_group.parent
-		
+
 	# Get all the threads in the group
 	# Docs note that this may change moment to moment,
 	#   so use it as a guide and check
-	est_num_threads = my_group.activeCount()
+	estimated_num_threads = search_group.activeCount()
 	
 	# As a sanity check, ask for more and then be sure we didn't exceed it
-	overshot_estimate = int(est_num_threads * (sandbagging_percent/100.0))
+	overshot_estimate = int(estimated_num_threads * (sandbagging_percent/100.0))
 	
-	all_threads = zeros(overshot_estimate, Thread)
+	search_group_threads = zeros(overshot_estimate, Thread)
 	
-	search_group.enumerate(my_group_threads, recursive)
+	search_group.enumerate(search_group_threads, recursive)
 
 	matching_threads = []
 	match_pattern = re.compile(thread_name_pattern)
-	for thread in my_group_threads:
+	for thread in search_group_threads:
 		if not thread:
 			continue
 		if match_pattern.match(thread.getName()):
