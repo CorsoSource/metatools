@@ -197,7 +197,7 @@ class ExtraMetaExtraGlobal(type):
 		assert len(cache_threads) <= 1, "The ExtraGlobal-Cache thread has been spun up more than once! Only one should be alive: %r" % cache_threads
 
 		if not cache_threads:
-			system.util.getLogger('ExtraGlobal').info('Spinning up holding thread')
+			system.util.getLogger('ExtraGlobal').debug('Spinning up holding thread')
 
 			MetaExtraGlobal = super(ExtraMetaExtraGlobal, cls).__new__(cls, clsname, bases, attrs)
 	
