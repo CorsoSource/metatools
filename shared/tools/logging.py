@@ -161,40 +161,48 @@ class Logger(BaseLogger):
 	def _generatePerspectiveComponentPath(self, scope, component=None):
 		# parsed as example in 'function: onActionPerformed' or 'custom-method someFunction'
 		functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
-
-		if not component:
-			component = getObjectByName('self', startRecent=False)
-		assert 'com.inductiveautomation.perspective' in str(type(component)), 'Incorrectly detected Perspective context'
-		session = component.session
-		page = component.page
-		view = component.view
-		componentPath = []
-		while component:
-			componentPath.append(component.name)
-			component = component.parent
+		
+		try:
+			if not component:
+				component = getObjectByName('self', startRecent=False)
+			assert 'com.inductiveautomation.perspective' in str(type(component)), 'Incorrectly detected Perspective context'
+			session = component.session
+			page = component.page
+			view = component.view
+			componentPath = []
+			while component:
+				componentPath.append(component.name)
+				component = component.parent
+				
+			return '[%s - %s.%s] ' % (view.id, '/'.join(reversed(componentPath)), functionName)
+		except AssertionError:
+			return '[%s] ' % scope
 			
-		return '[%s - %s.%s] ' % (view.id, '/'.join(reversed(componentPath)), functionName)
-	
 	
 	def _generateVisionComponentPath(self, scope, event=None, component=None):
-		functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
+		
+		try:
+			functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
+			
+			if not event:
+				event = getObjectByName('event', startRecent=False)
+				window = system.gui.getParentWindow(event)
+			if not component:
+				component = event.source
+	
+			componentPath = []
+			while not isinstance(component, FPMIWindow):
+				label = component.name
+				if isinstance(component, TemplateHolder):
+					label = '<%s>' % component.templatePath
+				componentPath.append(label)
+				component = component.parent
+						
+			return '[%s: %s.%s] ' % (window.path, '/'.join(reversed(componentPath[:-3])), functionName)
+	
+		except AttributeError:
+			return '[%s] ' % scope
 
-		if not event:
-			event = getObjectByName('event', startRecent=False)
-			window = system.gui.getParentWindow(event)
-		if not component:
-			component = event.source
-
-		componentPath = []
-		while not isinstance(component, FPMIWindow):
-			label = component.name
-			if isinstance(component, TemplateHolder):
-				label = '<%s>' % component.templatePath
-			componentPath.append(label)
-			component = component.parent
-					
-		return '[%s: %s.%s] ' % (window.path, '/'.join(reversed(componentPath[:-3])), functionName)
-				
 				
 	def _autoConfigure(self, loggerName=None):
 		"""The master configuration routine. This will branch down and check if a known state is set.
