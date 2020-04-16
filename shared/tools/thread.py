@@ -72,7 +72,10 @@ def async(startDelaySeconds=None, name=None):
 				def full_closure(function, delaySeconds, args=args, kwargs=kwargs):
 					#print 'delaying %0.3f' % delaySeconds
 					sleep(delaySeconds)
-					_ = function(*args,**kwargs)
+					try:
+						_ = function(*args,**kwargs)
+					except KeyboardInterrupt:
+						pass
 					
 				# Wrap the function and delay values to prevent early GC of function and delay
 				closure = partial(full_closure, function, delaySeconds)
@@ -95,9 +98,11 @@ def async(startDelaySeconds=None, name=None):
 			def asyncWrapper(*args, **kwargs):
 				# Create the closure to carry the scope into another thread
 				def full_closure(function, args=args, kwargs=kwargs):
-					#print 'running immediately'
-					_ = function(*args,**kwargs)
-				
+					try:
+						_ = function(*args,**kwargs)
+					except KeyboardInterrupt:
+						pass
+
 				# Wrap the function and delay values to prevent early GC of function and delay
 				closure = partial(full_closure, function)
 				
