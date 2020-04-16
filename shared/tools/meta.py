@@ -11,6 +11,7 @@
 
 
 import math,re, sys
+import java.lang.Class as JavaClass
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -186,7 +187,7 @@ def getReflectedField(self, field_name, method_class=None):
 		# If this the case, check if the class is just the name.
 		#   (Java lets us get a class by its unique name reference)
 		if isinstance(method_class, (unicode, str)):
-			method_class = Class.forName(method_class)
+			method_class = JavaClass.forName(method_class)
 		field = method_class.getDeclaredField(field_name)
 	
 	# Java reflection respects class privacy by default.
