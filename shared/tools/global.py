@@ -392,7 +392,7 @@ class MetaExtraGlobal(type):
 			else:
 				cls._CLEANUP_MONITOR = None
 
-		@async(0.001, 'ExtraGlobal Monitor')
+		@async(0.001, 'ExtraGlobal-Monitor')
 		def monitor(cls=cls):
 
 			while True:
