@@ -8,11 +8,12 @@ from functools import wraps, partial
 from time import sleep
 import re
 
+
 from java.lang import Thread, ThreadGroup
 from jarray import array, zeros
+from org.python.core import ThreadState
 
-
-from org.python.core import ThreadStateMapping
+from shared.tools.meta import getReflectedField
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -164,11 +165,43 @@ def findThread(thread_name_pattern='.*', search_group=None, recursive=False, san
 	
 	return matching_threads
 
+	
+def getFromThreadScope(target_thread, object_name):
+	"""Abuse optimizations in Jython or reflection in Java to get objects in other frames.
 
-def getThreadObject(target_thread, object_name):
-	"""Abuse optimizations in Jython to get objects in other frames.
-
-	See Jython commit 8f00d52031a5dbce833ec6e3b0bc7f6e90d56513
+	For the ThreadStateMapping method, see Jython commit 8f00d52031
 	  and http://bugs.jython.org/issue2321
+	For the Java reflection introspection, see  
+	  https://web.archive.org/web/20150505022210/http://weblogs.java.net/blog/jjviana/archive/2010/06/09/dealing-glassfish-301-memory-leak-or-threadlocal-thread-pool-bad-ide
+	  https://web.archive.org/web/20150422074412/http://blog.igorminar.com/2009/03/identifying-threadlocal-memory-leaks-in.html
 	"""
-	return ThreadStateMapping._current_frames()[target_thread.getId()].f_locals[object_name]
+
+	try:
+		# Jython 2.7 has a singleton-style dictionary that keeps track of the thread states.
+		# Given a thread ID, it will return the ThreadState object
+		from org.python.core import ThreadStateMapping
+	
+		thread_state = ThreadStateMapping._current_frames()[target_thread.getId()]
+
+	except (ImportError, AttributeError):
+		# Earlier builds of Jython do not have the internals exposed. At least, not the same way.
+		# The following introspects the thread tiven and returns what it finds.
+		thread_locals = getReflectedField(target_thread, 'threadLocals')
+
+		table = getReflectedField(thread_locals, 'table', 'java.lang.ThreadLocal$ThreadLocalMap')
+
+		for entry in table:
+			if entry is None:
+				continue
+			
+			value = getReflectedField(entry, 'value')
+			
+			if isinstance(value, ThreadState):
+				thread_state = value
+				break
+		else:
+			raise AttributeError("Python ThreadState object not found for given thread!")
+		
+	# The ThreadState object contains the current Python frame under execution.
+	# Frames have all the needed context to execute, including the variable references in scope.
+	return thread_state.frame.f_locals[object_name]

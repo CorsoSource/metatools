@@ -170,3 +170,37 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 			out += ['%s=%r' % (args[nnondefault + i],defaults[i])]
 	
 		return '(%s)' % ', '.join(out)
+
+
+def getReflectedField(self, field_name, method_class=None):
+	"""Using reflection, we may need to tell the JVM to allow us to see the object."""
+	
+	# Typically, we will pull the field off the given object instance
+	#   (traditionally named 'self' in Python)
+	if method_class is None:
+		field = self.class.getDeclaredField(field_name)
+	else:
+		# But we may have situations where it is more straight-forward
+		#   to get the method first, then pass self in 
+		#   (as all class methods are declared in Python)
+		# If this the case, check if the class is just the name.
+		#   (Java lets us get a class by its unique name reference)
+		if isinstance(method_class, (unicode, str)):
+			method_class = Class.forName(method_class)
+		field = method_class.getDeclaredField(field_name)
+	
+	# Java reflection respects class privacy by default.
+	# But to be useful it needs to be able to inspect regardless.
+	# Also, this code is in Python, so we already don't have a problem
+	#   with respectfully-hidden-but-still-accessible private attributes.
+	try:
+		original_accesibility = field.isAccessible()
+		field.setAccessible(True)
+		# Note that this is very similar to Python's self.
+		# An alternate way to write this is source.field in Python
+		attribute = field.get(self)
+	finally:
+		# ... That all said, we'll still put this back out of politeness.
+		field.setAccessible(original_accesibility)
+	
+	return attribute
