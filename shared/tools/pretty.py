@@ -6,10 +6,11 @@
 
 
 import re, math, textwrap
+from array import array
 from java.lang import Exception as JavaException
 from com.inductiveautomation.ignition.common import BasicDataset
 from com.inductiveautomation.ignition.common.script.builtin.DatasetUtilities import PyDataSet
-from shared.tools.meta import getObjectName, getFunctionCallSigs, sentinel
+from shared.tools.meta import getObjectName, getFunctionCallSigs, sentinel, isJavaObject, getReflectedField
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -67,40 +68,66 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 			out += [docPattern % (indent, line)]
 		else:
 			out += ['']
+
+	attrDir = set(dir(o))
 	
-	attributes = [attribute for attribute in dir(o)
-				  if not (attribute.startswith('_') and skipPrivate)]
-					
+	try:
+		if isJavaObject(o) and not skipPrivate:
+			attributes = set(attr.name for attr in o.getDeclaredFields())
+			attributes |= attrDir
+		else:
+			raise StopIteration("Default to the normal dir command...")		
+	except:
+		attributes = [attribute for attribute in attrDir
+					  if not (attribute.startswith('_') and skipPrivate)]
+	
+	attributes = sorted(attributes)
 	# preprocessing
 	attrTypes = []
 	attrTypeStrings = []
 	attrReprs = []
+	attrPrivates = []
 	attrDocs = []
 	for attribute in sorted(attributes):
 	
 		try:
-			attr = getattr(o,attribute)
-			attrType = type(attr)
-			attrTypes.append(attrType)
+			attrPrivates.append((not attribute in attrDir) or attribute.startswith('_'))
 			
-			typeStr = str(attrType)[7:-2]
-			typeStr = typeStr.partition('$')[0]
-			attrTypeStrings.append(typeStr)
-			try:
-				attrReprs.append(getFunctionCallSigs(attr))
-			except:
+			if not attribute in attrDir:
+				attrType = o.getDeclaredField(attribute).type
+				
+				attrTypes.append(attrType)
+				typeStr = str(attrType)[7:-2]
+				typeStr = typeStr.partition('$')[0]
+				attrTypeStrings.append(typeStr)
+				
+				attrReprs.append(repr(getReflectedField(o,attribute)))
+				attrDocs.append(None)
+			else:
+				attr = getattr(o,attribute)
+				attrType = type(attr)
+
+				attrTypes.append(attrType)
+				typeStr = str(attrType)[7:-2]
+				typeStr = typeStr.partition('$')[0]
+				attrTypeStrings.append(typeStr)
+
 				try:
-					attrReprs.append(repr(attr))
+					attrReprs.append(getFunctionCallSigs(attr))
 				except:
 					try:
-						attrReprs.append(str(attr))
+						attrReprs.append(repr(attr))
 					except:
-						attrReprs.append('< ? >')
+						try:
+							attrReprs.append(str(attr))
+						except:
+							attrReprs.append('< ? >')
 				
-			try:
-				attrDocs.append(' '.join(attr.__doc__.splitlines()))	
-			except:
-				attrDocs.append(None)
+				try:
+					attrDocs.append(' '.join(attr.__doc__.splitlines()))	
+				except:
+					attrDocs.append(None)
+					
 		except AttributeError, e:
 			try:
 				attr = getattr(o,attribute)
@@ -136,14 +163,16 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 	if ellipsisLimit and maxReprLen > ellipsisLimit:
 		maxReprLen = ellipsisLimit
 						  
-	attrPattern = '%s%%-%ds   %%-%ds   %%-%ds'          % (indent, maxAttrLen+2, maxReprLen+2, maxTypeLen+2)
-	attrDocPattern = '%s%%-%ds   %%-%ds   %%-%ds   %%s' % (indent, maxAttrLen+2, maxReprLen+2, maxTypeLen+2)
+	attrPattern = '%s%%-%ds   %%3s   %%-%ds   %%-%ds'          % (indent, maxAttrLen+2, maxReprLen+2, maxTypeLen+2)
+	attrDocPattern = '%s%%-%ds   %%3s   %%-%ds   %%-%ds   %%s' % (indent, maxAttrLen+2, maxReprLen+2, maxTypeLen+2)
 	
-	out += [attrPattern % ('Attribute', 'Repr', '<Type>')]
-	out += [attrPattern % ('-'*maxAttrLen, '-'*maxReprLen, '-'*maxTypeLen)]
+	out += [attrPattern % ('Attribute', '(P)', 'Repr', '<Type>')]
+	out += [attrPattern % ('-'*maxAttrLen, '---', '-'*maxReprLen, '-'*maxTypeLen)]
 	
 	# calculating
-	for attrType,attrTypeStr,attribute,attrRepr,attrDoc in zip(attrTypes,attrTypeStrings,attributes,attrReprs,attrDocs):
+	for attrType,attrPriv,attrTypeStr,attribute,attrRepr,attrDoc in zip(attrTypes,attrPrivates,attrTypeStrings,attributes,attrReprs,attrDocs):
+		
+		attrPriv = ' * ' if attrPriv else '   '
 		
 		if attrTypeStr in skipTypes:
 			attrTypeStr = ''
@@ -161,9 +190,9 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 			attrTypeStr = '%s...' % attrTypeStr[:maxReprLen-4]
 
 		if attrDoc and includeDocs:
-			outStr = attrDocPattern % (attribute, attrRepr, attrTypeStr, attrDoc)
+			outStr = attrDocPattern % (attribute, attrPriv, attrRepr, attrTypeStr, attrDoc)
 		else:
-			outStr = attrPattern % (attribute, attrRepr, attrTypeStr)
+			outStr = attrPattern % (attribute, attrPriv, attrRepr, attrTypeStr)
 		
 		outStr = ' -- '.join(outStr.splitlines())
 		out += [outStr]
@@ -234,8 +263,11 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
 			out += [rowPattern % tuple([i] + list(row))]		
 		
 		
-	elif isinstance(o, (list, tuple)):
-		out += ['"%s" <%s> of %d elements' % (getObjectName(o,estimatedDepth=2), str(type(o))[6:-1],len(o))]
+	elif isinstance(o, (list, tuple, array)):
+		out += ['"%s" <%s> of %d elements' % (
+			getObjectName(o,estimatedDepth=2), 
+		    '<%s> array' % o.typecode if isinstance(o,array) else str(type(o))[6:-1],
+			len(o))]
 		
 		# preprocessing
 		maxRowWidth = int(math.floor(math.log10(len(o))))

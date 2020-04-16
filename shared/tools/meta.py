@@ -97,6 +97,28 @@ def currentStackDepth(maxDepth=100):
 		return None
 
 
+def isJavaObject(o):
+	"""Walk up the object inheritance heirarchy to determine if the object is Java-based"""
+	cutoff = 10
+	
+	while cutoff:
+		cutoff -= 1
+		oType = type(o)
+
+		if oType is JavaClass:
+			return True
+		
+		if oType is type:
+			return False
+	
+	raise RuntimeError('Checking object type of "%s" exceeded recursion depth' % repr(o)[:40])
+		
+		
+def isPythonObject(o):
+	"""Walk up the object inheritance heirarchy to determine if the object is Python-based"""
+	return not isJavaObject(o)
+	
+
 def getObjectName(o, estimatedDepth=None, startRecent=True):
 	"""Get an item's name by finding its first reference in the stack.
 
@@ -179,7 +201,10 @@ def getReflectedField(self, field_name, method_class=None):
 	# Typically, we will pull the field off the given object instance
 	#   (traditionally named 'self' in Python)
 	if method_class is None:
-		field = self.class.getDeclaredField(field_name)
+		try:
+			field = self.class.getDeclaredField(field_name)
+		except AttributeError:
+			field = self.getDeclaredField(field_name)
 	else:
 		# But we may have situations where it is more straight-forward
 		#   to get the method first, then pass self in 
