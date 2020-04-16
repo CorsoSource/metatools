@@ -5,7 +5,7 @@
 
 	The ExtraGlobal class can not be instantiated - it is forced to be a singleton
 	  interface by the metaclass that defines it. All methods to interact with the
-	  cache is via MetaGlobalCache's configuration. 
+	  cache is via MetaExtraGlobal's configuration. 
 
 	Note that this has the side effect of not only being a singleton, 
 	  but it also effectively can't be subclassed! Don't try to: this is
@@ -110,9 +110,9 @@ class CacheEntry(object):
 				#   and the new entry will be fine and this one will just get GC'd by JVM,
 				#   and we want to signal to the monitor the new one is ok.
 				# If the refresh wrote back directly, then this entry will still work.
-				# Either way, GlobalCache has the correct entry to check
+				# Either way, ExtraGlobal has the correct entry to check
 				#   so for simplicity this is tightly coupled here.
-				gc_entry = GlobalCache._cache[self.key]
+				gc_entry = ExtraGlobal._cache[self.key]
 
 				# if this CacheEntry *has* been replaced,
 				#   then copy the object to be consistent until the GC catches self
@@ -213,7 +213,7 @@ class ExtraMetaExtraGlobal(type):
 			cls.GLOBAL_REFERENCE = getFromThreadScope(cache_thread, 'MetaExtraGlobal')
 	
 		else:
-			system.util.getLogger('ExtraGlobal').info('Already initialized: %r' % cls.GLOBAL_REFERENCE)
+			system.util.getLogger('ExtraGlobal').debug('Already initialized: %r' % cls.GLOBAL_REFERENCE)
 
 			cls.GLOBAL_REFERENCE = getFromThreadScope(cache_threads[0], 'MetaExtraGlobal')
 	
@@ -226,7 +226,7 @@ class ExtraMetaExtraGlobal(type):
 #			
 
 class MetaExtraGlobal(type):
-	"""Force the GlobalCache to be a singleton object.
+	"""Force the ExtraGlobal to be a singleton object.
 	This enforces that any (effectively all) global state is accessible.
 	
 	By default, a scope of None is "global". If a scope is provided and the key fails,
@@ -257,15 +257,13 @@ class MetaExtraGlobal(type):
 	_cache = {}
 	
 	def __new__(cls, clsname, bases, attrs):
-		"""Run when GlobalCache is created. Set to run once and only once."""
+		"""Run when ExtraGlobal is created. Set to run once and only once."""
 		if not cls._initialized:
 			newclass = super(MetaExtraGlobal, cls).__new__(cls, clsname, bases, attrs)
 			cls._initialized = newclass
 			return newclass
 		else:
-			init_class_name = cls._initialized.__name__
-			raise RuntimeError("MetaExtraGlobal can initialize one class globally. Use %s instead." % (init_class_name,))
-
+			return cls._initialized
 
 	def clear(cls):
 		"""Hard reset the cache."""
@@ -394,7 +392,7 @@ class MetaExtraGlobal(type):
 			else:
 				cls._CLEANUP_MONITOR = None
 
-		@async(0.001, 'GlobalCache Monitor')
+		@async(0.001, 'ExtraGlobal Monitor')
 		def monitor(cls=cls):
 
 			while True:
@@ -574,48 +572,48 @@ class ExtraGlobal(object):
 #from shared.tools.pretty import p,pdir
 #from time import sleep
 #
-#from shared.tools.global import GlobalCache, MetaGlobalCache
+#from shared.tools.global import ExtraGlobal, MetaExtraGlobal
 #	
-#GlobalCache.DEFAULT_LIFESPAN = 5
-#GlobalCache.CHECK_PERIOD = 0.1
-#GlobalCache.RELEVANCE_CHECK_PERIOD = 0.05
+#ExtraGlobal.DEFAULT_LIFESPAN = 5
+#ExtraGlobal.CHECK_PERIOD = 0.1
+#ExtraGlobal.RELEVANCE_CHECK_PERIOD = 0.05
 #
-#assert GlobalCache._cache == {}
+#assert ExtraGlobal._cache == {}
 #
 #print "\nTesting basic timeout - wait 5s"
-#GlobalCache['asdf'] = 234
-#p(GlobalCache._cache)
+#ExtraGlobal['asdf'] = 234
+#p(ExtraGlobal._cache)
 ## {(None, 'asdf'): <__main__.CacheEntry object at 0x4>}
 #
-#print GlobalCache._CLEANUP_MONITOR
+#print ExtraGlobal._CLEANUP_MONITOR
 ##~ Thread[Thread-16,5,main]
 #
 #sleep(6)
-#assert GlobalCache._cache == {}
+#assert ExtraGlobal._cache == {}
 #
 #print "\nTesting del"
-#GlobalCache['asdf'] = 234
-#del GlobalCache['asdf']
-#assert GlobalCache._cache == {}
+#ExtraGlobal['asdf'] = 234
+#del ExtraGlobal['asdf']
+#assert ExtraGlobal._cache == {}
 #
 #print "\nTesting trash"
-#GlobalCache['asdf'] = 234
-#GlobalCache.trash('asdf')
-#assert GlobalCache._cache == {}
+#ExtraGlobal['asdf'] = 234
+#ExtraGlobal.trash('asdf')
+#assert ExtraGlobal._cache == {}
 #
 #print "\nTesting partial timeout - 3 checks in 3 seconds"
-#GlobalCache['asdf':'playground':3] = 234
-#p(GlobalCache._cache)
-#assert GlobalCache._cache[('playground', 'asdf')] == 234
+#ExtraGlobal['asdf':'playground':3] = 234
+#p(ExtraGlobal._cache)
+#assert ExtraGlobal._cache[('playground', 'asdf')] == 234
 #sleep(1)
-#assert GlobalCache._cache[('playground', 'asdf')] == 234
+#assert ExtraGlobal._cache[('playground', 'asdf')] == 234
 #sleep(2.5)
-#assert GlobalCache._cache == {}
+#assert ExtraGlobal._cache == {}
 #
 #try:
 #	# raises RuntimeError
 #	class BARGLE(object):
-#		__metaclass__ = MetaGlobalCache
+#		__metaclass__ = MetaExtraGlobal
 #	raise AssertionError("Failed to catch singleton definition case.")
 #except RuntimeError:
 #	pass	
