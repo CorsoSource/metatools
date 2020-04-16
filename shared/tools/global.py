@@ -18,7 +18,7 @@
 		  Or use it (carefully!) to continue partial calculations.
 """
 
-from shared.tools.thread import async
+from shared.tools.thread import async, findThread, getFromThreadScope
 from shared.tools.timing import EveryFixedDelay
 
 from time import time, sleep
@@ -172,9 +172,60 @@ class CacheEntry(object):
 		else:
 			return '<CacheEntry [% 9.3fs] "%s" (global)>' % (time() - self._last_time, self.label,)
 
-	
 
-class MetaGlobalCache(type):
+class ExtraMetaExtraGlobal(type):
+	"""Force the MetaExtraGlobal definition to be a JVM-level global singleton object.
+
+	The goal here is to reach across all Python threads and make sure that there can
+	  be only one cache.
+
+	For a little bit of clarity, the metaclasses are being used a bit like this:
+	  ExtraMetaExtraGlobal - ensure JVM-level singleton definition
+	  MetaExtraGlobal      - ensure interface to dict is strictly method-based
+	  ExtraGlobal          - ensure instantiation is impossible and define a class for the methods
+	"""
+	HOLDING_THREAD_NAME = 'ExtraGlobal-Cache'
+	
+	GLOBAL_REFERENCE = None
+
+	def __new__(cls, clsname, bases, attrs):
+		if cls.GLOBAL_REFERENCE:
+			return cls.GLOBAL_REFERENCE
+
+		cache_threads = findThread(cls.HOLDING_THREAD_NAME)
+
+		assert len(cache_threads) <= 1, "The ExtraGlobal-Cache thread has been spun up more than once! Only one should be alive: %r" % cache_threads
+
+		if not cache_threads:
+			system.util.getLogger('ExtraGlobal').info('Spinning up holding thread')
+
+			MetaExtraGlobal = super(ExtraMetaExtraGlobal, cls).__new__(cls, clsname, bases, attrs)
+	
+			@async(name=cls.HOLDING_THREAD_NAME)
+			def holding_closure(MetaExtraGlobal=MetaExtraGlobal):
+				from time import sleep
+				
+				while True:
+					sleep(0.01)
+		
+			cache_thread = holding_closure()
+			
+			cls.GLOBAL_REFERENCE = getFromThreadScope(cache_thread, 'MetaExtraGlobal')
+	
+		else:
+			system.util.getLogger('ExtraGlobal').info('Already initialized: %r' % cls.GLOBAL_REFERENCE)
+
+			cls.GLOBAL_REFERENCE = getFromThreadScope(cache_threads[0], 'MetaExtraGlobal')
+	
+		return cls.GLOBAL_REFERENCE
+#	
+#	@classmethod
+#	def purge_holding_thread(cls):
+#		for thread in findThread(cls.HOLDING_THREAD_NAME):
+#			thread.interrupt()	
+#			
+
+class MetaExtraGlobal(type):
 	"""Force the GlobalCache to be a singleton object.
 	This enforces that any (effectively all) global state is accessible.
 	
@@ -187,6 +238,8 @@ class MetaGlobalCache(type):
 	Objects are all saved with their last checked time and will be scrubbed when the expire
 	  (assuming they do not autorenew themselves.)
 	"""
+	__metaclass__ = ExtraMetaExtraGlobal
+
 	# Interlock for once-and-only-once setup
 	_initialized = False
 
@@ -206,12 +259,13 @@ class MetaGlobalCache(type):
 	def __new__(cls, clsname, bases, attrs):
 		"""Run when GlobalCache is created. Set to run once and only once."""
 		if not cls._initialized:
-			newclass = super(MetaGlobalCache, cls).__new__(cls, clsname, bases, attrs)	
+			newclass = super(MetaExtraGlobal, cls).__new__(cls, clsname, bases, attrs)
 			cls._initialized = newclass
 			return newclass
 		else:
 			init_class_name = cls._initialized.__name__
-			raise RuntimeError("MetaGlobalCache can initialize one class globally. Use %s instead." % (init_class_name,))
+			raise RuntimeError("MetaExtraGlobal can initialize one class globally. Use %s instead." % (init_class_name,))
+
 
 	def clear(cls):
 		"""Hard reset the cache."""
@@ -503,9 +557,9 @@ class MetaGlobalCache(type):
 		return '<%s with %d items>' % (cls.__name__, len(cls._cache))
 
 
-class GlobalCache(object):
+class ExtraGlobal(object):
 	"""This is a singleton implementation of the cache. It exists without instances."""
-	__metaclass__ = MetaGlobalCache
+	__metaclass__ = ExtraMetaExtraGlobal.GLOBAL_REFERENCE
 
 	def __new__(cls):
 		raise NotImplementedError("%s does not support instantiation." % cls.__name__) 
@@ -515,9 +569,6 @@ class GlobalCache(object):
 
 	def __setattr__(cls, key, value):
 		raise AttributeError("%s attributes are not mutable. Use methods to manipulate them." % cls.__name__) 
-
-# I like this name more
-ExtraGlobal = GlobalCache
 
 
 #from shared.tools.pretty import p,pdir
