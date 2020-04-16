@@ -181,7 +181,7 @@ def getFromThreadScope(target_thread, object_name):
 		# Given a thread ID, it will return the ThreadState object
 		from org.python.core import ThreadStateMapping
 	
-		thread_state = ThreadStateMapping._current_frames()[target_thread.getId()]
+		frame = ThreadStateMapping._current_frames()[target_thread.getId()]
 
 	except (ImportError, AttributeError):
 		# Earlier builds of Jython do not have the internals exposed. At least, not the same way.
@@ -198,10 +198,11 @@ def getFromThreadScope(target_thread, object_name):
 			
 			if isinstance(value, ThreadState):
 				thread_state = value
+				frame = thread_state.frame
 				break
 		else:
 			raise AttributeError("Python ThreadState object not found for given thread!")
 		
 	# The ThreadState object contains the current Python frame under execution.
 	# Frames have all the needed context to execute, including the variable references in scope.
-	return thread_state.frame.f_locals[object_name]
+	return frame.f_locals[object_name]
