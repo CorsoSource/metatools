@@ -26,7 +26,7 @@ quotePattern = re.compile("""^('.*'|".*")$""")
 PRETTY_PRINT_TYPES = (BasicDataset, PyDataSet, list, tuple, array, dict)
 
 
-def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True, directPrint=True):
+def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True, recursePrettily=False, directPrint=True):
 	"""Pretty print the dir() function for Ignition things. This is designed to be used in the 
 	  script console. Use it to explore objects and functions.
 
@@ -84,7 +84,11 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 					  if not (attribute.startswith('_') and skipPrivate)]
 	
 	attributes = sorted(attributes)
+	
 	# preprocessing
+	maxAttrLen = max([len(attribute) 
+					  for attribute in attributes] + [0])	
+	
 	attrTypes = []
 	attrTypeStrings = []
 	attrReprs = []
@@ -118,8 +122,8 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 					attrReprs.append(getFunctionCallSigs(attr))
 				except:
 					try:
-						if isinstance(attr, (BasicDataset, PyDataSet, list, tuple, array, dict)):
-							attrReprs.append(p(attr, listLimit=10, ellipsisLimit=80, nestedListLimit=4, directPrint=False))						
+						if recursePrettily and isinstance(attr, PRETTY_PRINT_TYPES):
+							attrReprs.append(p(attr, listLimit=10, ellipsisLimit=ellipsisLimit, nestedListLimit=4, directPrint=False))						
 						else:
 							attrReprs.append(repr(attr))
 					except:
@@ -154,9 +158,6 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 			attrTypeStrings.append(str(e).partition(':')[0])
 			attrReprs.append('n/a')
 			attrDocs.append(None)
-		
-	maxAttrLen = max([len(attribute) 
-					  for attribute in attributes] + [0])
 	
 	maxTypeLen = 2 + max([len(attrTypeStr) 
 						  for attrTypeStr in attrTypeStrings
@@ -326,7 +327,9 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 				nestedPattern %= (indent, maxRowWidth + 1, colSep)
 				out += [nestedPattern % (i, p(element,
 											  indent+' '*(maxRowWidth+1+2+2+len(colSep)), 
-											  listLimit=nestedListLimit, 
+											  listLimit=nestedListLimit,
+											  ellipsisLimit=ellipsisLimit,
+											  nestedListLimit=nestedListLimit,
 											  directPrint=False))]
 				out[-1] = out[-1][:-1]
 				continue
@@ -369,7 +372,12 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 			
 			if isinstance(element, PRETTY_PRINT_TYPES) and element is not o: #don't recurse here!
 				nestedPattern = '%s%%%ds : %%s' % (indent, maxKeyWidth)
-				out += [nestedPattern % (key, p(element, indent+' '*(maxKeyWidth+3), directPrint=False))]
+				out += [nestedPattern % (key, p(element, 
+											    indent+' '*(maxKeyWidth+3),
+											    listLimit=nestedListLimit, 
+											    ellipsisLimit=ellipsisLimit,
+											    nestedListLimit=nestedListLimit, 
+											    directPrint=False))]
 				out[-1] = out[-1][:-1]
 				continue
 			
@@ -381,13 +389,10 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 					rElement = '%s...' % rElement[:ellipsisLimit-3]
 
 			out += [elementPattern % (key,rElement)]
-				
 						
 			if listLimit and i >= listLimit-1:
 				out += ['%s... %d ellided (of %s total)' % (indent, len(o)-i-1, len(o))]
-				break			
-		
-	
+				break
 	else:
 		out += [repr(o)]
 	
