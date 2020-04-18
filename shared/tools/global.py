@@ -18,7 +18,7 @@
 		  Or use it (carefully!) to continue partial calculations.
 """
 
-from shared.tools.thread import async, findThread, getFromThreadScope
+from shared.tools.thread import async, findThreads, getFromThreadScope
 from shared.tools.timing import EveryFixedDelay
 
 from time import time, sleep
@@ -192,7 +192,7 @@ class ExtraMetaExtraGlobal(type):
 		if cls.GLOBAL_REFERENCE:
 			return cls.GLOBAL_REFERENCE
 
-		cache_threads = findThread(cls.HOLDING_THREAD_NAME)
+		cache_threads = findThreads(cls.HOLDING_THREAD_NAME)
 
 		assert len(cache_threads) <= 1, "The ExtraGlobal-Cache thread has been spun up more than once! Only one should be alive: %r" % cache_threads
 
@@ -221,7 +221,7 @@ class ExtraMetaExtraGlobal(type):
 #	
 #	@classmethod
 #	def purge_holding_thread(cls):
-#		for thread in findThread(cls.HOLDING_THREAD_NAME):
+#		for thread in findThreads(cls.HOLDING_THREAD_NAME):
 #			thread.interrupt()	
 #			
 

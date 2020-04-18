@@ -22,7 +22,7 @@ __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
 
 
-__all__ = ['async', 'findThread', 'getThreadObject']
+__all__ = ['async', 'findThreads', 'getThreadObject']
 
 
 def async(startDelaySeconds=None, name=None):
@@ -120,7 +120,7 @@ def async(startDelaySeconds=None, name=None):
 			return async(0)
 
 
-def findThread(thread_name_pattern='.*', search_group=None, recursive=False, sandbagging_percent=110):
+def findThreads(thread_name_pattern='.*', search_group=None, recursive=False, sandbagging_percent=110):
 	"""Find a thread in reachable scope that matches the pattern provided.
 
 	Pattern is a regular expression, so an explicit name will work.
