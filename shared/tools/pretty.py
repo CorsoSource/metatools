@@ -301,29 +301,27 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 			colEleWidths = [max([len(repr(r)) for r in row] + [1]) for row in zip(*o)]
 		except:
 			colEleWidths = [max([len(repr(element) 
-			                       if not isinstance(element, (dict,list,tuple,array)) 
+			                       if not isinstance(element, PRETTY_PRINT_TYPES) 
 			                       else '1') 
 			                     for element in o] + [1])]
-				
-		prefixPattern =  '%s %%%dd  %s' %  (indent, maxRowWidth + 1, colSep)
-		preLisPattern =  '%s[%%%dd] %s' %  (indent, maxRowWidth + 1, colSep)
-		preTupPattern =  '%s(%%%dd) %s' %  (indent, maxRowWidth + 1, colSep)
-			
+		
 		# element printing
 		for i,element in enumerate(o):
-			
+			ixPattern = '%%%dd'
+			if isinstance(element, dict):
+				ixPattern = '{%s}' % ixPattern
+			elif isinstance(element, (list,array)):
+				ixPattern = '[%s]' % ixPattern
+			elif isinstance(element, tuple):
+				ixPattern = '(%s)' % ixPattern
+			else:
+				ixPattern = ' %s ' % ixPattern
+	
+			prefixPattern =  '%s' + ixPattern + ' %s'
+			prefixPattern %= (indent, maxRowWidth + 1, colSep)
+
 			#if isinstance(element, (list,tuple,dict)):
-			if isinstance(element, PRETTY_PRINT_TYPES):
-				ixPattern = '%%%dd'
-				if isinstance(element, dict):
-					ixPattern = '{%s}' % ixPattern
-				elif isinstance(element, (list,array)):
-					ixPattern = '[%s]' % ixPattern
-				elif isinstance(element, tuple):
-					ixPattern = '(%s)' % ixPattern
-				else:
-					ixPattern = ' %s ' % ixPattern
-				
+			if isinstance(element, PRETTY_PRINT_TYPES):			
 				nestedPattern = '%s' + ixPattern + ' %s%%s'
 				nestedPattern %= (indent, maxRowWidth + 1, colSep)
 				out += [nestedPattern % (i, p(element,
@@ -358,7 +356,10 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		
 		# preprocessing
 		maxKeyWidth = max([len(repr(key)) for key in o.keys()] + [1])
-		maxValWidth = max([len(repr(val)) for val in o.values()] + [1])
+		maxValWidth = max([len(repr(val)
+		                       if not isinstance(val, PRETTY_PRINT_TYPES) 
+		                       else '1')
+		                   for val in o.values()] + [1])
 		
 		elementPattern = '%s%%%ds : %%-%ds' % (indent, maxKeyWidth, maxValWidth)
 		
