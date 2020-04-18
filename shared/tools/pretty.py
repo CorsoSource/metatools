@@ -23,6 +23,8 @@ __all__ = ['p','pdir']
 
 quotePattern = re.compile("""^('.*'|".*")$""")
 
+PRETTY_PRINT_TYPES = (BasicDataset, PyDataSet, list, tuple, array, dict)
+
 
 def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True, directPrint=True):
 	"""Pretty print the dir() function for Ignition things. This is designed to be used in the 
@@ -116,7 +118,10 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 					attrReprs.append(getFunctionCallSigs(attr))
 				except:
 					try:
-						attrReprs.append(repr(attr))
+						if isinstance(attr, (BasicDataset, PyDataSet, list, tuple, array, dict)):
+							attrReprs.append(p(attr, listLimit=10, ellipsisLimit=80, nestedListLimit=4, directPrint=False))						
+						else:
+							attrReprs.append(repr(attr))
 					except:
 						try:
 							attrReprs.append(str(attr))
@@ -157,7 +162,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 						  for attrTypeStr in attrTypeStrings
 						  if not attrTypeStr in skipTypes] + [0])
 						  
-	maxReprLen = max([len(attrRepr) 
+	maxReprLen = max([len(attrRepr) if not '\n' in attrRepr else max(len(line) for line in attrRepr.splitlines()) 
 						  for attrTypeStr,attrRepr in zip(attrTypeStrings,attrReprs)
 						  if not attrTypeStr in skipTypes] + [0])
 	if ellipsisLimit and maxReprLen > ellipsisLimit:
@@ -182,10 +187,22 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 
 		attribute = attribute.strip()
 		attrTypeStr =  attrTypeStr.strip()
-		attrRepr = attrRepr.strip()
 		
-		if len(attrRepr) >= maxReprLen:
-			attrRepr = '%s...' % attrRepr[:maxReprLen-4]
+		if not '\n' in attrRepr:
+			attrRepr = attrRepr.strip()
+			attrReprLines = []
+			
+			if len(attrRepr) >= maxReprLen:
+				attrRepr = '%s...' % attrRepr[:maxReprLen-4]
+		
+		else:
+			attrTypeStr = ''
+			attrDoc = ''
+			attrReprLines = attrRepr.splitlines()
+			
+			attrReprSpacing = len(indent) + 3 + 3 + 3 + maxAttrLen + 2
+			attrRepr = attrReprLines.pop(0)
+		
 		if len(attrTypeStr) >= maxReprLen:
 			attrTypeStr = '%s...' % attrTypeStr[:maxReprLen-4]
 
@@ -194,8 +211,17 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 		else:
 			outStr = attrPattern % (attribute, attrPriv, attrRepr, attrTypeStr)
 		
-		outStr = ' -- '.join(outStr.splitlines())
-		out += [outStr]
+		if len(attrReprLines) > 0:
+			out += [outStr]
+			
+			for reprLine in attrReprLines:
+				if len(reprLine) >= maxReprLen:
+					out += [' '*attrReprSpacing + '%s...' % reprLine[:maxReprLen-4]]
+				else:
+					out += [' '*attrReprSpacing + reprLine]
+		else:
+			outStr = ' -- '.join(outStr.splitlines())
+			out += [outStr]
 	
 	out += ['']
 
@@ -206,8 +232,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 		return output
 
 
-
-def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
+def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, directPrint=True):
 	"""Pretty print objects. This helps make lists, dicts, and other things easier to understand.
 	Handy for quickly looking at datasets and lists of lists, too, since it aligns columns.
 	"""
@@ -224,7 +249,7 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
 			out += ['"%s" <PyDataSet> of %d elements and %d columns' % (getObjectName(o,estimatedDepth=2), ds.getRowCount(), ds.getColumnCount())]
 		else:
 			out += ['"%s" <DataSet> of %d elements and %d columns' % (getObjectName(o,estimatedDepth=2), ds.getRowCount(), ds.getColumnCount())]
-		out += ['='*len(out[0])]
+		out += [indent + '='*len(out[0])]
 		
 		# preprocessing
 		# Get the width of each column in the dataset
@@ -238,7 +263,6 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
 		colTypes = [repr(t) for t in ds.getColumnTypes()]
 		colTypeStrs = [' <%s> ' % ct[7:-2] for ct in colTypes]
 		colNames = [h for h in ds.getColumnNames()]
-		
 		
 		colWidths = [max([len(repr(row)) for row in col] + [len(t)] + [len(h)] + [1]) 
 					 for h,t,col 
@@ -257,7 +281,7 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
 													  
 		out += [hedPattern % tuple(colNames)]
 		out += [hedPattern % tuple(colTypeStrs)]
-		out += ['-'*len(out[-1])]
+		out += [indent + '-'*(len(out[-1])-len(indent))]
 		
 		for i, row in enumerate(data):
 			out += [rowPattern % tuple([i] + list(row))]		
@@ -276,22 +300,40 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
 		try:
 			colEleWidths = [max([len(repr(r)) for r in row] + [1]) for row in zip(*o)]
 		except:
-			colEleWidths = [max([len(repr(element)) for element in o] + [1])]
+			colEleWidths = [max([len(repr(element) 
+			                       if not isinstance(element, (dict,list,tuple,array)) 
+			                       else '1') 
+			                     for element in o] + [1])]
 				
-		prefixPattern =  '%s %%%dd ' %  (indent, maxRowWidth + 1)
-		preLisPattern =  '%s[%%%dd]' %  (indent, maxRowWidth + 1)
-		preTupPattern =  '%s(%%%dd)' %  (indent, maxRowWidth + 1)
+		prefixPattern =  '%s %%%dd  %s' %  (indent, maxRowWidth + 1, colSep)
+		preLisPattern =  '%s[%%%dd] %s' %  (indent, maxRowWidth + 1, colSep)
+		preTupPattern =  '%s(%%%dd) %s' %  (indent, maxRowWidth + 1, colSep)
 			
 		# element printing
 		for i,element in enumerate(o):
 			
 			#if isinstance(element, (list,tuple,dict)):
-			if isinstance(element, dict):
-				nestedPattern = '%s{%%%dd}  %%s' % (indent, maxRowWidth + 1)
-				out += [nestedPattern % (i, p(element, indent+' '*(maxRowWidth+1+2+2), directPrint=False))]
+			if isinstance(element, PRETTY_PRINT_TYPES):
+				ixPattern = '%%%dd'
+				if isinstance(element, dict):
+					ixPattern = '{%s}' % ixPattern
+				elif isinstance(element, (list,array)):
+					ixPattern = '[%s]' % ixPattern
+				elif isinstance(element, tuple):
+					ixPattern = '(%s)' % ixPattern
+				else:
+					ixPattern = ' %s ' % ixPattern
+				
+				nestedPattern = '%s' + ixPattern + ' %s%%s'
+				nestedPattern %= (indent, maxRowWidth + 1, colSep)
+				out += [nestedPattern % (i, p(element,
+											  indent+' '*(maxRowWidth+1+2+2+len(colSep)), 
+											  listLimit=nestedListLimit, 
+											  directPrint=False))]
+				out[-1] = out[-1][:-1]
 				continue
 			
-			if not isinstance(element, (list,tuple)):
+			else:
 				rElement = repr(element)
 				if ellipsisLimit and len(rElement) > ellipsisLimit:
 					if quotePattern.match(rElement):
@@ -305,21 +347,6 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
 				else:
 					rowPattern += '  ' + numElePattern % colEleWidths[0]
 				out += [rowPattern % (i, rElement)]
-			else:
-				rowColPatterns = [strElePattern % w if isinstance(r, (str,unicode)) else numElePattern % w
-													for r,w in zip(element,colEleWidths)]						
-				if isinstance(element, list):
-					rowPattern = preLisPattern + '  ' + colSep.join(rowColPatterns)
-				else:
-					rowPattern = preTupPattern + '  ' + colSep.join(rowColPatterns)
-					
-				rowRepr = [i] + [rowColPattern % repr(rr) for rowColPattern, rr in zip(rowColPatterns,element)]
-				unaligned = [repr(rr) for i,rr in enumerate(element) if i >= len(rowColPatterns)]
-				rowPatternPattern = colSep + '%s'
-				rowPattern += rowPatternPattern * len(unaligned)
-				rowRepr = tuple(rowRepr + unaligned)
-				out+= [rowPattern % rowRepr]
-			
 			
 			if listLimit and i >= listLimit-1:
 				out += ['%s... %d ellided (of %s total)' % (indent, len(o)-i-1, len(o))]
@@ -339,9 +366,10 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
 		for i,key in enumerate(sorted(o.keys())):
 			element = o[key]
 			
-			if isinstance(element, (list,tuple,dict)) and element is not o: #don't recurse here!
+			if isinstance(element, PRETTY_PRINT_TYPES) and element is not o: #don't recurse here!
 				nestedPattern = '%s%%%ds : %%s' % (indent, maxKeyWidth)
 				out += [nestedPattern % (key, p(element, indent+' '*(maxKeyWidth+3), directPrint=False))]
+				out[-1] = out[-1][:-1]
 				continue
 			
 			rElement = repr(element)
@@ -369,7 +397,6 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, directPrint=True):
 		print output
 	else:
 		return output
-
 
 
 # l = [1,2,3,'wer',6]

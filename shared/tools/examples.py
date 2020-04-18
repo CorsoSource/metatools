@@ -65,3 +65,8 @@ complexListDict = [ { 'date': DateUtils.addMinutes(Date(), 33) ,
 				  	  'double': -0.0, 
 				  	  'int': None
 				  	} ]
+
+extremelyHeterogenousData = {'asdf':234, 
+   'we': [1,2,3,range(20),5.56,6,{'zxcv':5, 'k':'c'},8, simpleDataset], 
+   'lkj': 999.334, 
+   None: {'a':[1,2,3], 'b': 'asdf', 'c': 3.4, 'Z': simpleDataset}}
