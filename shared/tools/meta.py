@@ -180,19 +180,24 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 			else:
 				callMethods += ['()']
 		return joinClause.join(callMethods)
-	else:	
+	elif 'func_code' in dir(function):
+		nargs = function.func_code.co_argcount
+		args = function.func_code.co_varnames[:nargs]
+		defaults = function.func_defaults or []
+	else:
 		nargs = function.__code__.co_argcount
 		args = function.__code__.co_varnames[:nargs]
 		defaults = function.__defaults__ or []
-		nnondefault = nargs - len(defaults)
-		
-		out = []
-		for i in range(nnondefault):
-			out += [args[i]]
-		for i in range(len(defaults)):
-			out += ['%s=%r' % (args[nnondefault + i],defaults[i])]
 	
-		return '(%s)' % ', '.join(out)
+	nnondefault = nargs - len(defaults)
+		
+	out = []
+	for i in range(nnondefault):
+		out += [args[i]]
+	for i in range(len(defaults)):
+		out += ['%s=%r' % (args[nnondefault + i],defaults[i])]
+
+	return '(%s)' % ', '.join(out)
 
 
 def getReflectedField(self, field_name, method_class=None):
