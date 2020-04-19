@@ -166,6 +166,27 @@ def findThreads(thread_name_pattern='.*', search_group=None, recursive=False, sa
 	return matching_threads
 
 	
+
+
+def getThreadState(target_thread):
+	# Earlier builds of Jython do not have the internals exposed. At least, not the same way.
+	# The following introspects the thread tiven and returns what it finds.
+	thread_locals = getReflectedField(target_thread, 'threadLocals')
+
+	table = getReflectedField(thread_locals, 'table', 'java.lang.ThreadLocal$ThreadLocalMap')
+
+	for entry in table:
+		if entry is None:
+			continue
+		
+		value = getReflectedField(entry, 'value')
+		
+		if isinstance(value, ThreadState):
+			return value
+	else:
+		raise AttributeError("Python ThreadState object not found for given thread!")
+
+
 def getFromThreadScope(target_thread, object_name):
 	"""Abuse optimizations in Jython or reflection in Java to get objects in other frames.
 
@@ -180,29 +201,12 @@ def getFromThreadScope(target_thread, object_name):
 		# Jython 2.7 has a singleton-style dictionary that keeps track of the thread states.
 		# Given a thread ID, it will return the ThreadState object
 		from org.python.core import ThreadStateMapping
-	
 		frame = ThreadStateMapping._current_frames()[target_thread.getId()]
 
 	except (ImportError, AttributeError):
-		# Earlier builds of Jython do not have the internals exposed. At least, not the same way.
-		# The following introspects the thread tiven and returns what it finds.
-		thread_locals = getReflectedField(target_thread, 'threadLocals')
+		thread_state = getThreadState(target_thread)
+		frame = thread_state.frame
 
-		table = getReflectedField(thread_locals, 'table', 'java.lang.ThreadLocal$ThreadLocalMap')
-
-		for entry in table:
-			if entry is None:
-				continue
-			
-			value = getReflectedField(entry, 'value')
-			
-			if isinstance(value, ThreadState):
-				thread_state = value
-				frame = thread_state.frame
-				break
-		else:
-			raise AttributeError("Python ThreadState object not found for given thread!")
-		
 	# The ThreadState object contains the current Python frame under execution.
 	# Frames have all the needed context to execute, including the variable references in scope.
 	return frame.f_locals[object_name]
