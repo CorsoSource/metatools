@@ -175,7 +175,7 @@ def dangerouslyKillThreads(thread_name_pattern, bypass_interlock='No!'):
 	if not bypass_interlock == 'Yes, seriously.':
 		return
 		
-	for thread in find_threads(thread_name_pattern):
+	for thread in findThreads(thread_name_pattern):
 		thread.interrupt()
 		
 
