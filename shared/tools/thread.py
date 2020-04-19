@@ -166,7 +166,18 @@ def findThreads(thread_name_pattern='.*', search_group=None, recursive=False, sa
 	return matching_threads
 
 	
-
+def dangerouslyKillThreads(thread_name_pattern, bypass_interlock='No!'):
+	"""Mercilessly kill threads matching the given pattern.
+	
+	Must set bypass_interlock to "Yes, seriously." (sans quotes, with punctuation).
+	  We don't want anyone accidentally fubaring a running system, right?
+	"""
+	if not bypass_interlock == 'Yes, seriously.':
+		return
+		
+	for thread in find_threads(thread_name_pattern):
+		thread.interrupt()
+		
 
 def getThreadState(target_thread):
 	# Earlier builds of Jython do not have the internals exposed. At least, not the same way.
