@@ -4,7 +4,8 @@ from time import sleep
 
 thread_name = 'running-thread'
 
-dangerouslyKillThreads(thread_name, )
+dangerouslyKillThreads(thread_name, bypass_interlock='Yes, seriously.')
+stop = lambda: dangerouslyKillThreads(thread_name, bypass_interlock='Yes, seriously.')
 
 @async(name=thread_name)
 def running():
@@ -37,8 +38,43 @@ from time import time
 import sys
 import re, math, textwrap
 from pdb import Pdb
+from bdb import Bdb, BdbQuit
+
+from shared.tools.compat import next
 
 
+class InputStream(StringIO):
+	
+	_SLEEP_RATE = 0.05 # seconds
+	
+	def __init__(self, *args, **kwargs):
+		StringIO.__init__(self, *args, **kwargs)
+		self.history = []
+	
+	def readline(self):
+		while True:
+			try:
+				line = next(self.stdin)
+				self.history.append('>>> %s' % '... '.join(line.splitlines()))
+				return line
+			except StopIteration:
+				sleep(self._SLEEP_RATE)			
+		
+	def inject(self, string):
+		current_pos = self.tell()
+		self.write(string)
+		self.pos = current_pos
+
+
+class OutputStream(StringIO):
+	
+	def __init__(self, *args, **kwargs):
+		StringIO.__init__(self, *args, **kwargs)
+		self.history = []
+		
+	def write(self, string):
+		self.history.append(string.splitlines())
+		StringIO.write(self, string)
 
 class ProxyIO(object):
 
@@ -46,44 +82,59 @@ class ProxyIO(object):
 	
 	def __init__(self):
 		self.log = lambda s: system.util.getLogger('proxy-io').info(str(s))
-		self.buffer_raw_out = ''
-		self.buffer_in = []
-		self.history = []
 		
-		
-	def write(self, string=''):
-		self.buffer_raw_out += string
-		
-		while string:
-			
-			newline, _, string = self.buffer_raw_out.partition('\n')
-			print 'looooooop'
-			print newline
-			print string
-			if string:
-				self.log(newline)
-				self.history.append(newline)
-			else:
-				self.buffer_raw_out = newline
+		self.stdin = InputStream()
+		self.stdout = OutputStream()
+		self.stderr = OutputStream()
 	
-	def flush(self):
-		self.write()
-		if self.buffer_raw_out:
-			self.log(self.buffer_raw_out)
-			self.buffer_raw_out = ''
-		
-		
-	def readline(self):
-		
-		while True:
+	
 
-			if self.buffer_in:
-				line = self.buffer_in.pop(0)
-				self.history.append('>>> %s' % '... '.join(line.splitlines()))
-				return line + '\n'
-				
-			else:
-				sleep(self._SLEEP_RATE)
+	
+#	@staticmethod
+#	def inject(stream, content):
+#		current_pos = stream.tell()
+#		stream.write(content)
+#		stream.pos = current_pos
+#		
+#		
+#	def write(self, string=''):
+#		self.inject(self.stdout, string)
+#		self.history.append(string)
+#		self.log(string)
+##		self.buffer_raw_out += string
+##		
+##		while string:
+##			
+##			newline, _, string = self.buffer_raw_out.partition('\n')
+##			if string:
+##				self.log(newline)
+##				self.history.append(newline)
+##			else:
+##				self.buffer_raw_out = newline
+#	
+#	def flush(self):
+#		self.write()
+#		if self.buffer_raw_out:
+#			self.log(self.buffer_raw_out)
+#			self.buffer_raw_out = ''
+#		
+#		
+#	def readline(self):
+#		
+#		while True:
+#			try:
+#				line = next(self.stdin)
+#				self.history.append('>>> %s' % '... '.join(line.splitlines()))
+#			except StopIteration:
+#				sleep(self._SLEEP_RATE)
+#			
+#			if self.buffer_in:
+#				line = self.buffer_in.pop(0)
+#				self.history.append('>>> %s' % '... '.join(line.splitlines()))
+#				return line + '\n'
+#				
+#			else:
+#				sleep(self._SLEEP_RATE)
 
 
 
@@ -96,10 +147,12 @@ class SysHijack(object):
 	
 	_FAILSAFE_TIMEOUT = 20
 	
-	def __init__(self, thread):
+	def __init__(self, thread, stdio=None):
 		self._source_thread = Thread.currentThread()
 		self._target_thread = thread
 		self._thread_state = getThreadState(self._target_thread)
+		
+		self._io_stream = stdio
 		self._originals = dict((t,{}) for t in (self._source_thread, self._target_thread))
 		
 		self._init_time = time()
@@ -117,10 +170,11 @@ class SysHijack(object):
 			self._originals[self._source_thread][key] = getattr(sys, key)
 			self._originals[self._target_thread][key] = getattr(self._thread_state.systemState, key)
 			
-			setattr(self._thread_state.systemState, key, getattr(sys, key))
-			setattr(sys, key, StringIO())
-#			getattr(self._thread_state.systemState, key)
-#			setattr(self._thread_state.systemState, key, StringIO())
+			if self._io_stream:
+				setattr(self._thread_state.systemState, key, getattr(self._io_stream,key))
+			else:
+				setattr(self._thread_state.systemState, key, getattr(sys, key))
+				setattr(sys, key, StringIO())	
 	
 	def _restore(self):
 		for key in self._BACKUP_ATTRIBUTES:
@@ -194,35 +248,61 @@ class IgnitionPDB(Pdb):
 		self.thread_state = getThreadState(thread)
 		self.io_interface = ProxyIO()
 		
-		self.sys = SysHijack(thread)
-		
-		self.install()
+		self.sys = SysHijack(thread, stdio=self.io_interface)
 		
 		# Pdb is not a new-style class, so we can't use super(...) here
-		Pdb.__init__(self, 
-					 completekey='tab', 
-					 stdin=self.io_interface, 
-					 stdout=self.io_interface)
+		# Worse, the individual inits need fixing, so we'll jam them here
 
-	def install(self):
-		pass
+#		Pdb.__init__(self, 
+#					 completekey='tab', 
+#					 stdin=self.io_interface.stdin, 
+#					 stdout=self.io_interface.stdout)
+#
+		Bdb.__init__(self) # skip is a glob-style pattern of things to skip jumping into
+#		cmd.Cmd.__init__(self, completekey, stdin, stdout)
+		
+		#		"""Instantiate a line-oriented interpreter framework.
+		#
+		#		The optional argument 'completekey' is the readline name of a
+		#		completion key; it defaults to the Tab key. If completekey is
+		#		not None and the readline module is available, command completion
+		#		is done automatically. The optional arguments stdin and stdout
+		#		specify alternate input and output file objects; if not specified,
+		#		sys.stdin and sys.stdout are used.
+		#
+		#		"""
+		self.stdin = self.io_interface.stdin
+		self.stdout = self.io_interface.stdout
+		self.cmdqueue = []
+		self.completekey = 'tab'
+		
+		# Finally, PDB's init. Pared down:		
+		self.use_rawinput = 0
+		
+		self.prompt = '(Pdb) '
+		self.aliases = {}
+		self.mainpyfile = ''
+		self._wait_for_mainpyfile = 0
+
+		self.rcLines = []
+
+		self.commands = {} # associates a command list to breakpoint numbers
+		self.commands_doprompt = {} # for each bp num, tells if the prompt
+									# must be disp. after execing the cmd list
+		self.commands_silent = {} # for each bp num, tells if the stack trace
+								  # must be disp. after execing the cmd list
+		self.commands_defining = False # True while in the process of defining
+									   # a command list
+		self.commands_bnum = None # The breakpoint number for which we are
+								  # defining a list
+
+
+
+
+
 
 	def uninstall(self):
 		self.sys._restore()
-
-
-	def do_debug(self, arg):
-		raise NotImplementedError("Recursive debugging not available in (this) Jython debugging setup.")
-		# self.sys.settrace(None)
-		# globals = self.curframe.f_globals
-		# locals = self.curframe_locals
-		# p = Pdb(self.completekey, self.stdin, self.stdout)
-		# p.prompt = "(%s) " % self.prompt.strip()
-		# print >>self.stdout, "ENTERING RECURSIVE DEBUGGER"
-		# self.sys.call_tracing(p.run, (arg, globals, locals))
-		# print >>self.stdout, "LEAVING RECURSIVE DEBUGGER"
-		# self.sys.settrace(self.trace_dispatch)
-		# self.lastcmd = p.lastcmd
 
 	
 	# Cleanly exit and catch Bdb quit exception
@@ -265,6 +345,198 @@ class IgnitionPDB(Pdb):
 			pass
 		finally:
 			self.uninstall()
+			
+			
+	
+	# Use the hijacked sys for the basic debugger (bdb)
+	def set_trace(self, frame=None):
+		"""Start debugging from `frame`.
+
+		If frame is not specified, debugging starts from caller's frame.
+		"""
+		if frame is None:
+			frame = self.sys._getframe().f_back
+		self.reset()
+		while frame:
+			frame.f_trace = self.trace_dispatch
+			self.botframe = frame
+			frame = frame.f_back
+		self.set_step()
+		self.sys.settrace(self.trace_dispatch)
+
+	def set_continue(self):
+		# Don't stop except at breakpoints or when finished
+		self._set_stopinfo(self.botframe, None, -1)
+		if not self.breaks:
+			# no breakpoints; run without debugger overhead
+			self.sys.settrace(None)
+			frame = self.sys._getframe().f_back
+			while frame and frame is not self.botframe:
+				del frame.f_trace
+				frame = frame.f_back
+
+	def set_quit(self):
+		self.stopframe = self.botframe
+		self.returnframe = None
+		self.quitting = 1
+		self.sys.settrace(None)
+
+	# The following two methods can be called by clients to use
+	# a debugger to debug a statement, given as a string.
+
+	def run(self, cmd, globals=None, locals=None):
+		if globals is None:
+			import __main__
+			globals = __main__.__dict__
+		if locals is None:
+			locals = globals
+		self.reset()
+		self.sys.settrace(self.trace_dispatch)
+		if not isinstance(cmd, types.CodeType):
+			cmd = cmd+'\n'
+		try:
+			exec cmd in globals, locals
+		except BdbQuit:
+			pass
+		finally:
+			self.quitting = 1
+			self.sys.settrace(None)
+
+	def runeval(self, expr, globals=None, locals=None):
+		if globals is None:
+			import __main__
+			globals = __main__.__dict__
+		if locals is None:
+			locals = globals
+		self.reset()
+		self.sys.settrace(self.trace_dispatch)
+		if not isinstance(expr, types.CodeType):
+			expr = expr+'\n'
+		try:
+			return eval(expr, globals, locals)
+		except BdbQuit:
+			pass
+		finally:
+			self.quitting = 1
+			self.sys.settrace(None)
+
+	def runctx(self, cmd, globals, locals):
+		# B/W compatibility
+		self.run(cmd, globals, locals)
+
+	# This method is more useful to debug a single function call.
+
+	def runcall(self, func, *args, **kwds):
+		self.reset()
+		self.sys.settrace(self.trace_dispatch)
+		res = None
+		try:
+			res = func(*args, **kwds)
+		except BdbQuit:
+			pass
+		finally:
+			self.quitting = 1
+			self.sys.settrace(None)
+		return res
+
+
+
+	# Use the hijacked sys for the Python wrapped debugger (pdb)
+	# (ignoring sys.path and sys.argv)
+	
+	def default(self, line):
+		if line[:1] == '!': line = line[1:]
+		locals = self.curframe_locals
+		globals = self.curframe.f_globals
+		try:
+			code = compile(line + '\n', '<stdin>', 'single')
+			save_stdout = self.sys.stdout
+			save_stdin = self.sys.stdin
+			save_displayhook = self.sys.displayhook
+			try:
+				self.sys.stdin = self.stdin
+				self.sys.stdout = self.stdout
+				self.sys.displayhook = self.displayhook
+				exec code in globals, locals
+			finally:
+				self.sys.stdout = save_stdout
+				self.sys.stdin = save_stdin
+				self.sys.displayhook = save_displayhook
+		except:
+			t, v = self.sys.exc_info()[:2]
+			if type(t) == type(''):
+				exc_type_name = t
+			else: exc_type_name = t.__name__
+			print >>self.stdout, '***', exc_type_name + ':', v
+
+
+	def do_debug(self, arg):
+		raise NotImplementedError("Recursive debugging not available in (this) Jython debugging setup.")
+		# self.sys.settrace(None)
+		# globals = self.curframe.f_globals
+		# locals = self.curframe_locals
+		# p = Pdb(self.completekey, self.stdin, self.stdout)
+		# p.prompt = "(%s) " % self.prompt.strip()
+		# print >>self.stdout, "ENTERING RECURSIVE DEBUGGER"
+		# self.sys.call_tracing(p.run, (arg, globals, locals))
+		# print >>self.stdout, "LEAVING RECURSIVE DEBUGGER"
+		# self.sys.settrace(self.trace_dispatch)
+		# self.lastcmd = p.lastcmd
+
+
+	def _getval(self, arg):
+		try:
+			return eval(arg, self.curframe.f_globals,
+						self.curframe_locals)
+		except:
+			t, v = self.sys.exc_info()[:2]
+			if isinstance(t, str):
+				exc_type_name = t
+			else: exc_type_name = t.__name__
+			print >>self.stdout, '***', exc_type_name + ':', repr(v)
+			raise
+
+	def do_whatis(self, arg):
+		try:
+			value = eval(arg, self.curframe.f_globals,
+							self.curframe_locals)
+		except:
+			t, v = self.sys.exc_info()[:2]
+			if type(t) == type(''):
+				exc_type_name = t
+			else: exc_type_name = t.__name__
+			print >>self.stdout, '***', exc_type_name + ':', repr(v)
+			return
+		code = None
+		# Is it a function?
+		try: code = value.func_code
+		except: pass
+		if code:
+			print >>self.stdout, 'Function', code.co_name
+			return
+		# Is it an instance method?
+		try: code = value.im_func.func_code
+		except: pass
+		if code:
+			print >>self.stdout, 'Method', code.co_name
+			return
+		# None of the above...
+		print >>self.stdout, type(value)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 
 
