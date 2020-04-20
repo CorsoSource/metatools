@@ -53,11 +53,11 @@ class InputStream(StringIO):
 	
 	def readline(self):
 		while True:
-			try:
-				line = next(self.stdin)
+			line = StringIO.readline(self)
+			if line:
 				self.history.append('>>> %s' % '... '.join(line.splitlines()))
 				return line
-			except StopIteration:
+			else:
 				sleep(self._SLEEP_RATE)			
 		
 	def inject(self, string):
@@ -303,6 +303,7 @@ class IgnitionPDB(Pdb):
 
 	def uninstall(self):
 		self.sys._restore()
+		self.sys.settrace(None)
 
 	
 	# Cleanly exit and catch Bdb quit exception
