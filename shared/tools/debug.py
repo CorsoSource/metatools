@@ -5,7 +5,7 @@ from time import sleep
 thread_name = 'running-thread'
 
 dangerouslyKillThreads(thread_name, bypass_interlock='Yes, seriously.')
-stop = lambda: dangerouslyKillThreads(thread_name, bypass_interlock='Yes, seriously.')
+
 
 @async(name=thread_name)
 def running():
@@ -18,6 +18,11 @@ def running():
 
 running_thread = running()	
 
+
+
+def stop():
+	dangerouslyKillThreads(running_thread.getName(), bypass_interlock='Yes, seriously.')
+	dangerouslyKillThreads('PDB-Monitor on %r' % running_thread.getName(), bypass_interlock='Yes, seriously.')
 
 
 from shared.tools.pretty import p,pdir
@@ -38,6 +43,8 @@ from StringIO import StringIO
 from time import time
 
 import sys
+import linecache, repr
+
 import re, math, textwrap
 from pdb import Pdb
 from bdb import Bdb, BdbQuit
@@ -77,6 +84,7 @@ class PatientInputStream(StringIO, StreamHistory):
 			else:
 				sleep(self._SLEEP_RATE)
 
+
 	def readline(self, length=None):
 		while True:
 			line = StringIO.readline(self, length)
@@ -99,7 +107,8 @@ class OutputStream(StringIO, StreamHistory):
 		StreamHistory.__init__(self)
 		
 	def write(self, string):
-		self.history.append(string)
+		if string != '\n':
+			self.history.append(string)
 		StringIO.write(self, string)
 
 	def writelines(self, iterable):
@@ -265,7 +274,7 @@ class IgnitionPDB(Pdb):
 		self.stdin = self.io_interface.stdin
 		self.stdout = self.io_interface.stdout
 		self.cmdqueue = []
-		self.completekey = 'tab'
+		self.completekey = None #'tab'
 		
 		# Finally, PDB's init. Pared down:		
 		self.use_rawinput = 0
@@ -372,6 +381,53 @@ class IgnitionPDB(Pdb):
 		self.quitting = 1
 		self.sys.settrace(None)
 
+	# prevent imports during debug
+	def reset(self):
+		#import linecache
+		linecache.checkcache()
+		self.botframe = None
+		self._set_stopinfo(None, None)
+
+	def set_break(self, filename, lineno, temporary=0, cond = None,
+				  funcname=None):
+		filename = self.canonic(filename)
+		#import linecache # Import as late as possible
+		line = linecache.getline(filename, lineno)
+		if not line:
+			return 'Line %s:%d does not exist' % (filename,
+								   lineno)
+		if not filename in self.breaks:
+			self.breaks[filename] = []
+		list = self.breaks[filename]
+		if not lineno in list:
+			list.append(lineno)
+		bp = Breakpoint(filename, lineno, temporary, cond, funcname)
+
+	def format_stack_entry(self, frame_lineno, lprefix=': '):
+		#import linecache, repr
+		frame, lineno = frame_lineno
+		filename = self.canonic(frame.f_code.co_filename)
+		s = '%s(%r)' % (filename, lineno)
+		if frame.f_code.co_name:
+			s = s + frame.f_code.co_name
+		else:
+			s = s + "<lambda>"
+		if '__args__' in frame.f_locals:
+			args = frame.f_locals['__args__']
+		else:
+			args = None
+		if args:
+			s = s + repr.repr(args)
+		else:
+			s = s + '()'
+		if '__return__' in frame.f_locals:
+			rv = frame.f_locals['__return__']
+			s = s + '->'
+			s = s + repr.repr(rv)
+		line = linecache.getline(filename, lineno, frame.f_globals)
+		if line: s = s + lprefix + line.strip()
+		return s
+
 	# The following two methods can be called by clients to use
 	# a debugger to debug a statement, given as a string.
 
@@ -435,6 +491,14 @@ class IgnitionPDB(Pdb):
 	# Use the hijacked sys for the Python wrapped debugger (pdb)
 	# (ignoring sys.path and sys.argv)
 	
+	def displayhook(self, obj):
+		"""Custom displayhook for the exec in default(), which prevents
+		assignment of the _ variable in the builtins.
+		"""
+		# reproduce the behavior of the standard displayhook, not printing None
+		if obj is not None:
+			print >>self.stdout, repr(obj)
+
 	def default(self, line):
 		if line[:1] == '!': line = line[1:]
 		locals = self.curframe_locals
@@ -459,6 +523,14 @@ class IgnitionPDB(Pdb):
 				exc_type_name = t
 			else: exc_type_name = t.__name__
 			print >>self.stdout, '***', exc_type_name + ':', v
+
+
+	def help_run(self):
+		print >>self.stdout, """run [args...]
+Restart the debugged python program. If a string is supplied, it is
+splitted with "shlex" and the result is used as the new sys.argv.
+History, breakpoints, actions and debugger options are preserved.
+"restart" is an alias for "run"."""
 
 
 	def do_debug(self, arg):
@@ -517,22 +589,20 @@ class IgnitionPDB(Pdb):
 
 
 
+debugger = IgnitionPDB(running_thread)
 
 
+@async(name='PDB-Monitor on %r' % running_thread.getName())
+def set_trace(debugger=debugger):
+	try:
+		debugger.set_trace()
+	except BdbQuit:
+		debugger.uninstall()
 
 
-
-
-
-
-
-
-
-
-
-
-
-db = IgnitionPDB(running_thread)
+def h(debugger=debugger, lines=64):
+	history = list(debugger.io_interface.stdout.history)[0:lines]
+	print '\n'.join(['']*(lines - len(history)) + history)
 
 #
 #def nopTrace(frame, event, arg, testSys=db.sys):
