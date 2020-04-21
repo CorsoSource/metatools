@@ -26,6 +26,8 @@ from shared.tools.meta import getObjectName, getFunctionCallSigs, sentinel, isJa
 from shared.tools.thread import async, findThreads, getThreadState
 from shared.tools.compat import property
 
+from shared.tools.global import ExtraGlobal
+
 from java.lang import Thread, ThreadGroup
 from jarray import array, zeros
 from org.python.core import ThreadState, Py
@@ -42,18 +44,42 @@ from bdb import Bdb, BdbQuit
 
 from shared.tools.compat import next
 
+from collections import deque
 
-class InputStream(StringIO):
+
+class StreamHistory():
+
+	_MAX_HISTORY = 1000
+
+	def __init__(self):
+		self.history = deque(['#! Starting log...'])
+
+	def log(self, string):
+		self.history.append(string)
+		while len(self.history) > self._MAX_HISTORY:
+			_ = self.history.popleft()
+
+
+class PatientInputStream(StringIO, StreamHistory):
 	
 	_SLEEP_RATE = 0.05 # seconds
 	
 	def __init__(self, *args, **kwargs):
 		StringIO.__init__(self, *args, **kwargs)
-		self.history = []
+		StreamHistory.__init__(self)
 	
-	def readline(self):
+	def read(self, n=-1):
 		while True:
-			line = StringIO.readline(self)
+			chunk = StringIO.read(n)
+			if chunk:
+				self.history.append('# %s' % chunk)
+				return chunk
+			else:
+				sleep(self._SLEEP_RATE)
+
+	def readline(self, length=None):
+		while True:
+			line = StringIO.readline(self, length)
 			if line:
 				self.history.append('>>> %s' % '... '.join(line.splitlines()))
 				return line
@@ -66,15 +92,20 @@ class InputStream(StringIO):
 		self.pos = current_pos
 
 
-class OutputStream(StringIO):
+class OutputStream(StringIO, StreamHistory):
 	
 	def __init__(self, *args, **kwargs):
 		StringIO.__init__(self, *args, **kwargs)
-		self.history = []
+		StreamHistory.__init__(self)
 		
 	def write(self, string):
-		self.history.append(string.splitlines())
+		self.history.append(string)
 		StringIO.write(self, string)
+
+	def writelines(self, iterable):
+		self.history.append(iterable)
+		StringIO.writelines(self, iterable)
+
 
 class ProxyIO(object):
 
@@ -83,103 +114,63 @@ class ProxyIO(object):
 	def __init__(self):
 		self.log = lambda s: system.util.getLogger('proxy-io').info(str(s))
 		
-		self.stdin = InputStream()
+		self.stdin = PatientInputStream()
 		self.stdout = OutputStream()
 		self.stderr = OutputStream()
 	
-	
+	@property
+	def last_input(self):
+		return self.stdin.history[-1]
 
-	
-#	@staticmethod
-#	def inject(stream, content):
-#		current_pos = stream.tell()
-#		stream.write(content)
-#		stream.pos = current_pos
-#		
-#		
-#	def write(self, string=''):
-#		self.inject(self.stdout, string)
-#		self.history.append(string)
-#		self.log(string)
-##		self.buffer_raw_out += string
-##		
-##		while string:
-##			
-##			newline, _, string = self.buffer_raw_out.partition('\n')
-##			if string:
-##				self.log(newline)
-##				self.history.append(newline)
-##			else:
-##				self.buffer_raw_out = newline
-#	
-#	def flush(self):
-#		self.write()
-#		if self.buffer_raw_out:
-#			self.log(self.buffer_raw_out)
-#			self.buffer_raw_out = ''
-#		
-#		
-#	def readline(self):
-#		
-#		while True:
-#			try:
-#				line = next(self.stdin)
-#				self.history.append('>>> %s' % '... '.join(line.splitlines()))
-#			except StopIteration:
-#				sleep(self._SLEEP_RATE)
-#			
-#			if self.buffer_in:
-#				line = self.buffer_in.pop(0)
-#				self.history.append('>>> %s' % '... '.join(line.splitlines()))
-#				return line + '\n'
-#				
-#			else:
-#				sleep(self._SLEEP_RATE)
+	@property
+	def last_output(self):
+		return self.stdout.history[-1]
+
+	@property
+	def last_error(self):
+		return self.stderr.history[-1]
 
 
 
 class SysHijack(object):
 
 	__slots__ = ('_thread_state', '_io_proxy', '_originals',
-	             '_source_thread', '_target_thread',)
+	             '_target_thread',)
 
 	_BACKUP_ATTRIBUTES = ('stdin', 'stdout', 'stderr',)
 	
 	_FAILSAFE_TIMEOUT = 20
 	
 	def __init__(self, thread, stdio=None):
-		self._source_thread = Thread.currentThread()
 		self._target_thread = thread
 		self._thread_state = getThreadState(self._target_thread)
 		
 		self._io_stream = stdio
-		self._originals = dict((t,{}) for t in (self._source_thread, self._target_thread))
+		self._originals = {self._target_thread:{}}
 		
 		self._init_time = time()
 		
 		self._install()
 		
-		@async(self._FAILSAFE_TIMEOUT)
-		def failsafe_uninstall(self=self):
-			self._restore()
-		failsafe_uninstall()
+		# @async(self._FAILSAFE_TIMEOUT)
+		# def failsafe_uninstall(self=self):
+		# 	self._restore()
+		# failsafe_uninstall()
 		
 		
 	def _install(self):
 		for key in self._BACKUP_ATTRIBUTES:
-			self._originals[self._source_thread][key] = getattr(sys, key)
 			self._originals[self._target_thread][key] = getattr(self._thread_state.systemState, key)
 			
-			if self._io_stream:
-				setattr(self._thread_state.systemState, key, getattr(self._io_stream,key))
-			else:
-				setattr(self._thread_state.systemState, key, getattr(sys, key))
-				setattr(sys, key, StringIO())	
+			setattr(self._thread_state.systemState, 
+				    key, 
+				    getattr(self._io_stream,key) if self._io_stream else StringIO())
 	
 	def _restore(self):
+		self._originals['last_session'] = {}
 		for key in self._BACKUP_ATTRIBUTES:
+			self._originals['last_session'][key] = getattr(self._thread_state.systemState, key)
 			setattr(self._thread_state.systemState, key, self._originals[self._target_thread][key])
-			setattr(sys,                            key, self._originals[self._source_thread][key])
 			
 	
 	def __getattr__(self, attribute):
@@ -198,7 +189,7 @@ class SysHijack(object):
 
 
 	def _getframe(self, depth=0):
-		print '[~] getting frame %d' % depth
+		print >>self.stdout, '[~] getting frame %d' % depth
 		frame = self._thread_state.frame
 		while depth > 0 and frame:
 			depth -= 1
@@ -298,9 +289,6 @@ class IgnitionPDB(Pdb):
 
 
 
-
-
-
 	def uninstall(self):
 		self.sys._restore()
 		self.sys.settrace(None)
@@ -309,7 +297,7 @@ class IgnitionPDB(Pdb):
 	# Cleanly exit and catch Bdb quit exception
 
 	def trace_dispatch(self, frame, event, arg):
-		print 'Dispatching trace event %r' % event
+		print >>self.stdout, 'Dispatching trace event %r' % event
 		try:
 			return Pdb.trace_dispatch(self, frame, event, arg)
 		except BdbQuit:
@@ -356,7 +344,9 @@ class IgnitionPDB(Pdb):
 		If frame is not specified, debugging starts from caller's frame.
 		"""
 		if frame is None:
-			frame = self.sys._getframe().f_back
+			# This is called from outside the thread, so calling frame is actually correct.
+			frame = self.sys._getframe()
+			# frame = self.sys._getframe().f_back
 		self.reset()
 		while frame:
 			frame.f_trace = self.trace_dispatch
@@ -560,6 +550,75 @@ db = IgnitionPDB(running_thread)
 #
 
 
+
+
+
+
+# THIS WORKS:
+# from shared.tools.pretty import p,pdir
+
+# from shared.tools.thread import async, findThreads, getThreadState, dangerouslyKillThreads
+# from time import sleep
+
+# from java.lang import Thread, ThreadGroup
+
+# from shared.tools.global import ExtraGlobal
+
+
+# thread_name = 'running-thread'
+
+# dangerouslyKillThreads(thread_name, bypass_interlock='Yes, seriously.')
+# stop = lambda: dangerouslyKillThreads(thread_name, bypass_interlock='Yes, seriously.')
+
+
+# ExtraGlobal['debug'] = ''
+
+# def debugPrinter(frame, event, arg):
+# 	print '[%5d %s in %s] Event: %r with %r' % (frame.f_lineno, frame.f_code.co_filename, frame.f_code.co_name, event, arg)
+	
+# 	while not ExtraGlobal['debug']:
+# 		sleep(0.05)
+	
+# 	if ExtraGlobal['debug'] == 'q':
+# 		print 'Stopping debug...'
+# 		raise KeyboardInterrupt
+# 	else:
+# 		print 'Echo: %r' % ExtraGlobal['debug']
+	
+# 	ExtraGlobal['debug'] = ''
+	
+# 	return debugPrinter
+
+
+# def foo(x):
+# 	x += 5
+# 	return x
+	
+
+# @async(name=thread_name)
+# def running():
+	
+# 	localsys = getThreadState(Thread.currentThread()).systemState
+# #	localsys.setprofile(debugPrinter)
+# 	localsys.settrace(debugPrinter)
+	
+# 	try:
+# 		counting = 1
+		
+# 		while counting:
+# 			#counting += 1
+# 			counting = foo(counting)
+# 			print 'Count: %d' % counting
+# 			sleep(0.5)
+			
+# 	except KeyboardInterrupt:
+# 		print 'Thread dying....'
+# 		sleep(0.01)
+		
+# #		localsys.setprofile(None)
+# 		localsys.settrace(None)
+		
+# running_thread = running()	
 
 
 
