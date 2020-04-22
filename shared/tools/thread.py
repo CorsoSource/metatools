@@ -6,14 +6,16 @@
 from __future__ import with_statement
 from functools import wraps, partial
 from time import sleep
+from datetime import datetime, timedelta
 import re
-
+from heapq import heappush, heappop
 
 from java.lang import Thread, ThreadGroup
 from jarray import array, zeros
 from org.python.core import ThreadState
 
-from shared.tools.meta import getReflectedField
+from shared.tools.meta import getReflectedField, MetaSingleton
+from shared.tools.timing import EveryFixedDelay
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -25,7 +27,67 @@ __email__ = 'andrew.geiger@corsosystems.com'
 __all__ = ['async', 'findThreads', 'getThreadObject']
 
 
-def async(startDelaySeconds=None, name=None):
+def total_seconds(some_timedelta):
+	return some_timedelta.seconds + some_timedelta.microseconds
+
+
+class MetaAsyncWatchdog(type):
+
+	SCRAM_THREAD_NAME = 'Async-SCRAM-Monitor'
+	SCRAM_CHECK_RATE = 0.1 # seconds
+	_SCRAM_MONITOR = None
+
+	_thread_expirations = []
+
+	def watch(cls, thread_handle, max_allowed_runtime):
+		expected_dead_by = datetime.now() + timedelta(seconds=max_allowed_runtime)
+		heappush(cls._thread_expirations, (expected_dead_by, thread_handle))
+
+		cls.spawn_watchdog_monitor()
+
+
+	def spawn_watchdog_monitor(cls):
+
+		if cls._SCRAM_MONITOR:
+			if cls._SCRAM_MONITOR.getState() != Thread.State.TERMINATED:
+				return
+			else:
+				cls._SCRAM_MONITOR = None
+
+		@async(0.001, name=cls.SCRAM_THREAD_NAME)
+		def monitor(cls=cls):
+
+			# Once the threads are all gone, exit and die gracefully
+			while cls._thread_expirations:
+
+				# Check if the next-to-die thread should be murdered
+				next_expiration, thread_handle = cls._thread_expirations[0]
+				
+				thread_state = thread_handle.getState()
+
+				# If the thread is already done, then remove it
+				if thread_state == Thread.State.TERMINATED:
+					_ = heappop(cls._thread_expirations)
+				# if the thread isn't dead but should be, kill it
+				elif next_expiration < datetime.now():
+					thread_handle.interrupt()
+					_ = heappop(cls._thread_expirations)
+				# otherwise wait a little bit and see if that changes
+				else:
+					sleep(cls.SCRAM_CHECK_RATE)
+
+			cls._SCRAM_MONITOR = None
+
+		cls._SCRAM_MONITOR = monitor()
+
+
+
+class AsyncWatchdog(MetaSingleton):
+	__metaclass__ = MetaAsyncWatchdog
+
+
+
+def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None):
 	"""Decorate a function with this to make it run in another thread asynchronously!
 	If defined with a value, it will wait that many seconds before firing.
 	If a name is provided the thread will be named. Handy for the gateway thread status page.
@@ -56,10 +118,41 @@ def async(startDelaySeconds=None, name=None):
 	>>> sleep(1.5); tBar.getState()
 	TERMINATED
 	"""
+	# Check if the first argument is a function. If it's just decorating, do the trivial case
+	if getattr(startDelaySeconds, '__call__', None):		
+		# Decorator didn't have a param, so this is actually a function
+		function = startDelaySeconds
+		
+		try:
+			@wraps(function)
+			def asyncWrapper(*args, **kwargs):
+				# Create the closure to carry the scope into another thread
+				def full_closure(function, args=args, kwargs=kwargs):
+					try:
+						_ = function(*args,**kwargs)
+					except KeyboardInterrupt:
+						pass
 
-	if name or isinstance(startDelaySeconds, (int, long, float)):
-		if name and startDelaySeconds is None:
+				# Wrap the function and delay values to prevent early GC of function and delay
+				closure = partial(full_closure, function)
+				
+				# Async calls should return the thread handle. 
+				# They will _not_ return whatever the function returned. That gets dumped to _.
+				return system.util.invokeAsynchronous(closure)
+			return asyncWrapper
+
+		# If the @async decorator was called with empty parenthesis, then the Python engine
+		# will assume the results are _themselves_ a decorator. This leads to an AttributeError.
+		# Simply call it correctly here.
+		except AttributeError:
+			assert all(arg is None for arg in (startDelaySeconds, name, maxAllowedRuntime)), 'The @async decorator was likely called wrong.\nSimply do not use () with no params.'
+			return async(0)
+
+	# ... otherwise apply the configuration provided
+	else:
+		if startDelaySeconds is None:
 			startDelaySeconds = 0.0
+
 		# Convert to check param... Clamps to millisecond multiples
 		delaySeconds = int(startDelaySeconds*1000.0)/1000.0
 		
@@ -86,38 +179,15 @@ def async(startDelaySeconds=None, name=None):
 				thread_handle = system.util.invokeAsynchronous(closure)
 				if name:
 					thread_handle.setName(name)
+				
+				if maxAllowedRuntime:
+					AsyncWatchdog.watch(thread_handle, maxAllowedRuntime)
+				
 				return thread_handle
 			return asyncWrapper
 		return asyncDecoWrapper
 	
-	else:		
-		# Decorator didn't have a param, so this is actually a function
-		function = startDelaySeconds
-		
-		try:
-			@wraps(function)
-			def asyncWrapper(*args, **kwargs):
-				# Create the closure to carry the scope into another thread
-				def full_closure(function, args=args, kwargs=kwargs):
-					try:
-						_ = function(*args,**kwargs)
-					except KeyboardInterrupt:
-						pass
 
-				# Wrap the function and delay values to prevent early GC of function and delay
-				closure = partial(full_closure, function)
-				
-				# Async calls should return the thread handle. 
-				# They will _not_ return whatever the function returned. That gets dumped to _.
-				return system.util.invokeAsynchronous(closure)
-			return asyncWrapper
-
-		# If the @async decorator was called with empty parenthesis, then the Python engine
-		# will assume the results are _themselves_ a decorator. This leads to an AttributeError.
-		# Simply call it correctly here.
-		except AttributeError:
-			assert startDelaySeconds is None and name is None, 'The @async decorator was likely called wrong.\nSimply do not use () with no params.'
-			return async(0)
 
 
 def findThreads(thread_name_pattern='.*', search_group=None, recursive=False, sandbagging_percent=110):
