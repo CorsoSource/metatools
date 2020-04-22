@@ -174,6 +174,12 @@ The having something act as its value while _being distinguishable_ from that va
 
 For testing purposes, it's helpful to not need to constantly redefine things. In code examples (as already seen) these can be called upon to provide a repeatable/demonstratable input. Plus, they're used by the tests.
 
+### global
+
+Ever do work in one section of Ignition and wish you could exploit it in another? Tired of lag due to recalculating the same data over and over in different contexts? Use `ExtraGlobal` to cache objects for anything to reference in the JVM. It monitors itself and keeps track of its entries, purging (or updating) them as they time out. Handy if you have an event driven by a tag that you want to show in Perspective and reference in WebDev.
+
+> WARNING: This is clearly best used for objects that are immutable, but there's nothing stopping you from using this as a weird, thread-unsafe pipe between threads. Don't use it for that. Unless you have a really good reason or are making something really cool.
+
 ### logging
 
 Logging in Ignition comes in many flavors and scenarios. And yet, there are a few caveats. Can't use `system.util.getLogger` effectively in the script console, defining loggers and their contexts can be verbose, and getting clients to log to the gateway is occasionally super helpful. This logging class lets you put as little or as much effort into this as you'd like. 
@@ -236,6 +242,14 @@ def foo(x):
 	print x
 ``` 
 Note also that the function returns the thread handle itself. See the docstring for the decorator for more details on how that works.
+
+Additionally, the thread can be named with `name=`. Setting `maxAllowedRuntime=` will _make sure_ the thread dies in a certain amount of time. If you're worried an async thread will live past its prime, this is an easy way to make sure it's not there. Eventually. 
+
+Also added is `findThreads` which will return a list of named threads matching a pattern given (i.e. regex). 
+
+And for those cheating off other thread's work, you can use `getThreadObject` to get a live reference to something in another thread.
+> WARNING: Grabbing and mutating objects _from outside threads_ is sheer lunacy and is beyond bad practice! This function exists to make `ExtraGlobal` functional and to overcome a few extremely niche edge cases in how Jython operates (as compared to, say, CPython).
+
 
 ### timing
 
