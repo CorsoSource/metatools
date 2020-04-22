@@ -25,6 +25,30 @@ __all__ = [] # This is meant to be empty. No `from corso.meta import *`!
 GLOBAL_MESSAGE_PROJECT_NAME = None #'global'
 
 
+class MetaSingleton(object):
+	"""Use this as a base class for a metaclass. It will exist without instances.
+
+	We'll almost never _actually_ want a singleton in Python, but we have a weird situation
+	  in Jython. In our case, we occasionally want to make some truly single objects, 
+	  since a number of guarantees from the global interpreter lock (GIL) just don't exist
+	  here. Worse, if something is going to be a _true_ singleton, we'll want the control
+	  a metaclass provides. This leads to the likely scenario we don't want _anything_ 
+	  to be generated and just use it as a fake module (which again, isn't _quite_ possible
+	  in our environment otherwise).
+
+	TL;DR: the Ignition environment is a bit special.
+	"""
+
+	def __new__(cls):
+		raise NotImplementedError("%s does not support instantiation." % cls.__name__) 
+	
+	def __init__(cls):
+		raise NotImplementedError("%s does not support instantiation." % cls.__name__) 
+
+	def __setattr__(cls, key, value):
+		raise AttributeError("%s attributes are not mutable. Use methods to manipulate them." % cls.__name__) 
+
+
 def sentinel(iterable, stopValue):
 	"""A helper to make it simpler to implement sentinel values more idomatically.
 	This is a good way to replace a while True loop, removing the need for a break-on-value clause.

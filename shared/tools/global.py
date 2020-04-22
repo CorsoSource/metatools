@@ -20,6 +20,7 @@
 
 from shared.tools.thread import async, findThreads, getFromThreadScope
 from shared.tools.timing import EveryFixedDelay
+from shared.tools.meta import MetaSingleton
 
 from time import time, sleep
 from weakref import WeakKeyDictionary
@@ -252,6 +253,7 @@ class MetaExtraGlobal(type):
 	# Period to check if the monitor has been replaced or should be shut down.
 	RELEVANCE_CHECK_PERIOD = 1 # second
 
+	CLEANUP_THREAD_NAME = 'ExtraGlobal-Monitor'
 	_CLEANUP_MONITOR = None
 
 	_cache = {}
@@ -392,7 +394,7 @@ class MetaExtraGlobal(type):
 			else:
 				cls._CLEANUP_MONITOR = None
 
-		@async(0.001, 'ExtraGlobal-Monitor')
+		@async(0.001, cls.CLEANUP_THREAD_NAME)
 		def monitor(cls=cls):
 
 			while True:
@@ -400,10 +402,14 @@ class MetaExtraGlobal(type):
 				# should be replaced. (Once scan starts, thread won't die until it's done.)
 				for iterNum,lastStepTime in EveryFixedDelay(cls.CHECK_PERIOD, cls.RELEVANCE_CHECK_PERIOD):
 					# die if disconnected reference or unneeded
-					if not (cls._CLEANUP_MONITOR and cls._cache):
+					if not cls._CLEANUP_MONITOR:
 						return
 					# die if another monitor has somehow been spun up instead
-					if cls._CLEANUP_MONITOR != Thread.currentThread():
+					elif cls._CLEANUP_MONITOR != Thread.currentThread():
+						return
+					# die gracefully if not needed
+					elif not cls._cache:
+						cls._CLEANUP_MONITOR = None
 						return
 
 				# Scan the cache, removing entries as needed.
@@ -555,18 +561,10 @@ class MetaExtraGlobal(type):
 		return '<%s with %d items>' % (cls.__name__, len(cls._cache))
 
 
-class ExtraGlobal(object):
+class ExtraGlobal(MetaSingleton):
 	"""This is a singleton implementation of the cache. It exists without instances."""
 	__metaclass__ = ExtraMetaExtraGlobal.GLOBAL_REFERENCE
 
-	def __new__(cls):
-		raise NotImplementedError("%s does not support instantiation." % cls.__name__) 
-	
-	def __init__(cls):
-		raise NotImplementedError("%s does not support instantiation." % cls.__name__) 
-
-	def __setattr__(cls, key, value):
-		raise AttributeError("%s attributes are not mutable. Use methods to manipulate them." % cls.__name__) 
 
 
 #from shared.tools.pretty import p,pdir
