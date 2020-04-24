@@ -3,6 +3,12 @@
 
 	This is a manual form of memoization.
 
+	When used, ExtraGlobal will generate two threads:
+	 - A cache thread that holds references even if the source threads or functions
+	     go out of scope
+	 - A monitoring thread that culls the cache periodically, checking what items
+	     need to be removed from expiration, or replaced/refreshed from a callback
+
 	The ExtraGlobal class can not be instantiated - it is forced to be a singleton
 	  interface by the metaclass that defines it. All methods to interact with the
 	  cache is via MetaExtraGlobal's configuration. 
@@ -13,7 +19,15 @@
 	  Treat it as a dumb key-value store, where the key can be as complicated
 	  as a two element tuple. (Anything more sophisticated lies madness.) 
 
-	NOTE: This is *specifically* not thread safe!
+	To summarize:
+	           ExtraGlobal - the cache interface
+	       MetaExtraGlobal - the interface definition for the cache
+	  ExtraMetaExtraGlobal - the enforcer that MetaExtraGlobal defines the cache
+	                         only ever once at a time in the JVM
+
+	NOTE: This is *specifically* not thread smart! 
+		  It's thread safe, but the practice of using global state is _not_!
+
 		  Use this to hold immutable objects that could be shared between threads.
 		  Or use it (carefully!) to continue partial calculations.
 """
@@ -180,56 +194,137 @@ class ExtraMetaExtraGlobal(type):
 	The goal here is to reach across all Python threads and make sure that there can
 	  be only one cache.
 
+	NOTE: Once imported, the cache will launch a thread to keep itself in scope!
+	  This is to make sure that there is only ever one instance of this and derivative
+	  classes anywhere on the JVM. 
+	  
+	  Unlike the other threads, this GLOBAL_REFERENCE thread does NOT die when the cache empties. 
+	  
+	  Keeping GLOBAL_REFERENCE alive prevents the class from getting regenerated as an optimization.
+	  If GLOBAL_REFERENCE is set to NONE, though, it will clear itself on its next scan.
+
 	For a little bit of clarity, the metaclasses are being used a bit like this:
 	  ExtraMetaExtraGlobal - ensure JVM-level singleton definition
 	  MetaExtraGlobal      - ensure interface to dict is strictly method-based
 	  ExtraGlobal          - ensure instantiation is impossible and define a class for the methods
 	"""
 	HOLDING_THREAD_NAME = 'ExtraGlobal-Cache'
+	_HOLDING_THREAD = None
 	
 	GLOBAL_REFERENCE = None
 
+	# Period to check if the holding thread has been replaced or should be shut down.
+	META_RELEVANCE_CHECK_PERIOD = 1 # second
+
 	def __new__(cls, clsname, bases, attrs):
 		if cls.GLOBAL_REFERENCE:
+			# Ensure there's a holding thread to keep cache references alive (from the GC)
+			if not cls.GLOBAL_REFERENCE._HOLDING_THREAD:
+				cls.spawn_holding_thread(cls, cls.GLOBAL_REFERENCE)
 			return cls.GLOBAL_REFERENCE
 
 		cache_threads = findThreads(cls.HOLDING_THREAD_NAME)
 
 		assert len(cache_threads) <= 1, "The ExtraGlobal-Cache thread has been spun up more than once! Only one should be alive: %r" % cache_threads
 
+		# If no holding threads are found and GLOBAL_REFERENCE is not initialized, generate MetaExtraGlobal
 		if not cache_threads:
-			system.util.getLogger('ExtraGlobal').debug('Spinning up holding thread')
-
-			MetaExtraGlobal = super(ExtraMetaExtraGlobal, cls).__new__(cls, clsname, bases, attrs)
-	
-			@async(name=cls.HOLDING_THREAD_NAME)
-			def holding_closure(MetaExtraGlobal=MetaExtraGlobal):
-				from time import sleep
-				
-				while True:
-					sleep(0.01)
-		
-			cache_thread = holding_closure()
-			
-			cls.GLOBAL_REFERENCE = getFromThreadScope(cache_thread, 'MetaExtraGlobal')
-	
+			cls.GLOBAL_REFERENCE = super(ExtraMetaExtraGlobal, cls).__new__(cls, clsname, bases, attrs)
+			cls.spawn_holding_thread(cls, cls.GLOBAL_REFERENCE)
 		else:
-			system.util.getLogger('ExtraGlobal').debug('Already initialized: %r' % cls.GLOBAL_REFERENCE)
-
+			system.util.getLogger('ExtraGlobal').debug('Already initialized in %r as %r' % (cache_threads[0], cls.GLOBAL_REFERENCE))
 			cls.GLOBAL_REFERENCE = getFromThreadScope(cache_threads[0], 'MetaExtraGlobal')
-	
+				
 		return cls.GLOBAL_REFERENCE
-#	
-#	@classmethod
-#	def purge_holding_thread(cls):
-#		for thread in findThreads(cls.HOLDING_THREAD_NAME):
-#			thread.interrupt()	
-#			
+
+	@staticmethod
+	def spawn_holding_thread(meg_cls, MEG_Reference):
+		"""Spin up (if needed) a thread to hold the cache. 
+		Checks if it should clear itself META_RELEVANCE_CHECK_PERIOD
+
+		The holding thread will run in perpetuity, but will die if:
+		 - the class' _HOLDING_THREAD is cleared
+		 - the class' _HOLDING_THREAD no longer references the monitoring script
+		 - the GLOBAL_REFERENCE has changed to another cache instance. Somehow.
+		"""
+		if meg_cls._HOLDING_THREAD:
+			if meg_cls._HOLDING_THREAD.getState() != Thread.State.TERMINATED:
+				return
+			else:
+				meg_cls._HOLDING_THREAD = None	
+				
+		system.util.getLogger('ExtraGlobal').debug('Spinning up holding thread')
+				
+		# Spin up the thread after a very short delay to allow final assignments to establish
+		@async(0.05, meg_cls.HOLDING_THREAD_NAME)
+		def holding_closure(MetaExtraGlobal=MEG_Reference):
+			"""Spin up a thread to ensure that MetaExtraGlobal is always in scope,
+			and only ever in scope exactly one time. If it goes out of scope
+			"""				
+			from time import sleep
+			from java.lang import Thread
+
+			# Initialize to be self-consistent and self-referential
+			if MetaExtraGlobal.GLOBAL_REFERENCE is None:
+				MetaExtraGlobal.GLOBAL_REFERENCE = MetaExtraGlobal
+				
+			thisThread = Thread.currentThread()
+			
+			# This GLOBAL_REFERENCE thread will run forever until orphaned or killed directly.
+			while True:
+				# Wait for META_RELEVANCE_CHECK_PERIOD, but check occasionally if the monitor
+				# should be replaced. (Once scan starts, thread won't die until it's done.)
+				sleep(MetaExtraGlobal.META_RELEVANCE_CHECK_PERIOD)
+
+				# die if disconnected reference or unneeded
+				if MetaExtraGlobal.GLOBAL_REFERENCE is None:
+					system.util.getLogger('ExtraGlobal').debug('Closing holding thread: GLOBAL_REFERENCE detected as None')
+					return
+				# check if the holding thread's been orphaned
+				if MetaExtraGlobal._HOLDING_THREAD is not thisThread:
+					# if there's somehow _another_ thread...
+					if MetaExtraGlobal._HOLDING_THREAD is None:
+						if MetaExtraGlobal and MetaExtraGlobal._cache:
+							MetaExtraGlobal._cache = {}
+					else:
+						# check to see if we need to merge keys
+						if MetaExtraGlobal and MetaExtraGlobal._cache:
+							# try to merge in any missing keys, then clear out
+							The_New_Meta = getFromThreadScope(MetaExtraGlobal._HOLDING_THREAD, 'MetaExtraGlobal')
+							for key,value in MetaExtraGlobal._cache.items():
+								if not key in The_New_Meta:
+									The_New_Meta[key] = value
+							MetaExtraGlobal._cache = {}
+					system.util.getLogger('ExtraGlobal').debug('Closing holding thread: HOLDING THREAD detected as changed')
+					return
+
+				# ... and this is "looking both ways down a one-way street"
+				if MetaExtraGlobal.GLOBAL_REFERENCE is not MetaExtraGlobal:
+					# check to see if we need to merge keys
+					if MetaExtraGlobal and MetaExtraGlobal._cache:
+						# try to merge in any missing keys, then clear out
+						The_New_Meta = MetaExtraGlobal.GLOBAL_REFERENCE
+						for key,value in MetaExtraGlobal._cache.items():
+							if not key in The_New_Meta:
+								The_New_Meta[key] = value
+						MetaExtraGlobal._cache = {}
+					system.util.getLogger('ExtraGlobal').debug('Closing holding thread: GLOBAL_REFERENCE detected as changed')
+					return
+					
+		meg_cls._HOLDING_THREAD = holding_closure()
+		
+		meg_cls.GLOBAL_REFERENCE = MEG_Reference
+
 
 class MetaExtraGlobal(type):
 	"""Force the ExtraGlobal to be a singleton object.
 	This enforces that any (effectively all) global state is accessible.
-	
+
+	NOTE: The Jython dict is based on a thread safe map class in Java. Thus _cache may be
+	  safely _accessed_ by anyone. Mutating entries will also be safe, but it also follows
+	  all the caveats of a global variable. This is why this is called *Extra*Global, as
+	  opposed to "Just a Bit Global, Like a Python Module Variable or Just Poor Planning." 
+
 	By default, a scope of None is "global". If a scope is provided and the key fails,
 	  the key will be tried with a scope of None as well, as a fallback.
 
@@ -250,7 +345,8 @@ class MetaExtraGlobal(type):
 	# Monitor (garbage collecing) thread configuraiton
 	# Period to check the cache for expired entries
 	CHECK_PERIOD = 10 # seconds
-	# Period to check if the monitor has been replaced or should be shut down.
+	
+	# Inherited from the metaclass, copied here for reference
 	RELEVANCE_CHECK_PERIOD = 1 # second
 
 	CLEANUP_THREAD_NAME = 'ExtraGlobal-Monitor'
@@ -305,6 +401,8 @@ class MetaExtraGlobal(type):
 		cache_entry = CacheEntry(obj, label, scope, lifespan, callback)
 		cls._cache[cache_entry.key] = cache_entry
 		
+		system.util.getLogger('ExtraGlobal').trace('Stashed %r from %r' % (cache_entry.key, Thread.currentThread()))
+		
 		cls.spawn_cache_monitor()
 		return cache_entry.key
 
@@ -327,6 +425,7 @@ class MetaExtraGlobal(type):
 	def trash(cls, label=None, scope=None):
 		"""Remove an item from the cache directly."""
 		del cls._cache[CacheEntry.gen_key(label, scope)]
+		system.util.getLogger('ExtraGlobal').trace('Trashed (scope:%r, label:%r) from %r' % (scope, label, Thread.currentThread()))
 		cls.spawn_cache_monitor()
 				
 
@@ -371,6 +470,19 @@ class MetaExtraGlobal(type):
 		return label, scope, lifespan
 
 
+	def verify_holding_thread(cls):
+		"""Make sure there's something to keep the references alive in case the source(s) go away."""
+		meta_cls = cls.__metaclass__
+		extra_meta_cls = meta_cls.__metaclass__
+		# Is the holding thread missing?
+		if extra_meta_cls._HOLDING_THREAD is None:
+			extra_meta_cls.spawn_holding_thread(meta_cls, meta_cls)
+		# Is the holding thread dead?
+		elif extra_meta_cls._HOLDING_THREAD.getState() == Thread.State.TERMINATED:
+			extra_meta_cls._HOLDING_THREAD = None
+			extra_meta_cls.spawn_holding_thread(meta_cls, meta_cls)
+
+
 	def spawn_cache_monitor(cls):
 		"""Spin up (if needed) a thread to monitor the cache. Checks all cache entries
 		  every CHECK_PERIOD seconds.
@@ -388,28 +500,37 @@ class MetaExtraGlobal(type):
 		  to refresh it. If the refresh brought the object back, then it will be skipped.
 		  Otherwise the cache entry will be trashed.
 		"""
+		cls.verify_holding_thread()
+		
 		if cls._CLEANUP_MONITOR:
 			if cls._CLEANUP_MONITOR.getState() != Thread.State.TERMINATED:
 				return
 			else:
 				cls._CLEANUP_MONITOR = None
 
-		@async(0.001, cls.CLEANUP_THREAD_NAME)
+		# Spin up the thread after a very short delay to allow final assignments to establish
+		@async(0.05, cls.CLEANUP_THREAD_NAME)
 		def monitor(cls=cls):
-
+			
+			# Initialize to be self-consistent and self-referential
+			thisThread = Thread.currentThread()
+			
 			while True:
 				# Wait for CHECK_PERIOD, but check occasionally if the monitor
 				# should be replaced. (Once scan starts, thread won't die until it's done.)
 				for iterNum,lastStepTime in EveryFixedDelay(cls.CHECK_PERIOD, cls.RELEVANCE_CHECK_PERIOD):
 					# die if disconnected reference or unneeded
-					if not cls._CLEANUP_MONITOR:
+					if cls._CLEANUP_MONITOR is None:
+						system.util.getLogger('ExtraGlobal').debug('Closing monitor thread %r: CLEANUP MONITOR detected as None' % thisThread)
 						return
 					# die if another monitor has somehow been spun up instead
-					elif cls._CLEANUP_MONITOR != Thread.currentThread():
+					elif cls._CLEANUP_MONITOR != thisThread:
+						system.util.getLogger('ExtraGlobal').debug('Closing monitor thread %r: CLEANUP MONITOR detected as Changed' % thisThread)
 						return
 					# die gracefully if not needed
 					elif not cls._cache:
 						cls._CLEANUP_MONITOR = None
+						system.util.getLogger('ExtraGlobal').debug('Closing monitor thread %r: Cache is empty. Gracefully closing cache.' % thisThread)
 						return
 
 				# Scan the cache, removing entries as needed.
@@ -421,9 +542,12 @@ class MetaExtraGlobal(type):
 					
 					# Check if the entry is expired
 					# (remember, the entry will refresh itself if it can, referencing the new entry if needed)
-					if entry.expired:
-						cls.trash(entry.label, entry.scope)
-
+					try:
+						if entry.expired:
+							cls.trash(entry.label, entry.scope)
+					except:
+						del cls._cache[key]
+						
 		cls._CLEANUP_MONITOR = monitor()
 
 	# Convenience (dict-like) methods
