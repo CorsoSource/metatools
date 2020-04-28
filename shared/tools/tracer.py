@@ -1,6 +1,9 @@
 
 
+from StringIO import StringIO
 
+from shared.tools.pretty import p,pdir
+from shared.data.expression import Expression
 
 
 
@@ -8,22 +11,22 @@
 class Context(object):
 	
 	__slots__ = ('_locals', '_event', '_arg', 
-				 '_local_unsafe', '_deep')
+				 '_local_unsafe', '_snapshot')
 	
-	def __init__(self, frame, event, arg, deep=False):
+	def __init__(self, frame, event, arg, snapshot=True):
 		
-		self._deep = deep
+		self._snapshot = snapshot
 
 		local_copy = {}
 		local_unsafe = frame.f_locals.copy()
 
-		if deep:
+		if snapshot:
 			for key,value in frame.f_locals.items():
 				try:
 					local_copy[key] = deepcopy(value)
 				except:
-					local_copy[key] = NotImplemented
-					local_copy['*' + key + '*']
+					local_copy[key] = NotImplemented # p or pdir?
+					local_copy['*' + key + '*'] = value
 				
 		self._locals   = local_copy
 		self._event    = event
@@ -331,14 +334,15 @@ class Tracer(object):
 		if self.monitoring:
 			# Check if execution should be intercepted for debugging
 			if self.intercept_context(frame, event, arg):
+
 				self._dispatch_mapping.get(event, self._nop)(frame, arg)
-			
+
 			return self.dispatch
 		else:
 			return # none
 
 
-	def check_context(self, frame, event, arg):
+	def intercept_context(self, frame, event, arg):
 		"""Determine if execution should be stopped."""
 		if self.intercepting:
 			return True # if already intercepting, continue
@@ -373,3 +377,30 @@ class Tracer(object):
 
 
 
+
+class Trap(object):
+	
+	__slots__ = ('left', 'right')
+	
+	def __init__(self, left_expression, right_expression):
+		self.left = Expression(left_expression)
+		self.right = Expression(right_expression)
+		
+		
+	def check(self, context):
+		return (self.left(*(getattr(context, field, context[field]) 
+							for field 
+							in self.left._fields) ) 
+				== 
+				self.right(*(getattr(context, field, context[field]) 
+							 for field 
+				 			 in self.right._fields) ) )
+
+
+
+
+
+
+
+def set_trace():
+	raise NotImplementedError("TODO: ADD FEATURE")
