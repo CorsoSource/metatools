@@ -143,7 +143,7 @@ def isPythonObject(o):
 	return not isJavaObject(o)
 	
 
-def getObjectName(o, estimatedDepth=None, startRecent=True):
+def getObjectName(o, estimatedDepth=None, startRecent=True, ignore_names=set()):
 	"""Get an item's name by finding its first reference in the stack.
 
 	If an estimatedDepth is provided, the search will start there,
@@ -158,7 +158,7 @@ def getObjectName(o, estimatedDepth=None, startRecent=True):
 		while True:
 			frame = sys._getframe(estimatedDepth)
 			for key,value in frame.f_locals.items():
-				if value is o:
+				if value is o and not key in ignore_names:
 					return key
 			estimatedDepth += 1 if startRecent else -1
 	except ValueError:

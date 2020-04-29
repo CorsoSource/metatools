@@ -5,9 +5,11 @@
 """
 
 
+import __builtin__
 import re, math, textwrap
 from array import array
 from java.lang import Exception as JavaException
+import java.lang.Class as JavaClass
 from com.inductiveautomation.ignition.common import BasicDataset
 from com.inductiveautomation.ignition.common.script.builtin.DatasetUtilities import PyDataSet
 from shared.tools.meta import getObjectName, getFunctionCallSigs, sentinel, isJavaObject, getReflectedField
@@ -23,8 +25,8 @@ __all__ = ['p','pdir']
 
 quotePattern = re.compile("""^('.*'|".*")$""")
 
-PRETTY_PRINT_TYPES = (BasicDataset, PyDataSet, list, tuple, array, dict)
-
+PRETTY_PRINT_TYPES = (BasicDataset, PyDataSet, list, tuple, array, dict, set, frozenset)
+IGNORED_NAMES = set(['o', 'obj', 'element', 'attr', 'val'])
 
 def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True, recursePrettily=False, directPrint=True):
 	"""Pretty print the dir() function for Ignition things. This is designed to be used in the 
@@ -45,13 +47,24 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 	
 	out = []	
 	
-	name = getObjectName(o,estimatedDepth=2)
+	name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
 	if name:
 		out += ['%sProperties of "%s" <%s>' % (indent, name, str(type(o))[6:-1])]
 	else:
 		out += ['%sProperties of <%s>' % (indent, str(type(o))[6:-1])]
 	out += ['%s%s' % (indent, '='*len(out[0]))]
 	
+	obj_repr = repr(o)
+	if obj_repr:
+		obj_repr = obj_repr.splitlines() if '\n' in obj_repr else [obj_repr]
+		
+		for line in obj_repr:
+			if line > ellipsisLimit:
+				out += ['%s%s' % (indent, line[:-4])]
+			else:
+				out += ['%s%s' % (indent, line)]
+		out += ['%s%s' % (indent, '-'*len(out[0]))]
+
 	try:
 		joinClause = '\n---\n'
 		callExample = '%s%s' % (indent, getFunctionCallSigs(o, joinClause),)
@@ -84,6 +97,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 					  if not (attribute.startswith('_') and skipPrivate)]
 	
 	attributes = sorted(attributes)
+	
 	
 	# preprocessing
 	maxAttrLen = max([len(attribute) 
@@ -245,11 +259,14 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 	
 	if isinstance(o, (BasicDataset,PyDataSet)):
 		ds = o
+		
+		o_name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
+		o_name = ('"%s" ' % o_name) if o_name else ''
 		if isinstance(ds, PyDataSet):
 			ds = ds.getUnderlyingDataset()
-			out += ['"%s" <PyDataSet> of %d elements and %d columns' % (getObjectName(o,estimatedDepth=2), ds.getRowCount(), ds.getColumnCount())]
+			out += ['%s<PyDataSet> of %d elements and %d columns' % (o_name, ds.getRowCount(), ds.getColumnCount())]
 		else:
-			out += ['"%s" <DataSet> of %d elements and %d columns' % (getObjectName(o,estimatedDepth=2), ds.getRowCount(), ds.getColumnCount())]
+			out += ['%s<DataSet> of %d elements and %d columns' % (o_name, ds.getRowCount(), ds.getColumnCount())]
 		out += [indent + '='*len(out[0])]
 		
 		# preprocessing
@@ -288,9 +305,10 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 			out += [rowPattern % tuple([i] + list(row))]		
 		
 		
-	elif isinstance(o, (list, tuple, array)):
-		out += ['"%s" <%s> of %d elements' % (
-			getObjectName(o,estimatedDepth=2), 
+	elif isinstance(o, (list, tuple, array, set, frozenset)):
+		o_name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
+		out += ['%s<%s> of %d elements' % (
+			('"%s" ' % o_name) if o_name else '', 
 		    '<%s> array' % o.typecode if isinstance(o,array) else str(type(o))[6:-1],
 			len(o))]
 		
@@ -309,12 +327,14 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		# element printing
 		for i,element in enumerate(o):
 			ixPattern = '%%%dd'
-			if isinstance(element, dict):
+			if isinstance(element, (dict, set,frozenset)):
 				ixPattern = '{%s}' % ixPattern
 			elif isinstance(element, (list,array)):
 				ixPattern = '[%s]' % ixPattern
 			elif isinstance(element, tuple):
 				ixPattern = '(%s)' % ixPattern
+			elif isinstance(o, (set,frozenset)):
+				ixPattern = ' %s?' % ixPattern
 			else:
 				ixPattern = ' %s ' % ixPattern
 	
@@ -355,7 +375,8 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 				
 				
 	elif isinstance(o, dict):
-		out.append('"%s" <%s> of %d elements' % (getObjectName(o,estimatedDepth=2), str(type(o))[6:-1],len(o)))
+		o_name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
+		out.append('%s<%s> of %d elements' % (('"%s" ' % o_name) if o_name else '', str(type(o))[6:-1],len(o)))
 		
 		# preprocessing
 		maxKeyWidth = max([len(repr(key)) for key in o.keys()] + [1])
@@ -403,6 +424,46 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		print output
 	else:
 		return output
+
+
+def displayhook(obj):
+	"""Make pretty things the default!"""
+	# don't print None by itself, like normal
+	if obj is None:
+		return
+	try:
+		# pretty print the default nice things
+		if isinstance(obj, PRETTY_PRINT_TYPES):
+			p(obj)
+		# normal prints for normal stuff
+		elif isinstance(obj, (int,float,long,str,unicode)):
+			print obj
+		# give signatures for functions
+		elif '__call__' in dir(obj):
+			f_name = getObjectName(obj,estimatedDepth=2)
+			print '%s%s' % (f_name or 'λ', getFunctionCallSigs(obj))
+		# classes / types should be dir'd (throws errors on instances)
+		elif issubclass(obj, (type, object, JavaClass)):
+			pdir(obj)
+	# everything else gets a normal repr treatment. 
+	except:
+		print repr(obj)			
+	
+	# Save to _ in builtin, per docs
+	__builtin__._ = obj
+	
+
+def install(sys_scope=None):
+	"""Inject pretty printing into the interactive system scope."""
+	if sys_scope is None:
+		import sys as sys_scope
+	sys_scope.displayhook = displayhook
+	
+def uninstall(sys_scope=None):
+	"""Revert the interactive printing to the default builtin displayhook."""
+	if sys_scope is None:
+		import sys as sys_scope
+	sys_scope.displayhook = sys_scope.__displayhook__
 
 
 # l = [1,2,3,'wer',6]
