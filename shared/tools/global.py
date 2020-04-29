@@ -257,6 +257,8 @@ class MetaExtraGlobal(type):
 	_CLEANUP_MONITOR = None
 
 	_cache = {}
+
+	_scoped_labels = {}
 	
 	def __new__(cls, clsname, bases, attrs):
 		"""Run when ExtraGlobal is created. Set to run once and only once."""
@@ -270,6 +272,7 @@ class MetaExtraGlobal(type):
 	def clear(cls):
 		"""Hard reset the cache."""
 		cls._cache.clear()
+		cls._scoped_labels.clear()
 		cls._CLEANUP_MONITOR = None
 
 
@@ -304,7 +307,7 @@ class MetaExtraGlobal(type):
 
 		cache_entry = CacheEntry(obj, label, scope, lifespan, callback)
 		cls._cache[cache_entry.key] = cache_entry
-		
+		cls._scope_track(cache_entry.label, cache_entry.scope)
 		cls.spawn_cache_monitor()
 		return cache_entry.key
 
@@ -327,8 +330,21 @@ class MetaExtraGlobal(type):
 	def trash(cls, label=None, scope=None):
 		"""Remove an item from the cache directly."""
 		del cls._cache[CacheEntry.gen_key(label, scope)]
+		cls._scope_untrack(label, scope)
 		cls.spawn_cache_monitor()
-				
+	
+
+	# Scope tracking for easier filtering
+
+	def _scope_track(cls, label, scope):
+		self._scoped_labels[scope].add(label)
+
+	def _scope_untrack(cls, label, scope):
+		if len(self._scoped_labels[scope]) == 1:
+			del self._scoped_labels[scope]
+		else:
+			self._scoped_labels[scope].remove(label)
+
 
 	@classmethod
 	def resolve(cls, reference):
@@ -479,13 +495,16 @@ class MetaExtraGlobal(type):
 			return default
 
 
-	def keys(cls):
+	def keys(cls, scope=None):
 		"""Currently available keys in the cache. (Like a dict, but sorted)"""
-		return sorted(cls._cache.keys())
+		if scope:
+			return sorted(cls._scoped_labels[scope])
+		else:
+			return sorted(cls._cache.keys())
 
-	def iterkeys(cls):
+	def iterkeys(cls, scope=None):
 		"""Currently available keys in the cache. (Like a dict)"""
-		return iter(cls.keys())
+		return iter(cls.keys(scope))
 
 	def __len__(cls):
 		return len(cls._cache)
