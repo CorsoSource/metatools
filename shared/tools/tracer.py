@@ -1,11 +1,36 @@
+from shared.tools.thread import async, dangerouslyKillThreads
+
+from time import sleep
+
+RUNNING_THREAD_NAME = 'debug_test'
+
+dangerouslyKillThreads(RUNNING_THREAD_NAME, bypass_interlock='Yes, seriously.')
+
+@async(name='debug_test')
+def monitored():
+	close_loop = False
+	
+	time_delay = 0.1
+	find_me = 0
+	
+	while True:
+		find_me += 1
+		sleep(time_delay)
+		
+		if close_loop:
+			break
+	
+	print 'Finished'
+
+running_thread = monitored()
+
 
 
 from StringIO import StringIO
 
 from shared.tools.pretty import p,pdir
-from shared.data.expression import Expression
 
-
+from shared.data.expression import Expression, convert_to_postfix
 
 
 class Context(object):
@@ -151,6 +176,7 @@ class ProxyIO(object):
 		self.stdin = PatientInputStream()
 		self.stdout = OutputStream()
 		self.stderr = OutputStream()
+		self.displayhook = shared.tools.pretty.displayhook
 	
 	@property
 	def last_input(self):
@@ -165,14 +191,13 @@ class ProxyIO(object):
 		return self.stderr.history[-1]
 
 
-
 class SysHijack(object):
 	"""Capture a thread's system state and redirect it's standard I/O."""
 
 	__slots__ = ('_thread_state', '_io_proxy', '_originals',
 	             '_target_thread',)
 
-	_BACKUP_ATTRIBUTES = ('stdin', 'stdout', 'stderr',)
+	_BACKUP_ATTRIBUTES = ('stdin', 'stdout', 'stderr','displayhook')
 	
 	# _FAILSAFE_TIMEOUT = 20
 	
@@ -197,10 +222,9 @@ class SysHijack(object):
 		for key in self._BACKUP_ATTRIBUTES:
 			self._originals[self._target_thread][key] = getattr(self._thread_state.systemState, key)
 			
-			setattr(self._thread_state.systemState, 
-				    key, 
+			setattr(self._thread_state.systemState, key, 
 				    getattr(self._io_stream,key) if self._io_stream else StringIO())
-	
+			
 	def _restore(self):
 		self._originals['last_session'] = {}
 		for key in self._BACKUP_ATTRIBUTES:
@@ -288,7 +312,7 @@ class Tracer(object):
 			#####	 'monitoring', 'tracing',
 				)
 
-	self.context_buffer_limit = 1000
+	CONTEXT_BUFFER_LIMIT = 1000
 
 	_event_labels = set(['call', 'line', 'return', 'exception', 
 						 'c_call', 'c_return', 'c_exception',
@@ -324,8 +348,8 @@ class Tracer(object):
 
 	def add_context(self, context):
 		self.context_buffer.append(context)
-		if len(self.context_buffer) > self.context_buffer_limit:
-			_ = self.context_buffer_limit.popleft()
+		while len(self.context_buffer) > self.CONTEXT_BUFFER_LIMIT:
+			_ = self.context_buffer.popleft()
 
 
 	# Dispatch
@@ -375,9 +399,6 @@ class Tracer(object):
 
 
 
-
-
-
 class Trap(object):
 	
 	__slots__ = ('left', 'right')
@@ -402,5 +423,26 @@ class Trap(object):
 
 
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 def set_trace():
 	raise NotImplementedError("TODO: ADD FEATURE")
+
+
+def record():
+	raise NotImplementedError("TODO: ADD FEATURE")
+	
