@@ -28,15 +28,20 @@ running_thread = monitored()
 
 from StringIO import StringIO
 
-from shared.tools.pretty import p,pdir
+shared.tools.pretty.install()
 
 from shared.data.expression import Expression, convert_to_postfix
+from shared.tools.thread import findThreads, getThreadState, Thread
+from collections import deque
+from datetime import datetime, timedelta
+
+from weakref import WeakValueDictionary
 
 
 class Context(object):
 	
-	__slots__ = ('_locals', '_event', '_arg', 
-				 '_local_unsafe', '_snapshot')
+	__slots__ = ('_locals', '_event', '_arg', '_frame',
+				 '_locals_unsafe', '_snapshot')
 	
 	def __init__(self, frame, event, arg, snapshot=True):
 		
@@ -208,7 +213,7 @@ class SysHijack(object):
 		self._io_stream = stdio
 		self._originals = {self._target_thread:{}}
 		
-		self._init_time = time()
+		self._init_time = datetime.now()
 		
 		self._install()
 		
@@ -255,40 +260,20 @@ class SysHijack(object):
 			frame = frame.f_back
 		return frame
 
-	def settrace(self, tracefunc):
+	def settrace(self, tracefunc=None):
 		print 'Setting trace function...'
 		if tracefunc is None:
 			self._thread_state.systemState.settrace(None)
 		else:
 			self._thread_state.systemState.settrace(tracefunc)
 
-	def setprofile(self, profilefunc):
+	def setprofile(self, profilefunc=None):
 		if profilefunc is None:
 			self._thread_state.systemState.setprofile(None)
 		else:
 			self._thread_state.systemState.setprofile(profilefunc)
 
 	# def displayhook(self, obj):
-
-
-
-class MetaDebugger(type):
-
-	def __new__(cls, clsname, bases, attrs):
-
-		# Generate dispatch lookup for events
-		for base in bases:
-			event_labels = getattr(base,'_event_labels', None)
-			if event_labels:
-				break
-		else:
-			raise AttributeError('Base class(es) missing _event_labels! This is needed to resolve what is needed.')
-
-		event_map = dict((event, getattr(cls, 'dispatch_%s' % event))
-						 for event in event_labels)
-
-		setattr(cls, '_dispatch_mapping', event_map)
-
 
 
 
@@ -302,27 +287,86 @@ class Tracer(object):
 	For more information and the cool implementation that we're tweaking here,
 	  see also rpdb at https://github.com/tamentis/rpdb
 	"""
-
-	def _nop(self, _1=None,_2=None):
-		pass
-	
-	__slots__ = ('thread', 'thread_state',
+	__slots__ = ('thread', 'thread_state', 'active',
 				 'io_interface', 'sys',
-				 'frame_history',
+				 'context_buffer', '_dispatch_mapping',
+				 'command', 'monitoring', 'intercepting',
+				 '_shutdown', '_monitoring_thread',
 			#####	 'monitoring', 'tracing',
 				)
 
 	CONTEXT_BUFFER_LIMIT = 1000
-
+	
+	_TRACE_MONITOR_SLEEP = 0.05
+	_TRACE_MONITOR_INIT_USECOND_TIMEOUT = 100000
+	
+	_active_tracers = WeakValueDictionary()
+	
 	_event_labels = set(['call', 'line', 'return', 'exception', 
 						 'c_call', 'c_return', 'c_exception',
-						 ])
-
+						 ])	
+	
+	def _nop(self, _1=None,_2=None):
+		pass
+		 
+	def __new__(cls, thread=None):
+		"""Tracer needs to have its own async holding thread
+		so it doesn't block the main thread when it spins up and waits for input.
+		"""
+		if not thread or thread is Thread.currentThread():
+			raise RuntimeError("Tracer should not be spawned from its own thread! (Risks zombie deadlocking on input!)")
+			#thread = Thread.currentThread()
+		if thread in cls._active_tracers:
+			raise RuntimeError('Only one Tracer is allowed to attach to a thread at a time! Dupe attempt found on "%s"@%s' % (thread.getName(), thread.getId()))
+		
+		# I assume timeouts are better than sleep waits.
+		# When the tracer exits, the weak reference will drop the thread.
+		@async(name='Tracing: %s' % thread.getName())
+		def tracing_monitor(cls=cls, thread=thread):
+			
+			tracer = super(Tracer, cls).__new__(cls)
+			
+			my_thread = Thread.currentThread()
+			cls._active_tracers[thread] = tracer
+			
+			tracer._monitoring_thread = my_thread
+			
+			tracer.__init__(thread)
+			
+			# keep this holding thread alive until the tracer dies
+			#   once it is removed from the weak value dict the thread
+			#   will pass on as well
+			while cls._active_tracers.get(my_thread):
+				sleep(cls._TRACE_MONITOR_SLEEP)
+		
+		tracer_thread = tracing_monitor()
+#		
+#		# Wait for the thread to initialize the debugger object, 
+#		#   but don't wait _too_ long...
+#		timeout = datetime.now() + timedelta(microseconds=cls._TRACE_MONITOR_INIT_USECOND_TIMEOUT)
+#		while not cls._active_tracers.get(tracer_thread) and datetime.now() < timeout:
+#			sleep(0.005)
+#			
+#		if not cls._active_tracers.get(tracer_thread):
+#			raise RuntimeError("Tracer spawn init timed out!")
+#		
+#		# If we have the object, set the monitoring thread reference.
+#		#   It should never be used outside of an emergency SCRAM.
+#		self = cls._active_tracers.get(tracer_thread)
+#		self._monitoring_thread = tracer_thread
+#		return self
+		
+			
 	def __init__(self, thread=None):
 		
-		if not thread:
-			raise RuntimeError("Prototype should not be run on main thread!")
-			thread = Thread.currentThread()
+		self._shutdown = False
+		self.monitoring = False
+		self.intercepting = False
+		self.command = ''
+		
+		self._dispatch_mapping = dict(
+			(event, getattr(self, 'dispatch_%s' % event))
+			for event in self._event_labels)
 		
 		self.thread = thread
 		self.thread_state = getThreadState(thread)
@@ -343,13 +387,27 @@ class Tracer(object):
 		self.monitoring = False
 		self.sys.settrace(None)
 
+	def intercept(self):
+		self.intercepting = True
+		_ = self.__enter__()
+
+	def shutdown(self):
+		self.intercepting = False
+		self.monitoring = False
+		self._shutdown = True
 
 	# History controls
 
-	def add_context(self, context):
+	def _add_context(self, context):
 		self.context_buffer.append(context)
 		while len(self.context_buffer) > self.CONTEXT_BUFFER_LIMIT:
 			_ = self.context_buffer.popleft()
+
+
+	# Interaction
+	
+	def _await_input(self):
+		self.command = self.sys.stdin.readline()
 
 
 	# Dispatch
@@ -358,21 +416,29 @@ class Tracer(object):
 		if self.monitoring:
 			# Check if execution should be intercepted for debugging
 			if self.intercept_context(frame, event, arg):
-
 				self._dispatch_mapping.get(event, self._nop)(frame, arg)
 
+				self._await_input()
 			return self.dispatch
 		else:
 			return # none
 
-
 	def intercept_context(self, frame, event, arg):
 		"""Determine if execution should be stopped."""
+		# Poorman's decorator
+		self.intercepting = self._intercept_context(frame, event, arg)
+		return self.intercepting
+
+	def _intercept_context(self, frame, event, arg):
+		"""Do the actual interception checks against the context."""
+		context = Context(frame, event, arg)
+		self._add_context(context)
+		
 		if self.intercepting:
 			return True # if already intercepting, continue
 
-		if frame in self.stop_frames:
-			return True
+#		if frame in self.stop_frames:
+#			return True
 
 		return False 
 
@@ -409,14 +475,16 @@ class Trap(object):
 		
 		
 	def check(self, context):
-		return (self.left(*(getattr(context, field, context[field]) 
-							for field 
-							in self.left._fields) ) 
-				== 
-				self.right(*(getattr(context, field, context[field]) 
-							 for field 
-				 			 in self.right._fields) ) )
-
+		try:
+			return (self.left(*(getattr(context, field, context[field]) 
+								for field 
+								in self.left._fields) ) 
+					== 
+					self.right(*(getattr(context, field, context[field]) 
+								 for field 
+					 			 in self.right._fields) ) )
+		except:
+			return False
 
 
 
@@ -445,4 +513,13 @@ def set_trace():
 
 def record():
 	raise NotImplementedError("TODO: ADD FEATURE")
-	
+
+
+
+
+tracer = Tracer(running_thread)
+
+
+
+
+
