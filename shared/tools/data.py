@@ -5,8 +5,7 @@
 
 from com.inductiveautomation.ignition.common import BasicDataset
 from itertools import izip as zip
-import re
-from ast import literal_eval
+import re, fnmatch
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -101,39 +100,32 @@ def datasetColumnToList(dataset, columnName):
 		cix = dataset.getColumnIndex(columnName)
 		# convert to a proper python list
 		return list(v for v in dataset.getColumnAsList(cix))
-
+		
 
 def filterDatasetWildcard(dataset, filters):
 	"""
 	Overview:
 		Takes a dataset and returns a new dataset containing only rows that satisfy the filters
-		Allows the use of a wildcard (*)
+		Allows the use of a wildcard (*) and single character wildcards (?)
 	Arguments:
 		dataset - The original dataset to operate on
-		filters - A string that can be converted to a Python dictionary. Keys are column names,
-			values are what is checked for equivalency in the column specified by the key
-	"""
-	filters = literal_eval(filters)
+		filters - A dictionary where keys are column names, and values are the glob patterns
+					that are checked for equivalency in the column specified by the key
+	"""	
 	rowsToDelete = []
-	for row in range(dataset.getRowCount()):
-		for key in filters:
-			filterVal = filters[key]
-			if '*' in filterVal:
-				filterVal = filterVal.replace('*','')
-				filterVal = filterVal.strip()
-				datasetVal = str(dataset.getValueAt(row, key))
-				if filterVal.lower() in datasetVal.lower():
-					continue
-				else:
-					rowsToDelete.append(row)
-			if filterVal != None and filterVal != '':
-				datasetVal = str(dataset.getValueAt(row, key))
-				if isinstance(filterVal, list):
-					if datasetVal not in filterVal:
-						rowsToDelete.append(row)
-						break
-				else:
-					if datasetVal != filterVal:
-						rowsToDelete.append(row)
-						break
+	
+	filtersIx = dict((dataset.getColumnIndex(columnName),pattern)
+					 for columnName, pattern
+					 in filters.items())
+	
+	for rix in range(dataset.getRowCount()):
+		for cix, pattern in filtersIx.items():
+			
+			entry = dataset.getValueAt(rix, cix)
+			
+			# check each entry, removing the row on failed matches
+			if not fnmatch.fnmatch(entry, pattern):
+				rowsToDelete.append(rix)
+				break
+			
 	return system.dataset.deleteRows(dataset, rowsToDelete)
