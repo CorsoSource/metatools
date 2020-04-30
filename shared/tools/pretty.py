@@ -7,6 +7,7 @@
 
 import __builtin__
 import re, math, textwrap
+from types import *
 from array import array
 from java.lang import Exception as JavaException
 import java.lang.Class as JavaClass
@@ -59,8 +60,8 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 		obj_repr = obj_repr.splitlines() if '\n' in obj_repr else [obj_repr]
 		
 		for line in obj_repr:
-			if line > ellipsisLimit:
-				out += ['%s%s' % (indent, line[:-4])]
+			if len(line) > ellipsisLimit:
+				out += ['%s%s...' % (indent, line[:-4])]
 			else:
 				out += ['%s%s' % (indent, line)]
 		out += ['%s%s' % (indent, '-'*len(out[0]))]
@@ -202,18 +203,22 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 
 		attribute = attribute.strip()
 		attrTypeStr =  attrTypeStr.strip()
-		
-		if not '\n' in attrRepr:
+				
+		if not '\n' in attrRepr and not (attrType in (str, unicode) and r'\n' in attrRepr):
 			attrRepr = attrRepr.strip()
 			attrReprLines = []
 			
 			if len(attrRepr) >= maxReprLen:
 				attrRepr = '%s...' % attrRepr[:maxReprLen-4]
-		
-		else:
+				
+		else: # this is a multiline string repr
 			attrTypeStr = ''
 			attrDoc = ''
-			attrReprLines = attrRepr.splitlines()
+			if attrType in (str, unicode):
+				# get the original string back...
+				attrReprLines = getattr(o, attribute).splitlines()		
+			else:
+				attrReprLines = attrRepr.splitlines()
 			
 			attrReprSpacing = len(indent) + 3 + 3 + 3 + maxAttrLen + 2
 			attrRepr = attrReprLines.pop(0)
@@ -226,6 +231,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 		else:
 			outStr = attrPattern % (attribute, attrPriv, attrRepr, attrTypeStr)
 		
+		# the repr for the attribute took more than one line, format that in
 		if len(attrReprLines) > 0:
 			out += [outStr]
 			
@@ -442,6 +448,12 @@ def displayhook(obj):
 		elif '__call__' in dir(obj):
 			f_name = getObjectName(obj,estimatedDepth=2)
 			print '%s%s' % (f_name or 'λ', getFunctionCallSigs(obj))
+		# replicate help/info for modules and stuff
+		elif isinstance(obj, (ModuleType, BuiltinFunctionType, BuiltinMethodType, MethodType, UnboundMethodType)):
+			pdir(obj)
+		# don't poke into generators, lest some of the introspection consume it...
+		elif isinstance(obj, (GeneratorType, XRangeType)):
+			print repr(obj)
 		# classes / types should be dir'd (throws errors on instances)
 		elif issubclass(obj, (type, object, JavaClass)):
 			pdir(obj)
