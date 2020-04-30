@@ -91,7 +91,9 @@ class MetaEnum(type):
 		return cls.__name__
 	
 	def __repr__(cls):
-		return "<%s {%s}>" % (cls.__name__, ', '.join("%s: %s" % (repr(key), repr(value)) for key, value in cls))
+		return "<%s {%s}>" % (cls.__name__, 
+							  ', '.join("%s: %s" % (repr(field), repr(value)) 
+							            for field, value in zip(cls._fields, cls._values)))
 
 	
 class Enum(object):
@@ -103,7 +105,7 @@ class Enum(object):
 	
 	def __new__(cls, value=None):
 		if value is not None and value in cls._values:
-			return getattr(cls, cls._fields[cls._values.index(value)])
+			return getattr(cls, cls._fields[[i for i,v in enumerate(cls._values) if v == value][0]])
 		raise NotImplementedError("%s is an enumeration and does not support instantiation." % cls.__name__) 
 	
 	def __init__(cls):

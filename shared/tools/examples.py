@@ -5,6 +5,7 @@
 
 from org.apache.commons.lang3.time import DateUtils
 from java.util import Date
+import random, string
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -12,6 +13,8 @@ __license__ = 'Apache 2.0'
 __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
 
+
+fake_words = lambda x: ''.join(string.ascii_letters[random.randint(0,26*2-1)] for i in range(x))
 
 simpleListList = [range(i,i+3) for i in range(1,9,3)]
 
@@ -70,3 +73,10 @@ extremelyHeterogenousData = {'asdf':234,
    'we': [1,2,3,range(20),5.56,6,{'zxcv':5, 'k':'c'},8, simpleDataset], 
    'lkj': 999.334, 
    None: {'a':[1,2,3], 'b': 'asdf', 'c': 3.4, 'Z': simpleDataset}}
+   
+   
+def generateFakeStringDataset(headings='a b c d'.split(), word_length=5, num_rows=100):
+	return system.dataset.toDataSet(
+		headings, 
+		[[fake_words(word_length) for  x in range(len(headings))]
+		 for i in range(num_rows)])

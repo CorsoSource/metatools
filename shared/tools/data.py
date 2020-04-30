@@ -5,7 +5,7 @@
 
 from com.inductiveautomation.ignition.common import BasicDataset
 from itertools import izip as zip
-import re
+import re, fnmatch
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -85,4 +85,47 @@ def listDictToDataset(data, keys=None):
 	aligned = zip(*[columns[key] for key in keys])
 		
 	return system.dataset.toDataSet(keys, aligned)
+
+
+def datasetColumnToList(dataset, columnName):
+	"""Get the entire column as a list."""
+	# optimized depending on dataset size
+	if dataset.getRowCount() < 100:
+		vals = []
+		for row in range(dataset.getRowCount()):
+			val = dataset.getValueAt(row, columnName)
+			vals.append(val)
+		return vals	
+	else:
+		cix = dataset.getColumnIndex(columnName)
+		# convert to a proper python list
+		return list(v for v in dataset.getColumnAsList(cix))
 		
+
+def filterDatasetWildcard(dataset, filters):
+	"""
+	Overview:
+		Takes a dataset and returns a new dataset containing only rows that satisfy the filters
+		Allows the use of a wildcard (*) and single character wildcards (?)
+	Arguments:
+		dataset - The original dataset to operate on
+		filters - A dictionary where keys are column names, and values are the glob patterns
+					that are checked for equivalency in the column specified by the key
+	"""	
+	rowsToDelete = []
+	
+	filtersIx = dict((dataset.getColumnIndex(columnName),pattern)
+					 for columnName, pattern
+					 in filters.items())
+	
+	for rix in range(dataset.getRowCount()):
+		for cix, pattern in filtersIx.items():
+			
+			entry = dataset.getValueAt(rix, cix)
+			
+			# check each entry, removing the row on failed matches
+			if not fnmatch.fnmatch(entry, pattern):
+				rowsToDelete.append(rix)
+				break
+			
+	return system.dataset.deleteRows(dataset, rowsToDelete)
