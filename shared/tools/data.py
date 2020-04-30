@@ -87,13 +87,20 @@ def listDictToDataset(data, keys=None):
 	return system.dataset.toDataSet(keys, aligned)
 
 
-def datasetColumnToList(dataset, colName):
-	vals = []
-	for row in range(dataset.getRowCount()):
-		val = dataset.getValueAt(row, colName)
-		vals.append(val)
-	return vals
-
+def datasetColumnToList(dataset, columnName):
+	"""Get the entire column as a list."""
+	# optimized depending on dataset size
+	if dataset.getRowCount() < 100:
+		vals = []
+		for row in range(dataset.getRowCount()):
+			val = dataset.getValueAt(row, columnName)
+			vals.append(val)
+		return vals	
+	else:
+		cix = dataset.getColumnIndex(columnName)
+		# convert to a proper python list
+		return list(v for v in dataset.getColumnAsList(cix))
+		
 
 def filterDatasetWildcard(dataset, filters):
 	"""
