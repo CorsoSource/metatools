@@ -6,6 +6,7 @@
 from com.inductiveautomation.ignition.common import BasicDataset
 from itertools import izip as zip
 import re
+from ast import literal_eval
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -100,7 +101,7 @@ def datasetColumnToList(dataset, columnName):
 		cix = dataset.getColumnIndex(columnName)
 		# convert to a proper python list
 		return list(v for v in dataset.getColumnAsList(cix))
-		
+
 
 def filterDatasetWildcard(dataset, filters):
 	"""
@@ -112,7 +113,7 @@ def filterDatasetWildcard(dataset, filters):
 		filters - A string that can be converted to a Python dictionary. Keys are column names,
 			values are what is checked for equivalency in the column specified by the key
 	"""
-	filters = eval(filters)
+	filters = literal_eval(filters)
 	rowsToDelete = []
 	for row in range(dataset.getRowCount()):
 		for key in filters:
