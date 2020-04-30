@@ -85,4 +85,47 @@ def listDictToDataset(data, keys=None):
 	aligned = zip(*[columns[key] for key in keys])
 		
 	return system.dataset.toDataSet(keys, aligned)
-		
+
+
+def datasetColumnToList(dataset, colName):
+	vals = []
+	for row in range(dataset.getRowCount()):
+		val = dataset.getValueAt(row, colName)
+		vals.append(val)
+	return vals
+
+
+def filterDatasetWildcard(dataset, filters):
+	"""
+	Overview:
+		Takes a dataset and returns a new dataset containing only rows that satisfy the filters
+		Allows the use of a wildcard (*)
+	Arguments:
+		dataset - The original dataset to operate on
+		filters - A string that can be converted to a Python dictionary. Keys are column names,
+			values are what is checked for equivalency in the column specified by the key
+	"""
+	filters = eval(filters)
+	rowsToDelete = []
+	for row in range(dataset.getRowCount()):
+		for key in filters:
+			filterVal = filters[key]
+			if '*' in filterVal:
+				filterVal = filterVal.replace('*','')
+				filterVal = filterVal.strip()
+				datasetVal = str(dataset.getValueAt(row, key))
+				if filterVal.lower() in datasetVal.lower():
+					continue
+				else:
+					rowsToDelete.append(row)
+			if filterVal != None and filterVal != '':
+				datasetVal = str(dataset.getValueAt(row, key))
+				if isinstance(filterVal, list):
+					if datasetVal not in filterVal:
+						rowsToDelete.append(row)
+						break
+				else:
+					if datasetVal != filterVal:
+						rowsToDelete.append(row)
+						break
+	return system.dataset.deleteRows(dataset, rowsToDelete)
