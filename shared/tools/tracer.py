@@ -10,11 +10,17 @@ dangerouslyKillThreads(RUNNING_THREAD_NAME, bypass_interlock='Yes, seriously.')
 def monitored():
 	close_loop = False
 	
-	time_delay = 0.1
+	time_delay = 0.5
 	find_me = 0
 	
+	def bar(x):
+		x += 1
+		y = x + 2
+		return x
+		
 	while True:
-		find_me += 1
+		find_me = bar(find_me)
+		
 		sleep(time_delay)
 		
 		if close_loop:
@@ -25,6 +31,8 @@ def monitored():
 running_thread = monitored()
 
 
+from copy import deepcopy
+# from shared.tools.global import ExtraGlobal
 
 from StringIO import StringIO
 
@@ -54,9 +62,10 @@ class Context(object):
 			for key,value in frame.f_locals.items():
 				try:
 					local_copy[key] = deepcopy(value)
-				except:
+				except Exception, err:
 					local_copy[key] = NotImplemented # p or pdir?
 					local_copy['*' + key + '*'] = value
+					local_copy['*' + key + '* err'] = err
 				
 		self._locals   = local_copy
 		self._event    = event
@@ -108,26 +117,33 @@ class Context(object):
 
 
 
-class StreamHistory():
+class ProxyStream(object):
 	"""I/O stream mixin to add history"""
+
+	__slots__ = ('history', '_parent_proxyio')
 	_MAX_HISTORY = 1000
 
-	def __init__(self):
+	def __init__(self, parent_proxyio=None):
 		self.history = deque(['#! Starting log...'])
+		self._parent_proxyio = parent_proxyio
 
 	def log(self, string):
 		self.history.append(string)
 		while len(self.history) > self._MAX_HISTORY:
 			_ = self.history.popleft()
 
+	@property
+	def parent(self):
+		return self._parent
 
-class PatientInputStream(StringIO, StreamHistory):
+
+class PatientInputStream(StringIO, ProxyStream):
 	
 	_SLEEP_RATE = 0.05 # seconds
 	
-	def __init__(self, *args, **kwargs):
-		StringIO.__init__(self, *args, **kwargs)
-		StreamHistory.__init__(self)
+	def __init__(self, buffer='', parent_proxyio=None):
+		StringIO.__init__(self, buffer)
+		ProxyStream.__init__(self, parent_proxyio)
 	
 	def read(self, n=-1):
 		while True:
@@ -154,11 +170,11 @@ class PatientInputStream(StringIO, StreamHistory):
 		self.pos = current_pos
 
 
-class OutputStream(StringIO, StreamHistory):
+class OutputStream(StringIO, ProxyStream):
 	
-	def __init__(self, *args, **kwargs):
-		StringIO.__init__(self, *args, **kwargs)
-		StreamHistory.__init__(self)
+	def __init__(self, buffer='', parent_proxyio=None):
+		StringIO.__init__(self, buffer)
+		ProxyStream.__init__(self, parent_proxyio)
 		
 	def write(self, string):
 		if string != '\n':
@@ -172,17 +188,26 @@ class OutputStream(StringIO, StreamHistory):
 
 class ProxyIO(object):
 	"""Control the I/O"""
-
-	_SLEEP_RATE = 0.05 # seconds
 	
-	def __init__(self):
-		self.log = lambda s: system.util.getLogger('proxy-io').info(str(s))
+	__slots__ = ('stdin', 'stdout', 'stderr', 'displayhook', '_logger_name', '_coupled_sys')
+	
+	def __init__(self, coupled_sys=None):
+		self._logger_name = 'proxy-io'
 		
-		self.stdin = PatientInputStream()
-		self.stdout = OutputStream()
-		self.stderr = OutputStream()
+		self._coupled_sys = coupled_sys
+		
+		self.stdin = PatientInputStream(parent_proxyio=self)
+		self.stdout = OutputStream(parent_proxyio=self)
+		self.stderr = OutputStream(parent_proxyio=self)
 		self.displayhook = shared.tools.pretty.displayhook
 	
+	def log(self, s):
+		system.util.getLogger(self._logger_name).info(str(s))
+	
+	@property
+	def coupled_sys(self):
+		return self._coupled_sys
+		
 	@property
 	def last_input(self):
 		return self.stdin.history[-1]
@@ -199,22 +224,26 @@ class ProxyIO(object):
 class SysHijack(object):
 	"""Capture a thread's system state and redirect it's standard I/O."""
 
-	__slots__ = ('_thread_state', '_io_proxy', '_originals',
-	             '_target_thread',)
-
-	_BACKUP_ATTRIBUTES = ('stdin', 'stdout', 'stderr','displayhook')
+	__slots__ = ('_thread_state', '_target_thread', '_io_proxy',
+	             '_original_stdin', '_original_stdout', '_original_stderr', '_original_displayhook',
+	             )
 	
 	# _FAILSAFE_TIMEOUT = 20
 	
-	def __init__(self, thread, stdio=None):
-		self._target_thread = thread
-		self._thread_state = getThreadState(self._target_thread)
+	def __init__(self, thread):
 		
-		self._io_stream = stdio
-		self._originals = {self._target_thread:{}}
+		self._target_thread = thread
+		#self._thread_state = getThreadState(self._target_thread)
+		
+		self._io_proxy = ProxyIO(coupled_sys=self)
 		
 		self._init_time = datetime.now()
 		
+		self._original_stdin       = self._thread_sys.stdin
+		self._original_stdout      = self._thread_sys.stdout
+		self._original_stderr      = self._thread_sys.stderr
+		self._original_displayhook = self._thread_sys.displayhook
+				
 		self._install()
 		
 		# @async(self._FAILSAFE_TIMEOUT)
@@ -222,38 +251,76 @@ class SysHijack(object):
 		# 	self._restore()
 		# failsafe_uninstall()
 		
-		
 	def _install(self):
-		for key in self._BACKUP_ATTRIBUTES:
-			self._originals[self._target_thread][key] = getattr(self._thread_state.systemState, key)
-			
-			setattr(self._thread_state.systemState, key, 
-				    getattr(self._io_stream,key) if self._io_stream else StringIO())
+		"""Redirect all I/O to proxy's endpoints"""
+		self._thread_sys.stdin       = self._io_proxy.stdin
+		self._thread_sys.stdout      = self._io_proxy.stdout
+		self._thread_sys.stderr      = self._io_proxy.stderr
+		self._thread_sys.displayhook = self._io_proxy.displayhook
 			
 	def _restore(self):
-		self._originals['last_session'] = {}
-		for key in self._BACKUP_ATTRIBUTES:
-			self._originals['last_session'][key] = getattr(self._thread_state.systemState, key)
-			setattr(self._thread_state.systemState, key, self._originals[self._target_thread][key])
-			
+		"""Restore all I/O to original's endpoints"""
+		self._thread_sys.stdin       = self._original_stdin
+		self._thread_sys.stdout      = self._original_stdout
+		self._thread_sys.stderr      = self._original_stderr
+		self._thread_sys.displayhook = self._original_displayhook
+		
+	@property
+	def _thread_state(self):
+		return getThreadState(self._target_thread)
 	
+	@property
+	def _thread_sys(self):
+		return self._thread_state.systemState
+	
+
 	def __getattr__(self, attribute):
 		"""Get from this class first, otherwise use the wrapped item."""
 		try:
 			return super(SysHijack, self).__getattr__(attribute)
 		except AttributeError:
-			return getattr(self._thread_state.systemState, attribute)
-
+			return getattr(self._thread_sys).__getattr__(attribute)
+	
+	
 	def __setattr__(self, attribute, value):
 		"""Set to this class first, otherwise use the wrapped item."""
 		try:
-			return super(SysHijack, self).__setattr__(attribute, value)
+			super(SysHijack, self).__setattr__(attribute, value)
 		except AttributeError:
-			return setattr(self._thread_state.systemState, attribute, value)
+			setattr(self._thread_sys, attribute, value)
 
+	@property
+	def stdin(self):
+		if Thread.currentThread() is self._target_thread:
+			return self._io_proxy.stdin
+		else:
+			return self._original_stdin
+
+	@property
+	def stdout(self):
+		if Thread.currentThread() is self._target_thread:
+			return self._io_proxy.stdout
+		else:
+			return self._original_stdout
+			
+	@property
+	def stderr(self):
+		if Thread.currentThread() is self._target_thread:
+			return self._io_proxy.stderr
+		else:
+			return self._original_stderr
+			
+	@property
+	def displayhook(self):
+		if Thread.currentThread() is self._target_thread:
+			return self._io_proxy.displayhook
+		else:
+			return self._original_displayhook
+			
+			
 
 	def _getframe(self, depth=0):
-		print >>self.stdout, '[~] getting frame %d' % depth
+		#print >>self.stdout, '[~] getting frame %d' % depth
 		frame = self._thread_state.frame
 		while depth > 0 and frame:
 			depth -= 1
@@ -261,20 +328,28 @@ class SysHijack(object):
 		return frame
 
 	def settrace(self, tracefunc=None):
-		print 'Setting trace function...'
-		if tracefunc is None:
-			self._thread_state.systemState.settrace(None)
-		else:
-			self._thread_state.systemState.settrace(tracefunc)
+		self._thread_sys.settrace(tracefunc)
+		# print 'Setting trace function...'
+#		code_to_execute = compile('import sys; sys.settrace(new_trace_function)', '<tracer>', 'single')
+#		self._thread_sys.builtins['eval'](
+#			code_to_execute, 
+#			self._thread_state.frame.f_globals, 
+#			{'new_trace_function': tracefunc})
+#		if tracefunc is None:
+#			self._thread_sys.settrace(None)
+#		else:			
+#			self._thread_sys.settrace(tracefunc)
 
 	def setprofile(self, profilefunc=None):
 		if profilefunc is None:
-			self._thread_state.systemState.setprofile(None)
+			self._thread_sys.setprofile(None)
 		else:
-			self._thread_state.systemState.setprofile(profilefunc)
+			self._thread_sys.setprofile(profilefunc)
 
-	# def displayhook(self, obj):
 
+	def __del__(self):
+		self._restore()
+	
 
 
 class Tracer(object):
@@ -288,17 +363,17 @@ class Tracer(object):
 	  see also rpdb at https://github.com/tamentis/rpdb
 	"""
 	__slots__ = ('thread', 'thread_state', 'active',
-				 'io_interface', 'sys',
+				 'sys',
 				 'context_buffer', '_dispatch_mapping',
 				 'command', 'monitoring', 'intercepting',
 				 '_shutdown', '_monitoring_thread',
+				 '_debug',
 			#####	 'monitoring', 'tracing',
 				)
 
 	CONTEXT_BUFFER_LIMIT = 1000
 	
-	_TRACE_MONITOR_SLEEP = 0.05
-	_TRACE_MONITOR_INIT_USECOND_TIMEOUT = 100000
+	_UPDATE_CHECK_DELAY = 0.01
 	
 	_active_tracers = WeakValueDictionary()
 	
@@ -306,56 +381,9 @@ class Tracer(object):
 						 'c_call', 'c_return', 'c_exception',
 						 ])	
 	
-	def _nop(self, _1=None,_2=None):
-		pass
-		 
-	def __new__(cls, thread=None):
-		"""Tracer needs to have its own async holding thread
-		so it doesn't block the main thread when it spins up and waits for input.
-		"""
-		if not thread or thread is Thread.currentThread():
-			raise RuntimeError("Tracer should not be spawned from its own thread! (Risks zombie deadlocking on input!)")
-			#thread = Thread.currentThread()
-		if thread in cls._active_tracers:
-			raise RuntimeError('Only one Tracer is allowed to attach to a thread at a time! Dupe attempt found on "%s"@%s' % (thread.getName(), thread.getId()))
-		
-		# I assume timeouts are better than sleep waits.
-		# When the tracer exits, the weak reference will drop the thread.
-		@async(name='Tracing: %s' % thread.getName())
-		def tracing_monitor(cls=cls, thread=thread):
-			
-			tracer = super(Tracer, cls).__new__(cls)
-			
-			my_thread = Thread.currentThread()
-			cls._active_tracers[thread] = tracer
-			
-			tracer._monitoring_thread = my_thread
-			
-			tracer.__init__(thread)
-			
-			# keep this holding thread alive until the tracer dies
-			#   once it is removed from the weak value dict the thread
-			#   will pass on as well
-			while cls._active_tracers.get(my_thread):
-				sleep(cls._TRACE_MONITOR_SLEEP)
-		
-		tracer_thread = tracing_monitor()
-#		
-#		# Wait for the thread to initialize the debugger object, 
-#		#   but don't wait _too_ long...
-#		timeout = datetime.now() + timedelta(microseconds=cls._TRACE_MONITOR_INIT_USECOND_TIMEOUT)
-#		while not cls._active_tracers.get(tracer_thread) and datetime.now() < timeout:
-#			sleep(0.005)
-#			
-#		if not cls._active_tracers.get(tracer_thread):
-#			raise RuntimeError("Tracer spawn init timed out!")
-#		
-#		# If we have the object, set the monitoring thread reference.
-#		#   It should never be used outside of an emergency SCRAM.
-#		self = cls._active_tracers.get(tracer_thread)
-#		self._monitoring_thread = tracer_thread
-#		return self
-		
+	@staticmethod
+	def _nop(_0=None, _1=None,_2=None):
+		pass		
 			
 	def __init__(self, thread=None):
 		
@@ -363,6 +391,7 @@ class Tracer(object):
 		self.monitoring = False
 		self.intercepting = False
 		self.command = ''
+		self._debug = {}
 		
 		self._dispatch_mapping = dict(
 			(event, getattr(self, 'dispatch_%s' % event))
@@ -370,17 +399,22 @@ class Tracer(object):
 		
 		self.thread = thread
 		self.thread_state = getThreadState(thread)
-		self.io_interface = ProxyIO()
 		
 		self.context_buffer = deque()
 
-		self.sys = SysHijack(thread, stdio=self.io_interface)
-
+		self.sys = SysHijack(thread)
+		
+		#start the machinery so we can inject directly
+		self.sys.settrace(self._nop)
+		
+		self._active_tracers[thread] = self
+		
 
 	# Context control - start and stop active tracing
 	def __enter__(self):
 		self.monitoring = True
-		self.sys.settrace(self.dispatch)
+		self.sys._getframe().f_trace = self.dispatch
+		#self.sys.settrace(self.dispatch)
 		return self
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
@@ -396,6 +430,14 @@ class Tracer(object):
 		self.monitoring = False
 		self._shutdown = True
 
+	@property
+	def current_locals(self):
+		return self.sys._getframe().f_locals
+
+	@property
+	def current_globals(self):
+		return self.sys._getframe().f_globals
+
 	# History controls
 
 	def _add_context(self, context):
@@ -407,7 +449,12 @@ class Tracer(object):
 	# Interaction
 	
 	def _await_input(self):
-		self.command = self.sys.stdin.readline()
+	
+		while not self.command:
+			sleep(self._UPDATE_CHECK_DELAY)
+			
+		system.util.getLogger('Tracer').info('Command: %s' % self.command)
+		self.command = ''
 
 
 	# Dispatch
