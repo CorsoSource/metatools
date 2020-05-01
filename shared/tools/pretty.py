@@ -26,10 +26,16 @@ __all__ = ['p','pdir']
 
 quotePattern = re.compile("""^('.*'|".*")$""")
 
-PRETTY_PRINT_TYPES = (BasicDataset, PyDataSet, list, tuple, array, dict, set, frozenset)
-IGNORED_NAMES = set(['o', 'obj', 'element', 'attr', 'val'])
+PRETTY_PRINT_TYPES = (BasicDataset, PyDataSet, list, tuple, array, dict, set, frozenset, FrameType, FunctionType, LambdaType)
+IGNORED_NAMES = set(['o', 'obj', 'element', 'attr', 'val', 'function'])
 
-def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True, recursePrettily=False, directPrint=True):
+
+def repr_function(function, estimatedDepth=1):
+	f_name = getObjectName(function,estimatedDepth=estimatedDepth, ignore_names=IGNORED_NAMES)
+	return '%s%s' % (f_name or 'λ', getFunctionCallSigs(function))
+
+
+def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True, recurseSkips=set(), recursePrettily=False, directPrint=True):
 	"""Pretty print the dir() function for Ignition things. This is designed to be used in the 
 	  script console. Use it to explore objects and functions.
 
@@ -44,7 +50,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 	# skipTypes = set(['builtin_function_or_method', 'instancemethod', 'java.lang.Class'])
 	skipTypes = set(['builtin_function_or_method', 'java.lang.Class'])
 		
-	dotdotdot = lambda s: s if not ellipsisLimit or len(s)<=ellipsisLimit else '%s...' % s[:ellipsisLimit-3]
+	dotdotdot = lambda s,ellipsisLimit=ellipsisLimit: s if not ellipsisLimit or len(s)<=ellipsisLimit else '%s...' % s[:ellipsisLimit-3]
 	
 	out = []	
 	
@@ -60,10 +66,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 		obj_repr = obj_repr.splitlines() if '\n' in obj_repr else [obj_repr]
 		
 		for line in obj_repr:
-			if len(line) > ellipsisLimit:
-				out += ['%s%s...' % (indent, line[:-4])]
-			else:
-				out += ['%s%s' % (indent, line)]
+			out += ['%s%s' % (indent, dotdotdot(line))]
 		out += ['%s%s' % (indent, '-'*len(out[0]))]
 
 	try:
@@ -134,18 +137,18 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 				attrTypeStrings.append(typeStr)
 
 				try:
-					attrReprs.append(getFunctionCallSigs(attr))
-				except:
-					try:
-						if recursePrettily and isinstance(attr, PRETTY_PRINT_TYPES):
-							attrReprs.append(p(attr, listLimit=10, ellipsisLimit=ellipsisLimit, nestedListLimit=4, directPrint=False))						
+					if recursePrettily and isinstance(attr, PRETTY_PRINT_TYPES) and not attribute in recurseSkips:
+						attrReprs.append(p(attr, listLimit=10, ellipsisLimit=ellipsisLimit, nestedListLimit=4, directPrint=False))						
+					else:
+						if getattr(attr, '__call__', None):
+							attrReprs.append(repr_function(attr))
 						else:
 							attrReprs.append(repr(attr))
+				except:
+					try:
+						attrReprs.append(str(attr))
 					except:
-						try:
-							attrReprs.append(str(attr))
-						except:
-							attrReprs.append('< ? >')
+						attrReprs.append('< ? >')
 				
 				try:
 					attrDocs.append(' '.join(attr.__doc__.splitlines()))	
@@ -178,7 +181,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 						  for attrTypeStr in attrTypeStrings
 						  if not attrTypeStr in skipTypes] + [0])
 						  
-	maxReprLen = max([len(attrRepr) if not '\n' in attrRepr else max(len(line) for line in attrRepr.splitlines()) 
+	maxReprLen = max([len(attrRepr)+2 if not '\n' in attrRepr else max(len(line) for line in attrRepr.splitlines()) 
 						  for attrTypeStr,attrRepr in zip(attrTypeStrings,attrReprs)
 						  if not attrTypeStr in skipTypes] + [0])
 	if ellipsisLimit and maxReprLen > ellipsisLimit:
@@ -208,23 +211,23 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 			attrRepr = attrRepr.strip()
 			attrReprLines = []
 			
-			if len(attrRepr) >= maxReprLen:
-				attrRepr = '%s...' % attrRepr[:maxReprLen-4]
+			attrRepr = dotdotdot(attrRepr, maxReprLen)
 				
 		else: # this is a multiline string repr
 			attrTypeStr = ''
 			attrDoc = ''
 			if attrType in (str, unicode):
 				# get the original string back...
-				attrReprLines = getattr(o, attribute).splitlines()		
+				attrRepr = getattr(o, attribute)
+				attrRepr = textwrap.dedent(attrRepr)
+				attrReprLines = attrRepr.splitlines()		
 			else:
 				attrReprLines = attrRepr.splitlines()
 			
 			attrReprSpacing = len(indent) + 3 + 3 + 3 + maxAttrLen + 2
 			attrRepr = attrReprLines.pop(0)
-		
-		if len(attrTypeStr) >= maxReprLen:
-			attrTypeStr = '%s...' % attrTypeStr[:maxReprLen-4]
+					
+		attrTypeStr = dotdotdot(attrTypeStr, maxReprLen)
 
 		if attrDoc and includeDocs:
 			outStr = attrDocPattern % (attribute, attrPriv, attrRepr, attrTypeStr, attrDoc)
@@ -236,10 +239,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 			out += [outStr]
 			
 			for reprLine in attrReprLines:
-				if len(reprLine) >= maxReprLen:
-					out += [' '*attrReprSpacing + '%s...' % reprLine[:maxReprLen-4]]
-				else:
-					out += [' '*attrReprSpacing + reprLine]
+				out += [' '*attrReprSpacing + dotdotdot(reprLine,maxReprLen)]
 		else:
 			outStr = ' -- '.join(outStr.splitlines())
 			out += [outStr]
@@ -347,7 +347,6 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 			prefixPattern =  '%s' + ixPattern + ' %s'
 			prefixPattern %= (indent, maxRowWidth + 1, colSep)
 
-			#if isinstance(element, (list,tuple,dict)):
 			if isinstance(element, PRETTY_PRINT_TYPES):			
 				nestedPattern = '%s' + ixPattern + ' %s%%s'
 				nestedPattern %= (indent, maxRowWidth + 1, colSep)
@@ -404,7 +403,7 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 											    listLimit=nestedListLimit, 
 											    ellipsisLimit=ellipsisLimit,
 											    nestedListLimit=nestedListLimit, 
-											    directPrint=False))]
+											    directPrint=False).lstrip())]
 				out[-1] = out[-1][:-1]
 				continue
 			
@@ -420,6 +419,18 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 			if listLimit and i >= listLimit-1:
 				out += ['%s... %d ellided (of %s total)' % (indent, len(o)-i-1, len(o))]
 				break
+		
+	elif isinstance(o, FrameType):
+		out += ['<frame in "%s" of "%s" on line %d%s>' % (
+						o.f_code.co_filename,
+						o.f_code.co_name,
+						o.f_lineno,
+						('(tracing with %s)' % o.f_trace) if o.f_trace else ''
+					)]
+					
+	elif isinstance(o, (FunctionType,LambdaType)):
+		out += [repr_function(o, estimatedDepth=1)]
+		
 	else:
 		out += [repr(o)]
 	
@@ -438,16 +449,17 @@ def displayhook(obj):
 	if obj is None:
 		return
 	try:
+		# Special override cases:
+		# get a bit more info for frames (super handy for debug)
+		if isinstance(obj, (FrameType, CodeType)):
+			pdir(obj, recursePrettily=True, recurseSkips=set(['f_builtins', 'f_globals']))
+		# Default cases:
 		# pretty print the default nice things
-		if isinstance(obj, PRETTY_PRINT_TYPES):
+		elif isinstance(obj, PRETTY_PRINT_TYPES):
 			p(obj)
 		# normal prints for normal stuff
 		elif isinstance(obj, (int,float,long,str,unicode)):
 			print obj
-		# give signatures for functions
-		elif '__call__' in dir(obj):
-			f_name = getObjectName(obj,estimatedDepth=2)
-			print '%s%s' % (f_name or 'λ', getFunctionCallSigs(obj))
 		# replicate help/info for modules and stuff
 		elif isinstance(obj, (ModuleType, BuiltinFunctionType, BuiltinMethodType, MethodType, UnboundMethodType)):
 			pdir(obj)
