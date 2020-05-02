@@ -1,5 +1,5 @@
 """
-    Metatools and utilities to make Ignition for interesting.
+    Metatools and utilities to make Ignition interesting.
 """
 
 
