@@ -58,7 +58,6 @@ class Breakpoint(object):
 	@property
 	def id(self):
 		return self._id
-	
 
 
 	@property 
@@ -69,6 +68,24 @@ class Breakpoint(object):
 	@property
 	def location(self):
 		return (self.filename, self.function_name or self.line_number)
+
+
+	@classmethod
+	def resolve_breakpoints(cls, breakpoint_ids):
+		# coerce to iterable, if needed
+		if not isinstance(breakpoint_ids, (list, tuple, set)):
+			breakpoint_ids = [breakpoint_ids] 
+
+		breakpoints = []
+		for breakpoint in breakpoint_ids:
+			if isinstance(breakpoint, Breakpoint):
+				breakpoints.append(breakpoint)
+			elif isinstance(breakpoint, (long, int)):
+				breakpoints.append(cls._instances[breakpoint])
+			elif isinstance(breakpoint_id, (str, unicode)):
+				breakpoints.extend(cls._break_locations[breakpoint])
+		return breakpoints
+		
 
 	def _add(self):
 		"""Add the breakpoint to the class' tracking. If set leave it."""
@@ -85,6 +102,7 @@ class Breakpoint(object):
 			self._instances[self.id] = self 
 
 	def _remove(self):
+		self.enabled.clear()
 		del self._instances[self.id]
 		self._break_locations[self.location].remove(self)
 

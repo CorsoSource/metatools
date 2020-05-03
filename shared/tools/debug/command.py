@@ -25,10 +25,14 @@ class Commands(object):
 
 	# Interaction
 	
-	def await_comand(self):
-	
+	def _await_pause(self):
 		while not self._pending_commands:
 			sleep(self._UPDATE_CHECK_DELAY)
+		
+
+	def await_comand(self):
+	
+		self._await_pause()
 		
 		while self._pending_commands:
 			#system.util.getLogger('Debug Command').info('Command: %s' % self.command)
@@ -102,23 +106,45 @@ class PdbCommands(Commands):
 	def _command_clear(self, command, *breakpoints):
 		"""Clear breakpoint(s).
 
-		Breakpoints can be by ID or filename:line number.
+		Breakpoints can be by ID, location, or instance.
 
 		If none are provided, clear all after confirmation. (Pulled off _pending_commands)
 		"""
-		raise NotImplementedError
+		breakpoints = Breakpoints.resolve_breakpoints(breakpoints)
+
+		if not breakpoints:
+			print "Please confirm clearing all breakpoints (yes/no)"
+			self._await_pause()
+			command = self._pending_commands.pop()
+			if command.lower() in ('y','yes',):
+				breakpoints = Breakpoint._instances.values()
+			else:
+				print "Breakpoints were not cleared."
+				return
+
+		for breakpoint in breakpoints:
+			breakpoint._remove()
+
 	_command_cl = _command_clear
 
 	def _command_enable(self, command, *breakpoints):
 		"""Enable the breakpoints"""
-		raise NotImplementedError
+		breakpoints = Breakpoints.resolve_breakpoints(breakpoints)
+
+		for breakpoint in breakpoints:
+			breakpoint.enable(self)
+
 	def _command_disable(self, command, *breakpoints):
 		"""Disable the breakpoints"""
-		raise NotImplementedError
+		breakpoints = Breakpoints.resolve_breakpoints(breakpoints)
+
+		for breakpoint in breakpoints:
+			breakpoint.disable(self)
+
 	def _command_ignore(self, command, breakpoint, num_passes=0):
 		"""Run past breakpoint num_passes times. 
 		Once count goes to zero the breakpoint activates."""
-		raise NotImplementedError
+		breakpoint.ignore(self, num_passes)
 
 	def _command_break(self, command, stop_location='', stop_condition=lambda:True):
 		"""Create a breakpoint at the given location.
