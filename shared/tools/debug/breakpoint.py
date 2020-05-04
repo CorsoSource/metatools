@@ -10,7 +10,8 @@ class Breakpoint(object):
 	"""
 	__slots__ = ('_filename', '_line_number', '_function_name',
 				 'temporary', 'condition', 'hits', 
-				 'enabled', 'ignore',
+				 'enabled', 'ignored',
+				 'note',
 				 )
 
 	_id_counter = 0
@@ -20,7 +21,9 @@ class Breakpoint(object):
 
 
 	def __init__(self, filename, location, 
-				 temporary=False, condition=None):
+				 temporary=False, condition=None, note=''):
+
+		self.note = note
 
 		self._filename = filename
 		try:
@@ -38,7 +41,7 @@ class Breakpoint(object):
 
 		# use Tracer/PDB instance as key for number of hits
 		self.enabled = defaultdict(bool) # no one is interested by default
-		self.ignore = defaultdict(int) 
+		self.ignored = defaultdict(int) 
 
 
 	# Properties that should not change once set
@@ -85,7 +88,7 @@ class Breakpoint(object):
 			elif isinstance(breakpoint_id, (str, unicode)):
 				breakpoints.extend(cls._break_locations[breakpoint])
 		return breakpoints
-		
+
 
 	def _add(self):
 		"""Add the breakpoint to the class' tracking. If set leave it."""
@@ -152,6 +155,10 @@ class Breakpoint(object):
 		"""Disable the breakpoint for the interested_party (this is the default state)"""
 		self.enabled[interested_party] = False
 
+	def ignore(self, interested_party, num_passes=0):
+		"""Ignore this breakpoint for num_passes times for the interested_party"""
+		self.ignored[interested_party] = num_passes
+
 
 	@classmethod
 	def relevant_breakpoints(cls, frame, interested_party=None):
@@ -176,8 +183,8 @@ class Breakpoint(object):
 
 				# If interested_party chose to ignore the breakpoint,
 				#   decrement the counter and pass on...
-				if breakpoint.ignore[interested_party] > 0:
-					breakpoint.ignore[interested_party] -= 1
+				if breakpoint.ignored[interested_party] > 0:
+					breakpoint.ignored[interested_party] -= 1
 					continue
 				# ... otherwise add it
 				else:
@@ -194,8 +201,8 @@ class Breakpoint(object):
 								  frame.f_globals,
 								  frame.f_locals)
 					if result:
-						if breakpoint.ignore[interested_party] > 0:
-							breakpoint.ignore[interested_party] -= 1
+						if breakpoint.ignored[interested_party] > 0:
+							breakpoint.ignored[interested_party] -= 1
 							continue
 						else:
 							relevant.add(breakpoint)
@@ -209,13 +216,6 @@ class Breakpoint(object):
 					continue
 
 		return relevant
-
-
-
-
-
-
-
 
 
 	def __str__(self):
@@ -234,3 +234,9 @@ class Breakpoint(object):
 
 	def __repr__(self):
 		return self.__str__() # for now... should add conditional 
+
+
+def set_breakpoint(note=''):
+	import sys
+	frame = sys._getframe(1)
+	Breakpoint(frame.f_code.co_filename, frame.f_lineno, note=note)
