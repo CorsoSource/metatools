@@ -1,3 +1,7 @@
+from shared.tools.meta import MetaSingleton
+
+from shared.tools.debug.frame import find_root_object
+
 
 from functools import wraps
 
@@ -48,6 +52,7 @@ except ImportError:
 
 
 def cached(function):
+	"""Decorator for classmethods that can cache their inputs."""
 	@wraps(function)
 	def check_cache_first(cls, *args):
 		if not args in cls._cache:
@@ -56,26 +61,69 @@ def cached(function):
 
 
 
-class CodeCache(object):
-	"""Similar to the linecache module in purpose, but makes sense of the Ignition environment.
-	
-	It caches the results for faster lookup.
+class MetaCodeCache(type):
+	"""The CodeCache is another kinda-like-a-module classes. 
+	Because it's Jython (and Ignition), it's useful to encapsulate state
+	  inside a class instead of module. The module mechanics are just a bit
+	  difficult to reason on, given how state is shared between threads,
+	  so this pattern helps a bit.
 
-	For example, the `frame.f_code.co_filename` may be `<event:actionPerformed>`.
-	  This isn't enough information, so we need to backtrace to get the event object.
-	  Though the project may have many of these, the `event` object nearest in the 
-	  call stack is certainly the one of interest. It's `event.source` is what fired
-	  it, and if we go up the `.parent` tree enough, we'll find the interaction
-	  controller that has the adapters that has the source code in them.
-
-	  That's a bit involved, hence the caching.
+	Plus it cuts down on so many @classmethod calls and makes it easier to
+	  make this a singleton. CodeCache is meant to be serve the same purpose
+	  as linecache, and so a little bit of magic isn't too bad, I think.
 	"""
+
 
 	# cache keys are based on what the _code_* functions need.
 	_cache = {}
 
+	def __getitem__(cls, location):
+		return cls._code_at_frame(location)
 
-	def _dispatch_location(location, frame):
+
+	def get_line(cls, frame):
+		"""Retrieve the line of code at the frame location."""
+		code = cls._code_at_frame(frame)
+
+		if not code: 
+			return ''
+		
+		return code[frame.f_lineno]
+		
+
+	def get_lines(cls, frame, radius=5):
+		"""Retreive the lines of code at the frame location.
+
+		If radius is 0, return all the code in that frame's file.
+		Otherwise, return radius lines before and after the frame's
+		  active line, clamping to the start/end of the code block.
+		"""
+		code = cls._code_at_frame(frame)
+
+		if not code: 
+			return ''
+
+		if not radius:
+			return code
+		
+		line_number = frame.f_lineno
+
+		start = line_number - radius
+		end = line_number + radius
+
+		if start < 0:
+			start = 0
+		if end >= len(code):
+			end = len(code) - 1
+
+		return code[start:end]
+
+
+	def _code_at_frame(cls, frame):
+		return cls._dispatch_location(frame.f_code.co_filename)
+
+
+	def _dispatch_location(cls, location):
 		"""Resolve and make sense of the location given. 
 
 		It may be "module:shared.tools.debug.codecache" or perhaps 
@@ -85,31 +133,25 @@ class CodeCache(object):
 		Note that this caches after resolving objects. This is because name references
 		  may be ambiguous or change as the stack mutates.
 		"""
+		location = frame.f_code.co_filename
 
 		if ':' in location:
 			location = strip_angle_brackets(location)
 			script_type, _, identifier = location.partition(':')
 
 			if script_type == 'module:':
-				return self._code_module(identifier)
+				return cls._code_module(identifier)
 
 			elif script_type == 'event':
-				component = self.find_root_object('event', frame).source
-				return self._code_event(component, identifier)
+				component = find_root_object('event', frame).source
+				return cls._code_event(component, identifier)
 
 			elif script_type == 'tagevent':
-				tag_path = self.find_root_object('tagPath', frame)
-				return self._code_tag_event()
+				tag_path = find_root_object('tagPath', frame)
+				return cls._code_tag_event()
+		
+		return None
 
-		else:
-
-
-
-	def strip_angle_brackets(internal_name):
-		if internal_name.startswith('<') and internal_name.endswith('>'):
-			return internal_name[1:-1]
-		else:
-			return internal_name
 
 
 	@cached
@@ -143,8 +185,6 @@ class CodeCache(object):
 		
 		module = sys.modules[filename]
 
-		if isinstance(module)
-
 		filepath = getattr(module, '__file__', None)
 		if filepath:
 			with open(filepath, 'r') as f:
@@ -164,33 +204,25 @@ class CodeCache(object):
 		return tag.getEventScripts().get(event_name)
 
 
-	@staticmethod
-	def _iter_frames(frame):
-		while frame:
-			yield frame
-			frame = frame.f_back
-
-	@staticmethod
-	def _iter_frame_root(frame):
-		stack = list(_iter_frames(frame))
-		for frame in reversed(stack):
-			yield frame
 
 
-	@staticmethod
-	def find_object(obj_name, frame):
-		"""Grab an item from the Python stack by its name, starting with the given frame."""
-		# if no shortcut is provided, start at the furthest point
-		for frame in _iter_frames(frame):
-			if obj_name in frame.f_locals:
-				return frame.f_locals[obj_name]
-		return None
 
-	@staticmethod
-	def find_root_object(obj_name, frame):
-		"""Grab an item from the Python stack by its name, starting with the given frame."""
-		# if no shortcut is provided, start at the furthest point
-		for frame in _iter_frame_root(frame):
-			if obj_name in frame.f_locals:
-				return frame.f_locals[obj_name]
-		return None
+
+class CodeCache(MetaSingleton):
+	"""Similar to the linecache module in purpose, but makes sense of the Ignition environment.
+	
+	It caches the results for faster lookup.
+
+	For example, the `frame.f_code.co_filename` may be `<event:actionPerformed>`.
+	  This isn't enough information, so we need to backtrace to get the event object.
+	  Though the project may have many of these, the `event` object nearest in the 
+	  call stack is certainly the one of interest. It's `event.source` is what fired
+	  it, and if we go up the `.parent` tree enough, we'll find the interaction
+	  controller that has the adapters that has the source code in them.
+
+	  That's a bit involved, hence the caching.
+	"""
+	__metaclass__ = MetaCodeCache
+
+
+

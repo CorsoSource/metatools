@@ -115,20 +115,17 @@ class Tracer(EventDispatch, PdbCommands):
 		self._stack_uninstall()
 
 
-	# Convenience functions
-
-	@property
-	def current_locals(self):
-		return self.sys._getframe().f_locals
-
-	@property
-	def current_globals(self):
-		return self.sys._getframe().f_globals
+	# Convenience properties
 		
 	@property
 	def current_frame(self):
 		return self.sys._getframe()
-
+	@property
+	def current_locals(self):
+		return self.current_frame.f_locals
+	@property
+	def current_globals(self):
+		return self.current_frame.f_globals
 
 	# History controls
 

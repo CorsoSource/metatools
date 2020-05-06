@@ -1,9 +1,11 @@
 
+from shared.tools.debug.frame import iter_frame, trace_entry_line
+from shared.tools.debug.codecache import CodeCache
 
 
 class Commands(object):
 
-	__slots__ = ('_command', 
+	__slots__ = ('_command', 'frame_index',
 				 '_pending_commands', 
 				 '_map_o_commands',)
 
@@ -21,6 +23,8 @@ class Commands(object):
 		
 		self.command = ''
 		self._pending_commands = []
+
+		self.frame_index = 0
 
 
 	# Interaction
@@ -87,18 +91,40 @@ class PdbCommands(Commands):
 		raise NotImplementedError
 	_command_h = _command_help
 
+
 	def _command_where(self):
 		"""Print a stack trace, with the most recent frame at the bottom, pointing to cursor frame."""
-		raise NotImplementedError
+		stack = [trace_entry_line(frame, indent= ('-> ' if index == self.frame_index else '   ') )
+				 for index, frame
+				 in iter_frame(self.current_frame)]
+
+		return '\n'.join(reversed(stack))
+
 	_command_w = _command_where 
+
 
 	def _command_down(self):
 		"""Move the cursor to a more recent frame (down the stack)"""
+		if self.frame_index:
+			self.frame_index -= 1
 	_command_d = _command_down
 
 	def _command_up(self):
-		"""Move the cursor to a more recent frame (up the stack)"""
+		"""Move the cursor to an older frame (up the stack)"""
+		if self.cursor_frame.f_back:
+			self.frame_index += 1
 	_command_u = _command_up
+
+
+	@property 
+	def cursor_frame(self):
+		return self.sys._getframe(self.frame_index)
+	@property 
+	def cursor_locals(self):
+		return self.cursor_frame.f_locals
+	@property
+	def cursor_globals(self):
+		return self.cursor_frame.f_globals
 
 
 	# Breakpoint controls
@@ -235,7 +261,28 @@ class PdbCommands(Commands):
 		Given first and last show code between the two given line numbers.
 		If last is less than first it goes last lines past the first. 
 		"""
-		raise NotImplementedError
+		code = CodeCache.get_lines(self.current_frame)
+
+		if not last:
+			start = first - 5
+			end = first + 5
+		else:
+			if last < first:
+				start = first
+				end = first + last
+			else:
+				start = first
+				end = last
+		
+		# sanity check
+		if start < 0:
+			start = 0
+		if end >= len(code):
+			end = len(code) - 1
+
+		return code[start:end]
+
+
 	_command_l = _command_list
 
 	def _command_args(self, command):
