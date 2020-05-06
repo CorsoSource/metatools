@@ -1,9 +1,12 @@
 from weakref import WeakValueDictionary
 
 from shared.tools.thread import getThreadState
-from shared.tools.debug.command import PdbCommands
-from shared.tools.debug.event import EventDispatch
-
+# from shared.tools.debug.command import PdbCommands
+# from shared.tools.debug.event import EventDispatch
+# from shared.tools.debug.snapshot import Snapshot
+from metatools.debug.command import PdbCommands
+from metatools.debug.event import EventDispatch
+from metatools.debug.snapshot import Snapshot
 
 class Tracer(EventDispatch, PdbCommands):
 	"""A variant of the Python Debugger (Pdb)

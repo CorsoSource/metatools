@@ -1,6 +1,8 @@
 
-from shared.tools.debug.frame import iter_frame, trace_entry_line
-from shared.tools.debug.codecache import CodeCache
+# from shared.tools.debug.frame import iter_frame, trace_entry_line
+# from shared.tools.debug.codecache import CodeCache
+from metatools.debug.frame import iter_frame, trace_entry_line
+from metatools.debug.codecache import CodeCache
 
 
 class Commands(object):

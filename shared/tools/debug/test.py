@@ -13,13 +13,17 @@ def monitored():
 	time_delay = 0.5
 	find_me = 0
 	
-	def bar(x):
-		x += 1
-		y = x + 2
+	def bar(x, steps=5):
+		
+		for y in range(steps):
+			x += 1
+		
+		y = x * 2
+		
 		return x
 		
 	while True:
-		find_me = bar(find_me)
+		find_me = bar(find_me, steps=10)
 		
 		sleep(time_delay)
 		
@@ -33,7 +37,8 @@ running_thread = monitored()
 
 shared.tools.pretty.install()
 
-from shared.tools.debug.tracer import Tracer
+# from shared.tools.debug.tracer import Tracer
+from metatools.debug.tracer import Tracer
 
 # Load up tracer instance
-tracer = Tracer(running_thread)
+#tracer = Tracer(running_thread)

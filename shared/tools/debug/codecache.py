@@ -1,6 +1,9 @@
+from __future__ import with_statement
+
 from shared.tools.meta import MetaSingleton
 
-from shared.tools.debug.frame import find_root_object
+# from shared.tools.debug.frame import find_root_object
+from metatools.debug.frame import find_root_object
 
 
 from functools import wraps
