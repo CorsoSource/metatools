@@ -298,8 +298,8 @@ class PdbCommands(Commands):
 		"""Print the expression via pretty printing. This is actually how p works, too."""
 		raise NotImplementedError
 
-	def _command_alias(self, command, name='', command=''):
-		"""Create an alias called name that executes comand. 
+	def _command_alias(self, command, name='', command_string=''):
+		"""Create an alias called name that executes command. 
 		If no command, then show what alias is. If no name, then show all aliases.
 
 		NOTE: The command should not be in quotes.

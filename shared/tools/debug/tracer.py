@@ -145,7 +145,7 @@ class Tracer(EventDispatch, PdbCommands):
 
 	def _intercept_context(self, frame, event, arg):
 		"""Do the actual interception checks against the context."""
-		context = Context(frame, event, arg)
+		context = Snapshot(frame, event, arg)
 		self._add_context(context)
 		
 		if self.intercepting:

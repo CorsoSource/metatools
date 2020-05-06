@@ -205,9 +205,6 @@ class MetaCodeCache(type):
 
 
 
-
-
-
 class CodeCache(MetaSingleton):
 	"""Similar to the linecache module in purpose, but makes sense of the Ignition environment.
 	
@@ -226,3 +223,18 @@ class CodeCache(MetaSingleton):
 
 
 
+def trace_entry_line(frame, indent='  '):
+	out = '%s(%d)' % (frame.f_code.co_filename, frame.f_lineno)
+
+	out += frame.f_code.co_name or '<lambda>'
+
+	out += repr(frame.f_locals.get('__args__'), tuple())
+
+	return_value = frame.f_locals.get('__return__', None)
+	if return_value:
+		out += '->' + repr(return_value)
+
+	line = CodeCache.get_line(frame)
+	if line:
+		out += ': ' + line.strip()
+	return out
