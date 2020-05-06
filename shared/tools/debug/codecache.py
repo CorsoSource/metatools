@@ -1,6 +1,51 @@
 
 from functools import wraps
 
+# Attempt to make the code syntax highlightable
+# Backported version of Pygments available at
+#   https://github.com/CorsoSource/jython-2.5-backports
+try:
+	from pygments import highlight
+	from pygments.lexers import PythonLexer
+	from pygments.formatters import HtmlFormatter
+
+	import re
+
+	highlight_html_strip_pattern = re.compile(r"""
+				((/\*|<!--).*?(\*/|-->)
+			|	(<(meta|!)[^>]+?>)
+			|	(<(title|h2)>.*?</(title|h2)>))
+			""",re.X + re.S)
+	linenumber_format_pattern = re.compile(r'(<div class="linenodiv".*?)(background-color: #)([a-f0-9]{6});')
+
+	replace_linenumber_format = lambda html: linenumber_format_pattern.sub(r'\g<1>\g<2>000000; color:#ffffff; ', html)
+
+	PYTHON_LEXER = PythonLexer(stripall=True)
+
+	def syntax_highlight(code, highlight_lines=[], style='monokai'):
+		formatter = HtmlFormatter(
+			linenos='table', 
+			style=style,
+			hl_lines=highlight_lines,
+			wrapcode=True,
+			full=True,
+			lineseparator='<br>',
+			noclasses=True,
+			)
+					
+		html = highlight(code, PYTHON_LEXER, formatter)
+
+		html = highlight_html_strip_pattern.sub('', html)
+		html = replace_linenumber_format(html)
+		
+		return html.strip()
+
+# In case Pygments is not installed, passthru
+except ImportError:
+
+	def syntax_highlight(code, *args):
+		return code
+
 
 def cached(function):
 	@wraps(function)
