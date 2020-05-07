@@ -17,6 +17,7 @@ def monitored():
 		
 		for y in range(steps):
 			x += 1
+			sleep(0.05)
 		
 		y = x * 2
 		
@@ -37,8 +38,7 @@ running_thread = monitored()
 
 shared.tools.pretty.install()
 
-# from shared.tools.debug.tracer import Tracer
-from metatools.debug.tracer import Tracer
+from shared.tools.debug.tracer import Tracer
 
 # Load up tracer instance
-#tracer = Tracer(running_thread)
+tracer = Tracer(running_thread)

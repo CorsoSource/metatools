@@ -49,6 +49,7 @@ class MetaSingleton(object):
 		raise AttributeError("%s attributes are not mutable. Use methods to manipulate them." % cls.__name__) 
 
 
+
 def sentinel(iterable, stopValue):
 	"""A helper to make it simpler to implement sentinel values more idomatically.
 	This is a good way to replace a while True loop, removing the need for a break-on-value clause.

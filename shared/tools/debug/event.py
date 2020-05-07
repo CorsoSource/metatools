@@ -2,9 +2,9 @@
 
 class EventDispatch(object):
 
-	__slots__ = ('_map_for_dispatch', 
-				 'monitoring',
-				)
+	# __slots__ = ('_map_for_dispatch', 
+	# 			 'monitoring',
+	# 			)
 
 	def __init__(self, thread=None, *args, **kwargs):
 		

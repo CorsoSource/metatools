@@ -4,23 +4,12 @@ from time import sleep
 
 from shared.tools.thread import getThreadState
 
-try:
-	from shared.tools.debug.command import PdbCommands
-	from shared.tools.debug.event import EventDispatch
-	from shared.tools.debug.snapshot import Snapshot
-	from shared.tools.debug.hijack import SysHijack
-except ImportError:
-	from metatools.debug.command import PdbCommands
-	from metatools.debug.event import EventDispatch
-	from metatools.debug.snapshot import Snapshot
-	from metatools.debug.hijack import SysHijack
+from shared.tools.debug.command import PdbCommands
+from shared.tools.debug.event import EventDispatch
+from shared.tools.debug.snapshot import Snapshot
+from shared.tools.debug.hijack import SysHijack
 
-
-class TracerEvents(EventDispatch):
-	pass
-
-
-class Tracer(TracerEvents, PdbCommands):
+class Tracer(EventDispatch, PdbCommands):
 	"""A variant of the Python Debugger (Pdb)
 	
 	This is designed to overcome and take advantage of the different
@@ -30,16 +19,13 @@ class Tracer(TracerEvents, PdbCommands):
 	For more information and the cool implementation that we're tweaking here,
 	  see also rpdb at https://github.com/tamentis/rpdb
 	"""
-	__slots__ = ('thread', 'sys',
-				 'intercepting',
-				 'context_buffer',
-
-				 '_bottom_frame',
-
-				 '_debug', '_cursor_frame', # DeprecationWarning
-				 
-			#####	 'monitoring', 'tracing',
-				)
+	# __slots__ = ('thread', 'sys',
+	# 			 'intercepting',
+	# 			 'context_buffer',
+	# 			 '_bottom_frame',
+	# 			 '_debug', '_cursor_frame', # DeprecationWarning
+	# 		#####	 'monitoring', 'tracing',
+	# 			)
 
 	CONTEXT_BUFFER_LIMIT = 1000
 		

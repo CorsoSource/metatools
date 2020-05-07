@@ -1,9 +1,6 @@
 from shared.tools.thread import getThreadState, Thread
 
-try:
-	from shared.tools.debug.proxy import ProxyIO
-except ImportError:
-	from metatools.debug.proxy import ProxyIO
+from shared.tools.debug.proxy import ProxyIO
 
 
 class SysHijack(object):

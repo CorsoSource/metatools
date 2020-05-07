@@ -1,12 +1,7 @@
 from __future__ import with_statement
 
 from shared.tools.meta import MetaSingleton
-
-try:
-	from shared.tools.debug.frame import find_root_object, strip_angle_brackets
-except ImportError:
-	from metatools.debug.frame import find_root_object, strip_angle_brackets
-
+from shared.tools.debug.frame import find_root_object, strip_angle_brackets
 
 import system
 import sys

@@ -1,21 +1,16 @@
 
-try:
-	from shared.tools.debug.frame import iter_frames, trace_entry_line
-	from shared.tools.debug.codecache import CodeCache
-	from shared.tools.debug.breakpoint import Breakpoint
-except ImportError:
-	from metatools.debug.frame import iter_frames
-	from metatools.debug.codecache import CodeCache, trace_entry_line
-	from metatools.debug.breakpoint import Breakpoint
+from shared.tools.debug.frame import iter_frames
+from shared.tools.debug.codecache import CodeCache, trace_entry_line
+from shared.tools.debug.breakpoint import Breakpoint
 
 from ast import literal_eval
 from time import sleep
 
 class Commands(object):
 
-	__slots__ = ('_command', 'frame_index',
-				 '_pending_commands', 
-				 '_map_o_commands',)
+	# __slots__ = ('_command', 'frame_index',
+	# 			 '_pending_commands', 
+	# 			 '_map_o_commands',)
 
 	_UPDATE_CHECK_DELAY = 0.01
 
@@ -65,8 +60,8 @@ class PdbCommands(Commands):
 	https://docs.python.org/2.7/library/pdb.html?highlight=pdb#debugger-commands
 	"""
 
-	__slots__ = ('_alias_commands', 
-				 )
+	# __slots__ = ('_alias_commands', 
+	# 			 )
 
 	def __init__(self, *args, **kwargs):
 		super(PdbCommands, self).__init__(*args, **kwargs)
