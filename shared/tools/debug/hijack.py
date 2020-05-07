@@ -1,7 +1,9 @@
 from shared.tools.thread import getThreadState, Thread
 
-from datetime import datetime #, timedelta
-
+try:
+	from shared.tools.debug.proxy import ProxyIO
+except ImportError:
+	from metatools.debug.proxy import ProxyIO
 
 
 class SysHijack(object):
@@ -24,9 +26,7 @@ class SysHijack(object):
 		self._target_thread = thread
 		
 		self._io_proxy = ProxyIO(coupled_sys=self)
-		
-		self._init_time = datetime.now()
-		
+				
 		self._original_stdin       = self._thread_sys.stdin
 		self._original_stdout      = self._thread_sys.stdout
 		self._original_stderr      = self._thread_sys.stderr

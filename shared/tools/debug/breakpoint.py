@@ -8,7 +8,7 @@ class Breakpoint(object):
 	  evaluated. Traps are rooting about for a situation while the debugger
 	  effectively brings the situation to the breakpoint to be verified.
 	"""
-	__slots__ = ('_filename', '_line_number', '_function_name',
+	__slots__ = ('_id', '_filename', '_line_number', '_function_name',
 				 'temporary', 'condition', 'hits', 
 				 'enabled', 'ignored',
 				 'note',
@@ -63,10 +63,10 @@ class Breakpoint(object):
 		return self._id
 
 
-	@property 
-	def next_id(self):
-		self._id_counter += 1
-		return self._id_counter
+	@classmethod
+	def next_id(cls):
+		cls._id_counter += 1
+		return cls._id_counter
 
 	@property
 	def location(self):
@@ -85,7 +85,7 @@ class Breakpoint(object):
 				breakpoints.append(breakpoint)
 			elif isinstance(breakpoint, (long, int)):
 				breakpoints.append(cls._instances[breakpoint])
-			elif isinstance(breakpoint_id, (str, unicode)):
+			elif isinstance(breakpoint, (str, unicode)):
 				breakpoints.extend(cls._break_locations[breakpoint])
 		return breakpoints
 
@@ -101,7 +101,7 @@ class Breakpoint(object):
 			else:
 				self._break_locations[self.location] = set([self])
 			
-			self._id = self.next_id
+			self._id = self.next_id()
 			self._instances[self.id] = self 
 
 	def _remove(self):
@@ -115,10 +115,10 @@ class Breakpoint(object):
 		
 		# Breakpoint set by line
 		if not self.function_name:
-			return self.line_number == frame.f_lineno:
+			return self.line_number == frame.f_lineno
 
 		# Fail if the function name's wrong
-		if self.function_name != frame.f_code.co_name
+		if self.function_name != frame.f_code.co_name:
 			return False
 
 		# Correct frame and correct function

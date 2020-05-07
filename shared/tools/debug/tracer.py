@@ -1,14 +1,26 @@
 from weakref import WeakValueDictionary
+from collections import deque 
+from time import sleep
 
 from shared.tools.thread import getThreadState
-# from shared.tools.debug.command import PdbCommands
-# from shared.tools.debug.event import EventDispatch
-# from shared.tools.debug.snapshot import Snapshot
-from metatools.debug.command import PdbCommands
-from metatools.debug.event import EventDispatch
-from metatools.debug.snapshot import Snapshot
 
-class Tracer(EventDispatch, PdbCommands):
+try:
+	from shared.tools.debug.command import PdbCommands
+	from shared.tools.debug.event import EventDispatch
+	from shared.tools.debug.snapshot import Snapshot
+	from shared.tools.debug.hijack import SysHijack
+except ImportError:
+	from metatools.debug.command import PdbCommands
+	from metatools.debug.event import EventDispatch
+	from metatools.debug.snapshot import Snapshot
+	from metatools.debug.hijack import SysHijack
+
+
+class TracerEvents(EventDispatch):
+	pass
+
+
+class Tracer(TracerEvents, PdbCommands):
 	"""A variant of the Python Debugger (Pdb)
 	
 	This is designed to overcome and take advantage of the different
@@ -41,7 +53,7 @@ class Tracer(EventDispatch, PdbCommands):
 	def _nop(_0=None, _1=None,_2=None):
 		pass		
 			
-	def __init__(self, thread=None):
+	def __init__(self, thread=None, *args, **kwargs):
 		
 		super(Tracer, self).__init__(*args, **kwargs)
 

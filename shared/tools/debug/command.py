@@ -1,9 +1,15 @@
 
-# from shared.tools.debug.frame import iter_frame, trace_entry_line
-# from shared.tools.debug.codecache import CodeCache
-from metatools.debug.frame import iter_frame, trace_entry_line
-from metatools.debug.codecache import CodeCache
+try:
+	from shared.tools.debug.frame import iter_frames, trace_entry_line
+	from shared.tools.debug.codecache import CodeCache
+	from shared.tools.debug.breakpoint import Breakpoint
+except ImportError:
+	from metatools.debug.frame import iter_frames
+	from metatools.debug.codecache import CodeCache, trace_entry_line
+	from metatools.debug.breakpoint import Breakpoint
 
+from ast import literal_eval
+from time import sleep
 
 class Commands(object):
 
@@ -23,7 +29,7 @@ class Commands(object):
 			for attribute in dir(self)
 			if attribute.startswith('_command_'))
 		
-		self.command = ''
+		self._command = ''
 		self._pending_commands = []
 
 		self.frame_index = 0
@@ -98,7 +104,7 @@ class PdbCommands(Commands):
 		"""Print a stack trace, with the most recent frame at the bottom, pointing to cursor frame."""
 		stack = [trace_entry_line(frame, indent= ('-> ' if index == self.frame_index else '   ') )
 				 for index, frame
-				 in iter_frame(self.current_frame)]
+				 in iter_frames(self.current_frame)]
 
 		return '\n'.join(reversed(stack))
 
@@ -138,7 +144,7 @@ class PdbCommands(Commands):
 
 		If none are provided, clear all after confirmation. (Pulled off _pending_commands)
 		"""
-		breakpoints = Breakpoints.resolve_breakpoints(breakpoints)
+		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
 
 		if not breakpoints:
 			print "Please confirm clearing all breakpoints (yes/no)"
@@ -157,14 +163,14 @@ class PdbCommands(Commands):
 
 	def _command_enable(self, command, *breakpoints):
 		"""Enable the breakpoints"""
-		breakpoints = Breakpoints.resolve_breakpoints(breakpoints)
+		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
 
 		for breakpoint in breakpoints:
 			breakpoint.enable(self)
 
 	def _command_disable(self, command, *breakpoints):
 		"""Disable the breakpoints"""
-		breakpoints = Breakpoints.resolve_breakpoints(breakpoints)
+		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
 
 		for breakpoint in breakpoints:
 			breakpoint.disable(self)

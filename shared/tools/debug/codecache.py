@@ -2,9 +2,14 @@ from __future__ import with_statement
 
 from shared.tools.meta import MetaSingleton
 
-# from shared.tools.debug.frame import find_root_object
-from metatools.debug.frame import find_root_object
+try:
+	from shared.tools.debug.frame import find_root_object, strip_angle_brackets
+except ImportError:
+	from metatools.debug.frame import find_root_object, strip_angle_brackets
 
+
+import system
+import sys
 
 from functools import wraps
 
@@ -80,6 +85,9 @@ class MetaCodeCache(type):
 	# cache keys are based on what the _code_* functions need.
 	_cache = {}
 
+	_default_sys_context = sys
+
+
 	def __getitem__(cls, location):
 		return cls._code_at_frame(location)
 
@@ -123,10 +131,10 @@ class MetaCodeCache(type):
 
 
 	def _code_at_frame(cls, frame):
-		return cls._dispatch_location(frame.f_code.co_filename)
+		return cls._dispatch_frame(frame)
 
 
-	def _dispatch_location(cls, location):
+	def _dispatch_frame(cls, frame):
 		"""Resolve and make sense of the location given. 
 
 		It may be "module:shared.tools.debug.codecache" or perhaps 
@@ -186,7 +194,7 @@ class MetaCodeCache(type):
 	@cached
 	def _code_module(cls, filename):
 		
-		module = sys.modules[filename]
+		module = cls._default_sys_context.modules[filename]
 
 		filepath = getattr(module, '__file__', None)
 		if filepath:

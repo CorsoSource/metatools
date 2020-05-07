@@ -6,7 +6,7 @@ class EventDispatch(object):
 				 'monitoring',
 				)
 
-	def __init__(self, thread=None):
+	def __init__(self, thread=None, *args, **kwargs):
 		
 		super(EventDispatch, self).__init__(*args, **kwargs)
 
