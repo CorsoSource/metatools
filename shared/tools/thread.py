@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import re
 from heapq import heappush, heappop
 
-from java.lang import Thread, ThreadGroup
+from java.lang import Thread, ThreadGroup, NullPointerException
 from jarray import array, zeros
 from org.python.core import ThreadState
 
@@ -252,21 +252,25 @@ def dangerouslyKillThreads(thread_name_pattern, bypass_interlock='No!'):
 def getThreadState(target_thread):
 	# Earlier builds of Jython do not have the internals exposed. At least, not the same way.
 	# The following introspects the thread tiven and returns what it finds.
-	thread_locals = getReflectedField(target_thread, 'threadLocals')
-
-	table = getReflectedField(thread_locals, 'table', 'java.lang.ThreadLocal$ThreadLocalMap')
-
-	for entry in table:
-		if entry is None:
-			continue
-		
-		value = getReflectedField(entry, 'value')
-		
-		if isinstance(value, ThreadState):
-			return value
-	else:
-		raise AttributeError("Python ThreadState object not found for given thread!")
-
+	try:
+		thread_locals = getReflectedField(target_thread, 'threadLocals')
+	
+		table = getReflectedField(thread_locals, 'table', 'java.lang.ThreadLocal$ThreadLocalMap')
+	
+		for entry in table:
+			if entry is None:
+				continue
+			
+			value = getReflectedField(entry, 'value')
+			
+			if isinstance(value, ThreadState):
+				return value
+		else:
+			raise AttributeError("Python ThreadState object not found for given thread!")
+	
+	# If the thread's dead, attempts to reflect garbage throw NPEs
+	except NullPointerException:
+		return None
 
 def getFromThreadScope(target_thread, object_name):
 	"""Abuse optimizations in Jython or reflection in Java to get objects in other frames.
