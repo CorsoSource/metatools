@@ -196,13 +196,17 @@ class Tracer(PdbCommands):
 
 		# Check if execution should be interdicted for debugging
 		if self.interdict_context(frame, event, arg):
-			self.await_comand()
+			self.command_loop()
 		
 		return dispatch_retval
 
 	# Interaction
 
-	def await_comand(self):
+	def command_loop(self):
+		"""Run commands until interdiction is disabled."""
+
+		if not self.interdicting:
+			return
 	
 		if Thread.currentThread() is self.tracer_thread:
 			raise RuntimeError("Await called from the wrong context! %r instead of %r" % (
@@ -211,15 +215,16 @@ class Tracer(PdbCommands):
 		if self.INTERDICTION_FAILSAFE:
 			self._FAILSAFE_TIMEOUT = datetime.now() + timedelta(microseconds=self.INTERDICTION_FAILSAFE_TIMEOUT * 1000)
 		
-		while not self._pending_commands and self.interdicting:
-			sleep(self._UPDATE_CHECK_DELAY)
-			if self.INTERDICTION_FAILSAFE and self._FAILSAFE_TIMEOUT < datetime.now():
-				self.interdicting = False
-				system.util.getLogger('TRACER').warn('Interaction pause timeed out!')
+		while self.interdicting:
+			if not self._pending_commands:
+				sleep(self._UPDATE_CHECK_DELAY)
+				if self.INTERDICTION_FAILSAFE and self._FAILSAFE_TIMEOUT < datetime.now():
+					self.interdicting = False
+					system.util.getLogger('TRACER').warn('Interaction pause timeed out!')
 		
-		while self._pending_commands and self.interdicting:
-			#system.util.getLogger('Debug Command').info('Command: %s' % self.command)
-			self.command(self._pending_commands.pop())
+			while self._pending_commands and self.interdicting:
+				#system.util.getLogger('Debug Command').info('Command: %s' % self.command)
+				self.command(self._pending_commands.pop())
 
 
 
