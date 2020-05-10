@@ -2,15 +2,19 @@
 from shared.tools.debug.frame import iter_frames
 from shared.tools.debug.codecache import CodeCache, trace_entry_line
 from shared.tools.debug.breakpoint import Breakpoint
+from shared.tools.debug.event import EventDispatch
 
 from ast import literal_eval
 from time import sleep
 
-class Commands(object):
 
-	# __slots__ = ('_command', 'frame_index',
-	# 			 '_pending_commands', 
-	# 			 '_map_o_commands',)
+
+class Commands(EventDispatch):
+
+	__slots__ = ('_cursor_index', '_cursor_stack',
+				 '_pending_commands', 
+				 '_map_o_commands',
+				 )
 
 	_UPDATE_CHECK_DELAY = 0.01
 
@@ -24,10 +28,32 @@ class Commands(object):
 			for attribute in dir(self)
 			if attribute.startswith('_command_'))
 		
-		self._command = ''
 		self._pending_commands = []
 
-		self.frame_index = 0
+		self._cursor_index = 0
+		self._cursor_stack = tuple()
+
+
+	# Dispatch
+	def dispatch(self, frame, event, arg):
+		self._cursor_stack = tuple(iter_frames(frame))
+		return super(Commands, self).dispatch(frame, event, arg)
+
+
+	# Convenience properties
+
+	@property 
+	def cursor_frame(self):
+		if self._cursor_index < len(self._cursor_stack):
+			return self._cursor_stack[self._cursor_index]
+		else:
+			return None
+	@property 
+	def cursor_locals(self):
+		return self.cursor_frame.f_locals
+	@property
+	def cursor_globals(self):
+		return self.cursor_frame.f_globals
 
 
 	# Interaction
@@ -53,6 +79,7 @@ class Commands(object):
 		pass
 
 
+
 class PdbCommands(Commands):
 	"""Run a command or execute a statement.
 	
@@ -60,8 +87,8 @@ class PdbCommands(Commands):
 	https://docs.python.org/2.7/library/pdb.html?highlight=pdb#debugger-commands
 	"""
 
-	# __slots__ = ('_alias_commands', 
-	# 			 )
+	__slots__ = ('_alias_commands', 
+				 )
 
 	def __init__(self, *args, **kwargs):
 		super(PdbCommands, self).__init__(*args, **kwargs)
@@ -75,7 +102,7 @@ class PdbCommands(Commands):
 		if not command:
 			return
 
-		if command.ltrim()[0] == '!':
+		if command.lstrip()[0] == '!':
 			self._command_statement(command)
 		else:
 			args = []
@@ -84,7 +111,7 @@ class PdbCommands(Commands):
 					args.append(literal_eval(arg))
 				except ValueError:
 					args.append(arg)
-			self._map_o_commands.get(args[0], self._command_default)(command, *args)
+			self._map_o_commands.get(args[0], self._command_default)(command, *args[1:])
 
 
 	# Meta commands
@@ -97,7 +124,7 @@ class PdbCommands(Commands):
 
 	def _command_where(self):
 		"""Print a stack trace, with the most recent frame at the bottom, pointing to cursor frame."""
-		stack = [trace_entry_line(frame, indent= ('-> ' if index == self.frame_index else '   ') )
+		stack = [trace_entry_line(frame, indent= ('-> ' if index == self._cursor_index else '   ') )
 				 for index, frame
 				 in iter_frames(self.current_frame)]
 
@@ -108,26 +135,15 @@ class PdbCommands(Commands):
 
 	def _command_down(self):
 		"""Move the cursor to a more recent frame (down the stack)"""
-		if self.frame_index:
-			self.frame_index -= 1
+		if self._cursor_index:
+			self._cursor_index -= 1
 	_command_d = _command_down
 
 	def _command_up(self):
 		"""Move the cursor to an older frame (up the stack)"""
-		if self.cursor_frame.f_back:
-			self.frame_index += 1
+		if self._cursor_index < (len(self._cursor_stack) - 1):
+			self._cursor_index += 1
 	_command_u = _command_up
-
-
-	@property 
-	def cursor_frame(self):
-		return self.sys._getframe(self.frame_index)
-	@property 
-	def cursor_locals(self):
-		return self.cursor_frame.f_locals
-	@property
-	def cursor_globals(self):
-		return self.cursor_frame.f_globals
 
 
 	# Breakpoint controls
@@ -335,4 +351,3 @@ class PdbCommands(Commands):
 		self.shutdown()
 		self.sys._restore()
 	_command_shutdown = _command_die = _command_q = _command_quit
-
