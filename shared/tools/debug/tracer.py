@@ -8,7 +8,11 @@ from shared.tools.debug.hijack import SysHijack
 from shared.tools.debug.frame import iter_frames
 from shared.tools.debug.breakpoint import Breakpoint
 
+from shared.tools.debug.snapshot import Snapshot
+
 from datetime import datetime, timedelta
+
+from shared.tools.pretty import p,pdir
 
 
 class Tracer(PdbCommands):
@@ -41,10 +45,24 @@ class Tracer(PdbCommands):
 	# 					 'c_call', 'c_return', 'c_exception',
 	# 					 ])	
 	
+	SKIP_NAMESPACES = set([
+		'weakref', 'datetime',
+		
+		])
+	
 	@staticmethod
-	def _nop(_0=None, _1=None,_2=None):
-		pass		
-			
+	def _nop(frame=None, event=None, arg=None):
+		if Tracer.skip_frame(frame):
+			return None
+		#system.util.getLogger('FAIL').info('%r %r %r' % (p(frame, directPrint=False), event, arg))
+		#sleep(0.1)
+		return Tracer._nop
+	
+	@classmethod
+	def skip_frame(cls, frame):
+		return frame.f_globals.get('__name__') in cls.SKIP_NAMESPACES
+	
+	
 	def __init__(self, thread=None, *args, **kwargs):
 		
 		super(Tracer, self).__init__(*args, **kwargs)
@@ -63,7 +81,8 @@ class Tracer(PdbCommands):
 		self._debug = {}
 		
 		#start the machinery so we can inject directly
-		self.sys.settrace(Tracer.dispatch)
+		#self.sys.settrace(Tracer.dispatch)
+		self.sys.settrace(Tracer._nop)
 		
 		self._active_tracers[thread] = self
 		self._FAILSAFE_TIMEOUT = datetime.now()
@@ -91,7 +110,7 @@ class Tracer(PdbCommands):
 			# track the furthest up the stack goes
 			self._top_frame = frame
 			frame = frame.f_back
-		self.sys.settrace(self.dispatch)
+		#self.sys.settrace(self.dispatch)
 
 	def _stack_uninstall(self):
 		"""Turn off trace and remove the trace dispatcher from every level 
@@ -142,6 +161,11 @@ class Tracer(PdbCommands):
 		f = super(Tracer, self).cursor_frame
 		return f if f else self.sys._getframe()
 
+	@property
+	def context_traceback(self):
+		return [repr(context) for i, context in enumerate(self.context_buffer) 
+				if (len(self.context_buffer) - 20) < i < len(self.context_buffer)]
+			
 
 	# Interception detection
 
@@ -168,37 +192,31 @@ class Tracer(PdbCommands):
 
 	# Dispatch
 	
-	@classmethod
-	def dispatch(cls, frame, event, arg):
-		current_thread = Thread.currentThread()
-		tracer = cls._active_tracers.get(Thread.currentThread(), None)
+	def dispatch(self, frame, event, arg):
+		sleep(0.05) # DEBUG
+	
+		try:
+			# Dispatch and continue as normal
+			dispatch_retval = super(Tracer, self).dispatch(frame, event, arg)
 		
-		# Only dispatch if needed/safe
-		if tracer and tracer.tracer_thread is not current_thread:
-			system.util.getLogger('FAILTRACE').info('Tracer in target thread for %s' % event); sleep(0.01)
-			tracer._instance_dispatch(frame, event, arg)
-			if not frame.f_trace:
-				frame.f_trace = cls.dispatch
-			return cls.dispatch
+			# Check if execution should be interdicted for debugging
+			if self.interdict_context(frame, event, arg):
+				self.command_loop()
+				
+		except Exception, err:
+			system.util.getLogger('FAILTRACE').error('Dispatch Error: %r' % err)
+		
+		if frame.f_trace is None:
+			frame.f_trace = self.dispatch
+		
+		if self.monitoring and not Tracer.skip_frame(frame):
+			#self.sys.settrace(Tracer._nop)
+			self.sys.settrace(self.dispatch)
 		else:
-			system.util.getLogger('FAILTRACE').info('Tracer in calling thread for %s' % event); sleep(0.01)
+			self.shutdown()
 			
-			if frame.f_trace:
-				system.util.getLogger('FAILTRACE').info('Tracer clearing f_trace'); sleep(0.01)
-				del frame.f_trace
-			return None
+		return self.dispatch
 		
-
-	def _instance_dispatch(self, frame, event, arg):
-		sleep(0.01) # DEBUG
-	
-		# Dispatch and continue as normal
-		dispatch_retval = super(Tracer, self).dispatch(frame, event, arg)
-	
-		# Check if execution should be interdicted for debugging
-		if self.interdict_context(frame, event, arg):
-			self.command_loop()
-
 
 	# Interaction
 
@@ -230,13 +248,13 @@ class Tracer(PdbCommands):
 
 	# Command overrides
 
-	def _command_step(self, command):
+	def _command_step(self, command='step'):
 		"""Step into the next function in the current line (or to the next line, if done)."""
 		super(Tracer, self)._command_step(command)
 		self.interdicting = False
 	_command_s = _command_step
 
-	def _command_next(self, command):
+	def _command_next(self, command='next'):
 		"""Continue to the next line (or return statement). 
 		Note step 'steps into a line' (possibly making the call stack deeper)
 		  while next goes to the 'next line in this frame'. 
@@ -245,19 +263,19 @@ class Tracer(PdbCommands):
 		self.interdicting = False
 	_command_n = _command_next
 
-	def _command_until(self, command, target_line=0):
+	def _command_until(self, command='until', target_line=0):
 		"""Continue until a higher line number is reached, or optionally target_line."""
 		super(Tracer, self)._command_until(command)
 		self.interdicting = False
 	_command_u = _command_until
 
-	def _command_return(self, command):
+	def _command_return(self, command='return'):
 		"""Continue until the current frame returns."""
 		super(Tracer, self)._command_return(command)
 		self.interdicting = False
-	_command_r = _command_return
+	RETURN = _command_r = _command_return
 
-	def _command_continue(self, command):
+	def _command_continue(self, command='continue'):
 		"""Resume execution until a breakpoint is reached. Clears all traps."""
 		super(Tracer, self)._command_continue(command)
 		self.interdicting = False

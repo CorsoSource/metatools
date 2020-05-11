@@ -11,7 +11,8 @@ class Snapshot(object):
 				 '_cloned')
 	
 	_repr_markers = {'line': '|',  'call': '+',   'return': '/',   'exception': 'X',
-							     'c_call': '+', 'c_return': '/', 'c_exception': 'X'}
+							     'c_call': '+', 'c_return': '/', 'c_exception': 'X', 
+					 'init': '#'}
 
 	def __init__(self, frame, event, arg, clone=True):
 		
@@ -113,6 +114,6 @@ class Snapshot(object):
 
 	def __repr__(self):
 		tree_marker = [' ']*4
-		tree_marker[len(tree_marker) % (self.depth)] = self._repr_markers[self.event]
+		tree_marker[len(tree_marker) % (self.depth)] = self._repr_markers.get(self.event, '*')
 		return '<Snapshot [%s%2d:%6s] %4d of %s at %s>' % (''.join(tree_marker),
 			self.depth, self.event.capitalize()[:6], self.line, self.filename, self.caller)

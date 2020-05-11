@@ -31,7 +31,7 @@ def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
 			return x
 			
 		while True:
-			find_me = bar(find_me, steps=10)
+			find_me = bar(find_me, steps=2)
 			
 			sleep(time_delay)
 			
@@ -61,25 +61,69 @@ def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
 
 # >>> 
 # Tracing from Thread[SwingWorker-pool-2-thread-2,5,javawsApplicationThreadGroup] onto Thread[debug_test,5,javawsApplicationThreadGroup]
-# >>> tracer
-# <tracer.Tracer object at 0x2>
+# >>> tracer.cursor_frame
+#   Properties of <'frame'>
+#   =========================
+#   <frame object at 0x682>
+#   -------------------------
+#   Attribute      (P)   Repr                                                                                                                         <Type>       
+#   ----------     ---   ------------------------------------------------------------------------------------------------------------------------     -----------  
+#   f_back               <frame in "<module:shared.tools.thread>" of "full_closure" on line 170>                                                                   
+#   f_builtins           {'coerce': <built-in function coerce>, 'callable': <built-in function callable>, 'AttributeError': <type 'exceptions....     dict         
+#   f_code               <code object monitored at 0x683, file "<module:shared.tools.debug._test>", line 16>                                          tablecode    
+#   f_globals            {'app': <app package app at 1668>, 'shared': <app package shared at 1669>, 'initialize_test': <function initialize_te...     dict         
+#   f_lasti              0                                                                                                                            int          
+#   f_lineno             36                                                                                                                           int          
+#   f_locals             <'dict'> of 4 elements                                                                                                                    
+#                                   bar : λ(x, steps=5)
+#                            close_loop : False
+#                               find_me : 22   
+#                            time_delay : 0.5  
+#   f_trace              None                                                                                                                         NoneType     
+
+# >>> tracer.cursor_frame
+#   Properties of <'frame'>
+#   =========================
+#   <frame object at 0x68d>
+#   -------------------------
+#   Attribute      (P)   Repr                                                                                                                         <Type>       
+#   ----------     ---   ------------------------------------------------------------------------------------------------------------------------     -----------  
+#   f_back               <frame in "<module:shared.tools.debug._test>" of "monitored" on line 34>                                                                  
+#   f_builtins           {'coerce': <built-in function coerce>, 'callable': <built-in function callable>, 'AttributeError': <type 'exceptions....     dict         
+#   f_code               <code object bar at 0x68e, file "<module:shared.tools.debug._test>", line 23>                                                tablecode    
+#   f_globals            {'app': <app package app at 1668>, 'shared': <app package shared at 1669>, 'initialize_test': <function initialize_te...     dict         
+#   f_lasti              0                                                                                                                            int          
+#   f_lineno             27                                                                                                                           int          
+#   f_locals             <'dict'> of 3 elements                                                                                                                    
+#                            steps : 2 
+#                                x : 28
+#                                y : 1 
+#   f_trace              None                                                                                                                         NoneType     
+
 # >>> tracer.interdict()
-# >>> tracer.current_context
-# <Snapshot [ |   3:  Line]   25 of <module:shared.tools.debug._test> at bar>
-# >>> len(tracer.context_buffer)
-# 1
-# >>> tracer._pending_commands.append('s')
-# >>> len(tracer.context_buffer)
-# 2
-# >>> tracer.current_context
-# <Snapshot [ |   3:  Line]   26 of <module:shared.tools.debug._test> at bar>
-# >>> tracer._pending_commands.append('s')
-# >>> tracer.current_context
-# <Snapshot [ |   3:  Line]   27 of <module:shared.tools.debug._test> at bar>
-# >>> tracer._pending_commands.append('u')
-# >>> tracer.current_context
-# <Snapshot [ |   3:  Line]   25 of <module:shared.tools.debug._test> at bar>
-# >>> tracer.traps
-# set([])
-# >>> tracer.active_traps
-# set([<trap.Until object at 0x3c>])
+# >>> 
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer._command_step()
+# >>> tracer.shutdown()
+# >>> tracer.shutdown()

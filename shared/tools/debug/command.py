@@ -124,23 +124,31 @@ class PdbCommands(Commands):
 
 
 	def dispatch(self, frame, event, arg):
+		ret_val = super(PdbCommands, self).dispatch(frame, event, arg)
 		self.check_traps()
-		return super(PdbCommands, self).dispatch(frame, event, arg)
-
+		# do something with the traps, then return
+		return ret_val
 
 	def check_traps(self):
 		"""Check any traps, and mark them active if the context triggers it.
 
 		Any transient traps are removed when placed on the active set.
-		"""
+		"""		
 		self.active_traps = set()
 		for trap in frozenset(self.traps):
 			if trap.check(self.current_context):
+				
+				system.util.getLogger('FAILTRACE').info('TRIP: %r on %r' % (trap, self.current_context,))
+				
 				if isinstance(trap, TransientTrap):
 					self.active_traps.add(trap)
 					self.traps.remove(trap)
 				else:
 					self.active_traps.add(trap)
+					
+		if not self.active_traps:
+			system.util.getLogger('FAILTRACE').info('No active traps on %r' % (self.current_context,))
+		
 
 
 	def command(self, command):
@@ -196,7 +204,7 @@ class PdbCommands(Commands):
 
 	# Breakpoint controls
 
-	def _command_clear(self, command, *breakpoints):
+	def _command_clear(self, command='clear', *breakpoints):
 		"""Clear breakpoint(s).
 
 		Breakpoints can be by ID, location, or instance.
@@ -220,26 +228,28 @@ class PdbCommands(Commands):
 
 	_command_cl = _command_clear
 
-	def _command_enable(self, command, *breakpoints):
+	def _command_enable(self, command='enable', *breakpoints):
 		"""Enable the breakpoints"""
 		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
 
 		for breakpoint in breakpoints:
 			breakpoint.enable(self)
 
-	def _command_disable(self, command, *breakpoints):
+	def _command_disable(self, command='disable', *breakpoints):
 		"""Disable the breakpoints"""
 		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
 
 		for breakpoint in breakpoints:
 			breakpoint.disable(self)
 
-	def _command_ignore(self, command, breakpoint, num_passes=0):
+	def _command_ignore(self, command='ignore', breakpoint=None, num_passes=0):
 		"""Run past breakpoint num_passes times. 
 		Once count goes to zero the breakpoint activates."""
+		if breakpoint is None:
+			return
 		breakpoint.ignore(self, num_passes)
 
-	def _command_break(self, command, stop_location='', stop_condition=lambda:True):
+	def _command_break(self, command='break', stop_location='', stop_condition=lambda:True):
 		"""Create a breakpoint at the given location.
 		
 		The stop_location can be
@@ -259,15 +269,17 @@ class PdbCommands(Commands):
 		"""
 		raise NotImplementedError
 
-	def _command_tbreak(self, command, stop_location='', stop_condition=lambda:True):
+	def _command_tbreak(self, command='tbreak', stop_location='', stop_condition=lambda:True):
 		"""Create a temporary breakpoint at the given location. Same usage otherwise as break."""
 		raise NotImplementedError
 
-	def _command_condition(self, command, breakpoint, condition):
+	def _command_condition(self, command='condition', breakpoint=None, condition=None):
 		"""Stop on breakpoint if condition is True"""
+		if condition is None:
+			raise RuntimeError("Condition is required for conditional breakpoints.")
 		raise NotImplementedError
 
-	def _command_commands(self, command, breakpoint):
+	def _command_commands(self, command='commands', breakpoint=None):
 		"""Run commands when breakpoint is reached. 
 		Commands entered will be assigned to this breakpoint until 'end' is seen.
 
@@ -278,16 +290,18 @@ class PdbCommands(Commands):
 
 		Entering 'silent' will run the breakpoint commands but not stop.
 		"""
+		if breakpoint is None:
+			raise RuntimeError("In order for commands to be run on a breakpoint, a breakpoint is needed.")
 		raise NotImplementedError
 
 	# Execution control
 
-	def _command_step(self, command):
+	def _command_step(self, command='step'):
 		"""Step into the next function in the current line (or to the next line, if done)."""
 		self.traps.add(Step())
 	_command_s = _command_step
 
-	def _command_next(self, command):
+	def _command_next(self, command='next'):
 		"""Continue to the next line (or return statement). 
 		Note step 'steps into a line' (possibly making the call stack deeper)
 		  while next goes to the 'next line in this frame'. 
@@ -295,34 +309,36 @@ class PdbCommands(Commands):
 		self.traps.add(Next(self.current_context))
 	_command_n = _command_next
 
-	def _command_until(self, command, target_line=0):
+	def _command_until(self, command='until', target_line=0):
 		"""Continue until a higher line number is reached, or optionally target_line."""
 		self.traps.add(Until(self.current_context))
 	_command_u = _command_until
 
-	def _command_return(self, command):
+	def _command_return(self, command='return'):
 		"""Continue until the current frame returns."""
 		self.traps.add(Return(self.current_context))
 	_command_r = _command_return
 
-	def _command_continue(self, command):
+	def _command_continue(self, command='continue'):
 		"""Resume execution until a breakpoint is reached. Clears all traps."""
 		self.traps = set()
 	_command_c = _command_cont = _command_continue
 
-	def _command_jump(self, command, target_line):
+	def _command_jump(self, command='jump', target_line=0):
 		"""Set the next line to be executed. Only possible in the bottom frame.
 		
 		Use this to re-run code or skip code in the current frame.
 		NOTE: You can note jump into the middle of a for loop or out of a finally clause.
 		"""
+		if target_line == 0:
+			raise RuntimeError('Jump lines are in the active frame only, and must be within range')
 		raise NotImplementedError
 	_command_j = _command_jump
 
 
 	# Info commands
 
-	def _command_list(self, command, first=0, last=0):
+	def _command_list(self, command='list', first=0, last=0):
 		"""List the source code for the current file, +/- 5 lines.
 		Given just first, show code +/- 5 lines around first.
 		Given first and last show code between the two given line numbers.
@@ -352,20 +368,24 @@ class PdbCommands(Commands):
 
 	_command_l = _command_list
 
-	def _command_args(self, command):
+	def _command_args(self, command='args'):
 		"""Show the argument list to this function."""
 		raise NotImplementedError
 	_command_a = _command_args
 
-	def _command_p(self, command, expression):
+	def _command_p(self, command='p', expression=''):
 		"""Print the expression."""
+		if expression == '':
+			return
 		raise NotImplementedError
 
-	def _command_pp(self, command, expression):
+	def _command_pp(self, command='pp', expression=''):
 		"""Print the expression via pretty printing. This is actually how p works, too."""
+		if expression == '':
+			return
 		raise NotImplementedError
 
-	def _command_alias(self, command, name='', command_string=''):
+	def _command_alias(self, command='alias', name='', command_string=''):
 		"""Create an alias called name that executes command. 
 		If no command, then show what alias is. If no name, then show all aliases.
 
@@ -375,8 +395,10 @@ class PdbCommands(Commands):
 		"""
 		raise NotImplementedError
 
-	def _command_unalias(self, command, name):
+	def _command_unalias(self, command='unalias', name=''):
 		"""Delete the specified alias."""
+		if not name:
+			raise RuntimeError("Unalias must have a name to, well, un-alias.")
 		raise NotImplementedError
 
 	def _command_statement(self, raw_command, *tokens):
