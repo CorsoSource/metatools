@@ -3,9 +3,14 @@ from shared.tools.debug.frame import iter_frames
 from shared.tools.debug.codecache import CodeCache, trace_entry_line
 from shared.tools.debug.breakpoint import Breakpoint
 from shared.tools.debug.event import EventDispatch
+from shared.tools.debug.snapshot import Snapshot
+
+from shared.tools.debug.trap import TransientTrap, Step, Next, Until, Return
 
 from ast import literal_eval
 from time import sleep
+from collections import deque 
+
 
 
 
@@ -14,12 +19,13 @@ class Commands(EventDispatch):
 	__slots__ = ('_cursor_index', '_cursor_stack',
 				 '_pending_commands', 
 				 '_map_o_commands',
+				 '_current_context', 'recording', 'context_buffer',
 				 )
 
 	_UPDATE_CHECK_DELAY = 0.01
 
 
-	def __init__(self, *args, **kwargs):
+	def __init__(self, record=False, *args, **kwargs):
 
 		super(Commands, self).__init__(*args, **kwargs)
 
@@ -33,10 +39,17 @@ class Commands(EventDispatch):
 		self._cursor_index = 0
 		self._cursor_stack = tuple()
 
+		self.recording = record
+		self.context_buffer = deque()
+		self._current_context = None
+
 
 	# Dispatch
 	def dispatch(self, frame, event, arg):
 		self._cursor_stack = tuple(iter_frames(frame))
+		self._current_context = Snapshot(frame, event, arg, clone=self.recording)
+		self._add_context(self.current_context)
+
 		return super(Commands, self).dispatch(frame, event, arg)
 
 
@@ -54,6 +67,18 @@ class Commands(EventDispatch):
 	@property
 	def cursor_globals(self):
 		return self.cursor_frame.f_globals
+	@property
+	def current_context(self):
+		return self._current_context
+
+
+	# Reference controls
+
+	def _add_context(self, context):
+		if self.recording:
+			self.context_buffer.append(context)
+		while len(self.context_buffer) > self.CONTEXT_BUFFER_LIMIT:
+			_ = self.context_buffer.popleft()
 
 
 	# Interaction
@@ -88,11 +113,34 @@ class PdbCommands(Commands):
 	"""
 
 	__slots__ = ('_alias_commands', 
+				 'traps', 'active_traps', 
 				 )
 
 	def __init__(self, *args, **kwargs):
 		super(PdbCommands, self).__init__(*args, **kwargs)
 		self._alias_commands = {}
+		self.traps = set()
+		self.active_traps = set()
+
+
+	def dispatch(self, frame, event, arg):
+		self.check_traps()
+		return super(PdbCommands, self).dispatch(frame, event, arg)
+
+
+	def check_traps(self):
+		"""Check any traps, and mark them active if the context triggers it.
+
+		Any transient traps are removed when placed on the active set.
+		"""
+		self.active_traps = set()
+		for trap in frozenset(self.traps):
+			if trap.check(self.current_context):
+				if isinstance(trap, TransientTrap):
+					self.active_traps.add(trap)
+					self.traps.remove(trap)
+				else:
+					self.active_traps.add(trap)
 
 
 	def command(self, command):
@@ -236,7 +284,7 @@ class PdbCommands(Commands):
 
 	def _command_step(self, command):
 		"""Step into the next function in the current line (or to the next line, if done)."""
-		raise NotImplementedError
+		self.traps.add(Step())
 	_command_s = _command_step
 
 	def _command_next(self, command):
@@ -244,22 +292,22 @@ class PdbCommands(Commands):
 		Note step 'steps into a line' (possibly making the call stack deeper)
 		  while next goes to the 'next line in this frame'. 
 		"""
-		raise NotImplementedError
+		self.traps.add(Next(self.current_context))
 	_command_n = _command_next
 
 	def _command_until(self, command, target_line=0):
 		"""Continue until a higher line number is reached, or optionally target_line."""
-		raise NotImplementedError
+		self.traps.add(Until(self.current_context))
 	_command_u = _command_until
 
 	def _command_return(self, command):
 		"""Continue until the current frame returns."""
-		raise NotImplementedError
+		self.traps.add(Return(self.current_context))
 	_command_r = _command_return
 
 	def _command_continue(self, command):
-		"""Resume execution until a breakpoint is reached."""
-		raise NotImplementedError
+		"""Resume execution until a breakpoint is reached. Clears all traps."""
+		self.traps = set()
 	_command_c = _command_cont = _command_continue
 
 	def _command_jump(self, command, target_line):

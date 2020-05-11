@@ -17,13 +17,11 @@ class Breakpoint(object):
 	_id_counter = 0
 
 	_instances = {}
-	_break_locations = {}
+	_break_locations = {(None, None): set()}
 
 
-	def __init__(self, filename, location, 
+	def __init__(self, filename=None, location=None, 
 				 temporary=False, condition=None, note=''):
-
-		self.note = note
 
 		self._filename = filename
 		try:
@@ -33,6 +31,15 @@ class Breakpoint(object):
 		except ValueError:
 			self._line_number = None
 			self._function_name = location
+
+		# A purely contextless breakpoint should not be abided for long.
+		# (since it'll stop. on. every. single. line.)
+		if not temporary and not any(filename, location, condition):
+			temporary = True
+			if not note:
+				note = 'Contextless breaking ONCE at NEXT opportunity'
+
+		self.note = note
 
 		self.temporary = temporary # this is a bit jank if more than one debugger scans it
 		self.condition = condition
@@ -112,10 +119,14 @@ class Breakpoint(object):
 
 	def trip(self, frame):
 		"""Determine if the breakpoint should trip given the frame context."""
-		
+	
 		# Breakpoint set by line
 		if not self.function_name:
-			return self.line_number == frame.f_lineno
+			# always trip on contextless breakpoints
+			if not any(self.line_number, self.filename):
+				return True
+			else:
+				return self.line_number == frame.f_lineno
 
 		# Fail if the function name's wrong
 		if self.function_name != frame.f_code.co_name:
@@ -164,19 +175,23 @@ class Breakpoint(object):
 	def relevant_breakpoints(cls, frame, interested_party=None):
 		relevant = set()
 
-		possible = ( cls._break_locations.get(cls.frame_location_by_line(frame), [])
-			       + cls._break_locations.get(cls.frame_location_by_function(frame), []) )
+		possible = set( cls._break_locations[(None,None)]
+					  | cls._break_locations.get(cls.frame_location_by_line(frame), set())
+			          | cls._break_locations.get(cls.frame_location_by_function(frame), set()) )
 
 		# Check candidate locations
 		for breakpoint in possible:
+
+			# Check if it's enabled for them (default no)
 			if not breakpoint.enabled[interested_party]:
 				continue
 
+			# Check if the breakpoints trips for this context (always true for (None,None))
 			if not breakpoint.trip(frame):
 				continue
 
 			# Count each pass over the breakpoint while it's enabled
-			#   Note 
+			#   Note that this is not filtered - it counts all executions
 			breakpoint.hits += 1
 
 			if not breakpoint.condition:
@@ -186,7 +201,7 @@ class Breakpoint(object):
 				if breakpoint.ignored[interested_party] > 0:
 					breakpoint.ignored[interested_party] -= 1
 					continue
-				# ... otherwise add it
+				# ... otherwise pass it in
 				else:
 					relevant.add(breakpoint)
 					if breakpoint.temporary:
@@ -196,21 +211,26 @@ class Breakpoint(object):
 			else:
 				# Attempt to evaluate the condition
 				try:
-					# eval is evil, but we're in debug, so all bets are off
+					# Sure, eval is evil... but we're in debug so all bets are off
+					# Note that this is like PDB: it expects a string or compiled code here.
+					#   A function will need to be either in scope or compiled beforehand!
 					result = eval(breakpoint.condition, 
 								  frame.f_globals,
 								  frame.f_locals)
 					if result:
+						# If interested_party chose to ignore the breakpoint,
+						#   decrement the counter and pass on...
 						if breakpoint.ignored[interested_party] > 0:
 							breakpoint.ignored[interested_party] -= 1
 							continue
+						# ... otherwise pass it in
 						else:
 							relevant.add(breakpoint)
 							if breakpoint.temporary:
 								breakpoint._remove()
 							continue							
 				# If the condition fails to eval, then break just to be safe
-				#   but don't modify the ignore settings, also to be safe.
+				#   but don't modify the ignore settings, also to be safe. (PDB compliance)
 				except:
 					relevant.add(breakpoint)
 					continue

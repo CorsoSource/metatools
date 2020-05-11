@@ -1,11 +1,9 @@
 from weakref import WeakValueDictionary
-from collections import deque 
 from time import sleep
 
 from shared.tools.thread import getThreadState, Thread
 
 from shared.tools.debug.command import PdbCommands
-from shared.tools.debug.snapshot import Snapshot
 from shared.tools.debug.hijack import SysHijack
 from shared.tools.debug.frame import iter_frames
 from shared.tools.debug.breakpoint import Breakpoint
@@ -26,7 +24,6 @@ class Tracer(PdbCommands):
 	__slots__ = ('thread', 'sys', 'tracer_thread',
 				 'interdicting',
 				 
-				 'recording', 'context_buffer',
 
 				 '_top_frame',
 
@@ -35,7 +32,7 @@ class Tracer(PdbCommands):
 
 	CONTEXT_BUFFER_LIMIT = 1000
 	
-	INTERDICTION_FAILSAFE = True
+	INTERDICTION_FAILSAFE = False # True
 	INTERDICTION_FAILSAFE_TIMEOUT = 30000 # milliseconds (seconds if failsafe disabled)
 	
 	_active_tracers = WeakValueDictionary()
@@ -48,7 +45,7 @@ class Tracer(PdbCommands):
 	def _nop(_0=None, _1=None,_2=None):
 		pass		
 			
-	def __init__(self, thread=None, record=False, *args, **kwargs):
+	def __init__(self, thread=None, *args, **kwargs):
 		
 		super(Tracer, self).__init__(*args, **kwargs)
 
@@ -59,9 +56,7 @@ class Tracer(PdbCommands):
 		
 		self.sys = SysHijack(thread)
 
-		self.interdicting = False
-		self.context_buffer = deque()
-		self.recording = record
+		self.interdicting = False		
  
 		self._top_frame = None
 
@@ -91,9 +86,7 @@ class Tracer(PdbCommands):
 		and then set the trace machinery in motion.
 		"""
 		frame = self.sys._getframe()
-		
-		self.debug['on_install'] = Snapshot(frame, 'install', 'init', tuple())
-		
+				
 		while frame:
 			frame.f_trace = self.dispatch
 			# track the furthest up the stack goes
@@ -149,14 +142,6 @@ class Tracer(PdbCommands):
 		f = super(Tracer, self).cursor_frame
 		return f if f else self.sys._getframe()
 
-	# Reference controls
-
-	def _add_context(self, context):
-		if self.recording:
-			self.context_buffer.append(context)
-		while len(self.context_buffer) > self.CONTEXT_BUFFER_LIMIT:
-			_ = self.context_buffer.popleft()
-		
 
 	# Interception detection
 
@@ -168,24 +153,17 @@ class Tracer(PdbCommands):
 
 
 	def _interdict_context(self, frame, event, arg):
-		"""Do the actual interdiction checks against the context."""
-		context = Snapshot(frame, event, arg, clone=self.recording)
-		self._add_context(context)
-		
+		"""Do the actual interdiction checks against the context."""		
 		if self.interdicting:
 			return True # if already interdicting, continue
 
-		if any(self.active_traps(context)):
+		if self.active_traps:
 			return True
 
 		if Breakpoint.relevant_breakpoints(frame, self):
 			return True
 
 		return False 
-
-
-	def active_traps(self, context):
-		raise NotImplementedError
 
 
 	# Dispatch
@@ -228,7 +206,13 @@ class Tracer(PdbCommands):
 
 
 
+	# Command overrides
 
+	def _command_continue(self, command):
+		"""Resume execution until a breakpoint is reached. Clears all traps."""
+		super(Tracer, self)._command_continue(command)
+		self.interdicting = False
+	_command_c = _command_cont = _command_continue
 
 
 

@@ -1,13 +1,18 @@
 from copy import deepcopy
 
+from shared.tools.debug.frame import iter_frames
+
 
 class Snapshot(object):
 	
 	__slots__ = ('_event', '_arg', '_frame',
-				 '_filename', '_line', '_caller', 
+				 '_filename', '_line', '_caller', '_depth',
 				 '_locals_key', '_locals_dup', '_locals_ref', '_locals_err', 
 				 '_cloned')
 	
+	_repr_markers = {'line': '|',  'call': '+',   'return': '/',   'exception': 'X',
+							     'c_call': '+', 'c_return': '/', 'c_exception': 'X'}
+
 	def __init__(self, frame, event, arg, clone=True):
 		
 
@@ -18,6 +23,7 @@ class Snapshot(object):
 		self._filename = frame.f_code.co_filename
 		self._line     = frame.f_lineno
 		self._caller   = frame.f_code.co_name
+		self._depth    = len(list(iter_frames(frame)))
 
 		local_key = set()
 		local_dup = {}
@@ -60,17 +66,26 @@ class Snapshot(object):
 	@property
 	def caller(self):
 		return self._caller
+	@property
+	def depth(self):
+		return self._depth
+	
 
 	@property
 	def cloned(self):
 		return self._cloned
 	@property
 	def local(self):
-		return dict(self._local_ref.items() + self._local_dup.items())
+		return dict(self._locals_ref.items() + self._locals_dup.items())
 	@property
 	def local_uncloned(self):
 		return self._locals_err.keys()
-	
+
+	def back_context(self, arg=None, clone=False):
+		if self._frame.f_back:
+			return Snapshot(self._frame.f_back, 'backtrace', arg, clone)
+		else:
+			return None
 
 	def __getitem__(self, key):
 		"""Get var from frame. Note that this has various guarantees depending on setup.
@@ -95,3 +110,9 @@ class Snapshot(object):
 		props = 'event arg frame filename line caller local'.split()
 		return dict((prop,getattr(self,prop)) for prop in props)
 
+
+	def __repr__(self):
+		tree_marker = [' ']*4
+		tree_marker[len(tree_marker) % (self.depth)] = self._repr_markers[self.event]
+		return '<Snapshot [%s%2d:%6s] %4d of %s at %s>' % (''.join(tree_marker),
+			self.depth, self.event.capitalize()[:6], self.line, self.filename, self.caller)
