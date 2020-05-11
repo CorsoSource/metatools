@@ -57,13 +57,13 @@ class Tracer(PdbCommands):
 		self.sys = SysHijack(thread)
 
 		self.interdicting = False		
- 
+
 		self._top_frame = None
 
 		self._debug = {}
 		
 		#start the machinery so we can inject directly
-		self.sys.settrace(self._nop)
+		self.sys.settrace(Tracer.dispatch)
 		
 		self._active_tracers[thread] = self
 		self._FAILSAFE_TIMEOUT = datetime.now()
@@ -86,22 +86,22 @@ class Tracer(PdbCommands):
 		and then set the trace machinery in motion.
 		"""
 		frame = self.sys._getframe()
-				
 		while frame:
 			frame.f_trace = self.dispatch
 			# track the furthest up the stack goes
 			self._top_frame = frame
 			frame = frame.f_back
-		# self.sys.settrace(self.dispatch)
+		self.sys.settrace(self.dispatch)
 
 	def _stack_uninstall(self):
 		"""Turn off trace and remove the trace dispatcher from every level 
 		in the stack.
 		"""
-		self.sys.settrace(None)
+		if len(self._active_tracers) == 1:
+			self.sys.settrace(None)
 		frame = self.sys._getframe()
 		while frame:
-			if frame.f_trace is self.dispatch:
+			if frame.f_trace:
 				del frame.f_trace
 			frame = frame.f_back
 
@@ -167,16 +167,38 @@ class Tracer(PdbCommands):
 
 
 	# Dispatch
+	
+	@classmethod
+	def dispatch(cls, frame, event, arg):
+		current_thread = Thread.currentThread()
+		tracer = cls._active_tracers.get(Thread.currentThread(), None)
+		
+		# Only dispatch if needed/safe
+		if tracer and tracer.tracer_thread is not current_thread:
+			system.util.getLogger('FAILTRACE').info('Tracer in target thread for %s' % event); sleep(0.01)
+			tracer._instance_dispatch(frame, event, arg)
+			if not frame.f_trace:
+				frame.f_trace = cls.dispatch
+			return cls.dispatch
+		else:
+			system.util.getLogger('FAILTRACE').info('Tracer in calling thread for %s' % event); sleep(0.01)
+			
+			if frame.f_trace:
+				system.util.getLogger('FAILTRACE').info('Tracer clearing f_trace'); sleep(0.01)
+				del frame.f_trace
+			return None
+		
 
-	def dispatch(self, frame, event, arg):
+	def _instance_dispatch(self, frame, event, arg):
+		sleep(0.01) # DEBUG
+	
 		# Dispatch and continue as normal
 		dispatch_retval = super(Tracer, self).dispatch(frame, event, arg)
-
+	
 		# Check if execution should be interdicted for debugging
 		if self.interdict_context(frame, event, arg):
 			self.command_loop()
-		
-		return dispatch_retval
+
 
 	# Interaction
 
@@ -198,7 +220,7 @@ class Tracer(PdbCommands):
 				sleep(self._UPDATE_CHECK_DELAY)
 				if self.INTERDICTION_FAILSAFE and self._FAILSAFE_TIMEOUT < datetime.now():
 					self.interdicting = False
-					system.util.getLogger('TRACER').warn('Interaction pause timeed out!')
+					system.util.getLogger('TRACER').warn('Interaction pause timed out!')
 		
 			while self._pending_commands and self.interdicting:
 				#system.util.getLogger('Debug Command').info('Command: %s' % self.command)
@@ -208,12 +230,38 @@ class Tracer(PdbCommands):
 
 	# Command overrides
 
+	def _command_step(self, command):
+		"""Step into the next function in the current line (or to the next line, if done)."""
+		super(Tracer, self)._command_step(command)
+		self.interdicting = False
+	_command_s = _command_step
+
+	def _command_next(self, command):
+		"""Continue to the next line (or return statement). 
+		Note step 'steps into a line' (possibly making the call stack deeper)
+		  while next goes to the 'next line in this frame'. 
+		"""
+		super(Tracer, self)._command_next(command)
+		self.interdicting = False
+	_command_n = _command_next
+
+	def _command_until(self, command, target_line=0):
+		"""Continue until a higher line number is reached, or optionally target_line."""
+		super(Tracer, self)._command_until(command)
+		self.interdicting = False
+	_command_u = _command_until
+
+	def _command_return(self, command):
+		"""Continue until the current frame returns."""
+		super(Tracer, self)._command_return(command)
+		self.interdicting = False
+	_command_r = _command_return
+
 	def _command_continue(self, command):
 		"""Resume execution until a breakpoint is reached. Clears all traps."""
 		super(Tracer, self)._command_continue(command)
 		self.interdicting = False
 	_command_c = _command_cont = _command_continue
-
 
 
 
