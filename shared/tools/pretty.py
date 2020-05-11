@@ -325,9 +325,12 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		try:
 			colEleWidths = [max([len(repr(r)) for r in row] + [1]) for row in zip(*o)]
 		except:
+			pass
+		
+		if not colEleWidths:
 			colEleWidths = [max([len(repr(element) 
-			                       if not isinstance(element, PRETTY_PRINT_TYPES) 
-			                       else '1') 
+			                         if not isinstance(element, PRETTY_PRINT_TYPES) 
+			                         else '1')
 			                     for element in o] + [1])]
 		
 		# element printing
