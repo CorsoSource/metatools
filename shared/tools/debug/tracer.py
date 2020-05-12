@@ -3,19 +3,24 @@ from time import sleep
 
 from shared.tools.thread import getThreadState, Thread
 
-from shared.tools.debug.command import PdbCommands
 from shared.tools.debug.hijack import SysHijack
 from shared.tools.debug.frame import iter_frames
 from shared.tools.debug.breakpoint import Breakpoint
 
+from shared.tools.debug.codecache import CodeCache, trace_entry_line
 from shared.tools.debug.snapshot import Snapshot
 
+from shared.tools.debug.trap import TransientTrap, Step, Next, Until, Return
+
+from ast import literal_eval
+from time import sleep
+from collections import deque 
 from datetime import datetime, timedelta
 
 from shared.tools.pretty import p,pdir
 
 
-class Tracer(PdbCommands):
+class Tracer(object):
 	"""A variant of the Python Debugger (Pdb)
 	
 	This is designed to overcome and take advantage of the different
@@ -25,19 +30,38 @@ class Tracer(PdbCommands):
 	For more information and the cool implementation that we're tweaking here,
 	  see also rpdb at https://github.com/tamentis/rpdb
 	"""
-	__slots__ = ('thread', 'sys', 'tracer_thread',
-				 'interdicting',
-				 
+	__slots__ = (
+				 # Event attributes
+				 '_map_for_dispatch', 
+				 'monitoring',
 
+				 # Command attributes
+
+				 '_cursor_index', '_cursor_stack',
+				 '_pending_commands', 
+				 '_map_o_commands',
+				 '_current_context', 'recording', 'context_buffer',
+				 
+				 '_alias_commands', 
+				 'traps', 'active_traps', 
+				 
+				 # Tracer attributes
+				 'thread', 'sys', 'tracer_thread',
+				 'interdicting',
 				 '_top_frame',
 
+				 'step_speed',
 				 '_FAILSAFE_TIMEOUT', '_debug', # DeprecationWarning
+				 'logger',
 				)
 
 	CONTEXT_BUFFER_LIMIT = 1000
-	
+	_UPDATE_CHECK_DELAY = 0.01
 	INTERDICTION_FAILSAFE = False # True
 	INTERDICTION_FAILSAFE_TIMEOUT = 30000 # milliseconds (seconds if failsafe disabled)
+
+	# Set to true to have any active traces using this class to purge themselves (on next call)
+	SCRAM_SIGNAL = False
 	
 	_active_tracers = WeakValueDictionary()
 	
@@ -50,27 +74,46 @@ class Tracer(PdbCommands):
 		
 		])
 	
-	@staticmethod
-	def _nop(frame=None, event=None, arg=None):
-		if Tracer.skip_frame(frame):
-			return None
-		#system.util.getLogger('FAIL').info('%r %r %r' % (p(frame, directPrint=False), event, arg))
-		#sleep(0.1)
-		return Tracer._nop
-	
-	@classmethod
-	def skip_frame(cls, frame):
-		return frame.f_globals.get('__name__') in cls.SKIP_NAMESPACES
-	
-	
+
 	def __init__(self, thread=None, *args, **kwargs):
+
+		self.logger = system.util.getLogger('Tracer')
+	
+		# Event init
 		
-		super(Tracer, self).__init__(*args, **kwargs)
+		self.monitoring = False
+
+		self._map_for_dispatch = dict(
+			(attribute[10:], getattr(self, attribute))
+			for attribute in dir(self)
+			if attribute.startswith('_dispatch_'))
+
+		# Command init
+
+		self._map_o_commands = dict(
+			(attribute[9:], getattr(self, attribute))
+			for attribute in dir(self)
+			if attribute.startswith('_command_'))
+		
+		self._pending_commands = []
+
+		self._cursor_index = 0
+		self._cursor_stack = tuple()
+
+		self.recording = record
+		self.context_buffer = deque()
+		self._current_context = None
+
+		self._alias_commands = {}
+		self.traps = set()
+		self.active_traps = set()
+
+		# Tracer init
 
 		self.tracer_thread = Thread.currentThread()
 		self.thread = thread
 		
-		print "Tracing from %r onto %r" % (self.tracer_thread, self.thread)
+		self.logger.info("Tracing from %r onto %r" % (self.tracer_thread, self.thread))
 		
 		self.sys = SysHijack(thread)
 
@@ -87,8 +130,44 @@ class Tracer(PdbCommands):
 		self._active_tracers[thread] = self
 		self._FAILSAFE_TIMEOUT = datetime.now()
 
+		self.step_speed = 0
 
+
+	@classmethod
+	def _scram(cls, base_frame):
+		# Clear out any active traces running
+		for frame in iter_frames(base_frame):
+			if frame.f_trace:
+				del frame.f_trace
+		
+		# Attempt to ask all the active tracers to gracefully unwind
+		for tracer in cls._active_tracers.values():
+			try:
+				tracer.shutdown()
+			except:
+				pass
+
+	@classmethod
+	def _nop(cls, frame=None, event=None, arg=None):
+		if cls.SCRAM_SIGNAL:
+			cls._scram(frame)
+			return None
+			
+		if cls.skip_frame(frame):
+			return None
+		#self.logger.info('%r %r %r' % (p(frame, directPrint=False), event, arg))
+		#sleep(0.1)
+		return cls._nop
+	
+	@classmethod
+	def skip_frame(cls, frame):
+		return frame.f_globals.get('__name__') in cls.SKIP_NAMESPACES
+
+
+	#--------------------------------------------------------------------------
 	# Context control - start and stop active tracing
+	#--------------------------------------------------------------------------
+
 
 	def __enter__(self):
 		self.monitor()
@@ -98,7 +177,9 @@ class Tracer(PdbCommands):
 		self.shutdown()
 
 
-	# Install and Uninstall self from the call stack
+	#--------------------------------------------------------------------------
+	# Un/Install to the call stack
+	#--------------------------------------------------------------------------
 
 	def _stack_install(self):
 		"""Install the trace dispatcher to every level of the stack 
@@ -110,14 +191,20 @@ class Tracer(PdbCommands):
 			# track the furthest up the stack goes
 			self._top_frame = frame
 			frame = frame.f_back
+		
+		# Trace is already initialized by this point, and setting
+		#  the frame's trace ensures dispatch will trigger on the
+		#  next line. That dispatch will call sys.settrace as well,
+		#  but strictly from within the target thread.
 		#self.sys.settrace(self.dispatch)
+
 
 	def _stack_uninstall(self):
 		"""Turn off trace and remove the trace dispatcher from every level 
 		in the stack.
 		"""
-		if len(self._active_tracers) == 1:
-			self.sys.settrace(None)
+		self.sys.settrace(None)
+		
 		frame = self.sys._getframe()
 		while frame:
 			if frame.f_trace:
@@ -125,7 +212,9 @@ class Tracer(PdbCommands):
 			frame = frame.f_back
 
 
+	#--------------------------------------------------------------------------
 	# Run state status controls
+	#--------------------------------------------------------------------------
 
 	def monitor(self):
 		"""Begin trace, watching each frame event."""
@@ -149,7 +238,10 @@ class Tracer(PdbCommands):
 		except:
 			raise RuntimeError('Tracer shutdown gracelessly - traced thread is likely already dead and cleanup thus failed.')
 
+
+	#==========================================================================
 	# Convenience properties
+	#==========================================================================
 	
 	@property
 	def debug(self):
@@ -158,16 +250,30 @@ class Tracer(PdbCommands):
 	@property 
 	def cursor_frame(self):
 		# Override to fail safe to local context (if we're not actively monitoring...)
-		f = super(Tracer, self).cursor_frame
-		return f if f else self.sys._getframe()
+		if self._cursor_index < len(self._cursor_stack):
+			return self._cursor_stack[self._cursor_index]
+		else:
+			return self.sys._getframe()
+	@property 
+	def cursor_locals(self):
+		return self.cursor_frame.f_locals
+	@property
+	def cursor_globals(self):
+		return self.cursor_frame.f_globals
+
+	@property
+	def current_context(self):
+		return self._current_context
 
 	@property
 	def context_traceback(self):
 		return [repr(context) for i, context in enumerate(self.context_buffer) 
 				if (len(self.context_buffer) - 20) < i < len(self.context_buffer)]
-			
 
-	# Interception detection
+
+	#==========================================================================
+	# Interdiction Triggers
+	#==========================================================================
 
 	def interdict_context(self, frame, event, arg):
 		"""Determine if execution should be stopped."""
@@ -190,35 +296,150 @@ class Tracer(PdbCommands):
 		return False 
 
 
+	def check_traps(self):
+		"""Check any traps, and mark them active if the context triggers it.
+
+		Any transient traps are removed when placed on the active set.
+		"""		
+		self.active_traps = set()
+		for trap in frozenset(self.traps):
+			if trap.check(self.current_context):
+				
+				#self.logger.info('TRIP: %r on %r' % (trap, self.current_context,))
+				
+				if isinstance(trap, TransientTrap):
+					self.active_traps.add(trap)
+					self.traps.remove(trap)
+				else:
+					self.active_traps.add(trap)
+					
+		#if not self.active_traps:
+		#	self.logger.info('No active traps on %r' % (self.current_context,))
+
+
+	#==========================================================================
+	# Trace Events
+	#==========================================================================
+
+
+	#--------------------------------------------------------------------------
 	# Dispatch
+	#--------------------------------------------------------------------------
 	
 	def dispatch(self, frame, event, arg):
-		sleep(0.05) # DEBUG
-	
+		if self.SCRAM_SIGNAL:
+			self._scram(frame)
+			return None
+
+		if self.step_speed:
+			sleep(self.step_speed) # DEBUG
+		
+		self._cursor_stack = tuple(iter_frames(frame))
+		self._current_context = Snapshot(frame, event, arg, clone=self.recording)
+		
+		if self.recording:
+			self.context_buffer.append(self._current_context)
+		while len(self.context_buffer) > self.CONTEXT_BUFFER_LIMIT:
+			_ = self.context_buffer.popleft()
+
+		if not self.monitoring:
+			return
+
+		# From user code to overrides, this is the section that can go wrong.
+		# Blast shield this with a try/except
 		try:
 			# Dispatch and continue as normal
-			dispatch_retval = super(Tracer, self).dispatch(frame, event, arg)
-		
+			# Note that we don't really do anything with this...
+			#   The rest of the function determines how we reply to sys' trace
+			dispatch_retval = self._map_for_dispatch.get(event, self._nop)(frame, arg)
+			
+			self.check_traps()
+
 			# Check if execution should be interdicted for debugging
 			if self.interdict_context(frame, event, arg):
 				self.command_loop()
 				
 		except Exception, err:
-			system.util.getLogger('FAILTRACE').error('Dispatch Error: %r' % err)
+			self.logger.error('Dispatch Error: %r' % err)
 		
+
+		# Ensure trace continues in this context
 		if frame.f_trace is None:
 			frame.f_trace = self.dispatch
 		
+		# Ideally we'd use sys.gettrace but that ain't a thing in Jython 2.5
 		if self.monitoring and not Tracer.skip_frame(frame):
-			#self.sys.settrace(Tracer._nop)
 			self.sys.settrace(self.dispatch)
 		else:
 			self.shutdown()
-			
+		
+		# TRAMPOLINE GOOOOO
 		return self.dispatch
 		
 
+	#--------------------------------------------------------------------------
+	# Event Dispatch
+	#--------------------------------------------------------------------------
+
+	def _dispatch_call(self, frame, _=None):
+		self.on_call(frame)
+
+	def _dispatch_line(self, frame, _=None):
+		self.on_line(frame)
+
+	def _dispatch_return(self, frame, return_value):
+		self.on_return(frame, return_value)
+
+	def _dispatch_exception(self, frame, (exception, value, traceback)):
+		self.on_exception(frame, (exception, value, traceback))
+
+
+	# Jython shouldn't ever call these, so they're here for completeness/compliance
+	def _dispatch_c_call(self, frame, _=None):
+		pass
+	def _dispatch_c_return(self, frame, return_value):
+		pass
+	def _dispatch_c_exception(self, frame, (exception, value, traceback)):
+		pass
+
+
+	#--------------------------------------------------------------------------
+	# User overridable hooks
+	#--------------------------------------------------------------------------
+	
+	def on_call(self, frame):
+		pass
+	def on_line(self, frame):
+		pass
+	def on_return(self, frame, return_value):
+		pass
+	def on_exception(self, frame, (exception, value, traceback)):
+		pass
+
+
+	#==========================================================================
 	# Interaction
+	#==========================================================================
+
+
+	def command(self, command):
+		"""Interpret commands like PDB: '!' means execute, 
+		otherwise it's a command word followed by optional arguments.
+		"""
+		if not command:
+			return
+
+		if command.lstrip()[0] == '!':
+			self._command_statement(command)
+		else:
+			args = []
+			for arg in command.split():
+				try:
+					args.append(literal_eval(arg))
+				except ValueError:
+					args.append(arg)
+			self._map_o_commands.get(args[0], self._command_default)(command, *args[1:])
+
 
 	def command_loop(self):
 		"""Run commands until interdiction is disabled."""
@@ -236,50 +457,315 @@ class Tracer(PdbCommands):
 		while self.interdicting:
 			if not self._pending_commands:
 				sleep(self._UPDATE_CHECK_DELAY)
+
+				# Failsafe off ramp
 				if self.INTERDICTION_FAILSAFE and self._FAILSAFE_TIMEOUT < datetime.now():
 					self.interdicting = False
-					system.util.getLogger('TRACER').warn('Interaction pause timed out!')
+					self.logger.warn('Interaction pause timed out!')
 		
 			while self._pending_commands and self.interdicting:
-				#system.util.getLogger('Debug Command').info('Command: %s' % self.command)
+				#self.logger.info('Command: %s' % self.command)
 				self.command(self._pending_commands.pop())
 
+	
+	def _await_pause(self):
+		while not self._pending_commands:
+			sleep(self._UPDATE_CHECK_DELAY)
 
 
-	# Command overrides
+	#==========================================================================
+	# PDB Commands
+	#==========================================================================
+
+
+	#--------------------------------------------------------------------------
+	# Meta commands
+	#--------------------------------------------------------------------------
+
+
+	def _command_help(self):
+		"""Print available commands. If given a command print the command data."""
+		raise NotImplementedError
+	_command_h = _command_help
+
+
+	def _command_where(self):
+		"""Print a stack trace, with the most recent frame at the bottom, pointing to cursor frame."""
+		stack = [trace_entry_line(frame, indent= ('-> ' if index == self._cursor_index else '   ') )
+				 for index, frame
+				 in iter_frames(self.current_frame)]
+
+		return '\n'.join(reversed(stack))
+
+	_command_w = _command_where 
+
+
+	def _command_down(self):
+		"""Move the cursor to a more recent frame (down the stack)"""
+		if self._cursor_index:
+			self._cursor_index -= 1
+	_command_d = _command_down
+
+
+	def _command_up(self):
+		"""Move the cursor to an older frame (up the stack)"""
+		if self._cursor_index < (len(self._cursor_stack) - 1):
+			self._cursor_index += 1
+	_command_u = _command_up
+
+
+	#--------------------------------------------------------------------------
+	# Breakpoint controls
+	#--------------------------------------------------------------------------
+
+
+	def _command_clear(self, command='clear', *breakpoints):
+		"""Clear breakpoint(s).
+
+		Breakpoints can be by ID, location, or instance.
+
+		If none are provided, clear all after confirmation. (Pulled off _pending_commands)
+		"""
+		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
+
+		if not breakpoints:
+			print "Please confirm clearing all breakpoints (yes/no)"
+			self._await_pause()
+			command = self._pending_commands.pop()
+			if command.lower() in ('y','yes',):
+				breakpoints = Breakpoint._instances.values()
+			else:
+				print "Breakpoints were not cleared."
+				return
+
+		for breakpoint in breakpoints:
+			breakpoint._remove()
+
+	_command_cl = _command_clear
+
+
+	def _command_enable(self, command='enable', *breakpoints):
+		"""Enable the breakpoints"""
+		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
+
+		for breakpoint in breakpoints:
+			breakpoint.enable(self)
+
+
+	def _command_disable(self, command='disable', *breakpoints):
+		"""Disable the breakpoints"""
+		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
+
+		for breakpoint in breakpoints:
+			breakpoint.disable(self)
+
+
+	def _command_ignore(self, command='ignore', breakpoint=None, num_passes=0):
+		"""Run past breakpoint num_passes times. 
+		Once count goes to zero the breakpoint activates."""
+		if breakpoint is None:
+			return
+		breakpoint.ignore(self, num_passes)
+
+
+	def _command_break(self, command='break', stop_location='', stop_condition=lambda:True):
+		"""Create a breakpoint at the given location.
+		
+		The stop_location can be
+		 - a line in the current file
+		 - a function in the current file
+		 - a filename and line (i.e "shared.tools.debug:45")
+		 - a filename and a function (i.e. "shared.tools.meta:getFunctionSigs")
+
+		If a condition is provided, then the breakpoint will be ignored until true.
+
+		If no location or condition is provided, then list all breakpoints:
+		 - breakpoint location and ID
+		 - number of times hit
+		 - remaining ignore count
+		 - conditions, if any
+		 - is temporary
+		"""
+		raise NotImplementedError
+
+
+	def _command_tbreak(self, command='tbreak', stop_location='', stop_condition=lambda:True):
+		"""Create a temporary breakpoint at the given location. Same usage otherwise as break."""
+		raise NotImplementedError
+
+
+	def _command_condition(self, command='condition', breakpoint=None, condition=None):
+		"""Stop on breakpoint if condition is True"""
+		if condition is None:
+			raise RuntimeError("Condition is required for conditional breakpoints.")
+		raise NotImplementedError
+
+
+	def _command_commands(self, command='commands', breakpoint=None):
+		"""Run commands when breakpoint is reached. 
+		Commands entered will be assigned to this breakpoint until 'end' is seen.
+
+		To clear a breakpoint's commands, enter this mode and enter 'end' immediately.
+
+		Any command that resumes execution will prematurely end command list execution.
+		  (This is continue, step, next, return, jump, quit)
+
+		Entering 'silent' will run the breakpoint commands but not stop.
+		"""
+		if breakpoint is None:
+			raise RuntimeError("In order for commands to be run on a breakpoint, a breakpoint is needed.")
+		raise NotImplementedError
+
+
+	#--------------------------------------------------------------------------
+	# Execution control
+	#--------------------------------------------------------------------------
+
 
 	def _command_step(self, command='step'):
 		"""Step into the next function in the current line (or to the next line, if done)."""
-		super(Tracer, self)._command_step(command)
+		self.traps.add(Step())
 		self.interdicting = False
 	_command_s = _command_step
+
 
 	def _command_next(self, command='next'):
 		"""Continue to the next line (or return statement). 
 		Note step 'steps into a line' (possibly making the call stack deeper)
 		  while next goes to the 'next line in this frame'. 
 		"""
-		super(Tracer, self)._command_next(command)
+		self.traps.add(Next(self.current_context))
 		self.interdicting = False
 	_command_n = _command_next
 
+
 	def _command_until(self, command='until', target_line=0):
 		"""Continue until a higher line number is reached, or optionally target_line."""
-		super(Tracer, self)._command_until(command)
+		self.traps.add(Until(self.current_context))
 		self.interdicting = False
 	_command_u = _command_until
 
+
 	def _command_return(self, command='return'):
 		"""Continue until the current frame returns."""
-		super(Tracer, self)._command_return(command)
+		self.traps.add(Return(self.current_context))
 		self.interdicting = False
-	RETURN = _command_r = _command_return
+	_command_r = _command_return
+
 
 	def _command_continue(self, command='continue'):
 		"""Resume execution until a breakpoint is reached. Clears all traps."""
-		super(Tracer, self)._command_continue(command)
+		self.traps = set()
 		self.interdicting = False
 	_command_c = _command_cont = _command_continue
+
+
+	def _command_jump(self, command='jump', target_line=0):
+		"""Set the next line to be executed. Only possible in the bottom frame.
+		
+		Use this to re-run code or skip code in the current frame.
+		NOTE: You can note jump into the middle of a for loop or out of a finally clause.
+		"""
+		if target_line == 0:
+			raise RuntimeError('Jump lines are in the active frame only, and must be within range')
+		raise NotImplementedError
+	_command_j = _command_jump
+
+
+	#--------------------------------------------------------------------------
+	# Info commands
+	#--------------------------------------------------------------------------
+
+
+	def _command_list(self, command='list', first=0, last=0):
+		"""List the source code for the current file, +/- 5 lines.
+		Given just first, show code +/- 5 lines around first.
+		Given first and last show code between the two given line numbers.
+		If last is less than first it goes last lines past the first. 
+		"""
+		code = CodeCache.get_lines(self.current_frame)
+
+		if not last:
+			start = first - 5
+			end = first + 5
+		else:
+			if last < first:
+				start = first
+				end = first + last
+			else:
+				start = first
+				end = last
+		
+		# sanity check
+		if start < 0:
+			start = 0
+		if end >= len(code):
+			end = len(code) - 1
+
+		return code[start:end]
+	_command_l = _command_list
+
+
+	def _command_args(self, command='args'):
+		"""Show the argument list to this function."""
+		raise NotImplementedError
+	_command_a = _command_args
+
+
+	def _command_p(self, command='p', expression=''):
+		"""Print the expression."""
+		if expression == '':
+			return
+		raise NotImplementedError
+
+
+	def _command_pp(self, command='pp', expression=''):
+		"""Print the expression via pretty printing. This is actually how p works, too."""
+		if expression == '':
+			return
+		raise NotImplementedError
+
+
+	def _command_alias(self, command='alias', name='', command_string=''):
+		"""Create an alias called name that executes command. 
+		If no command, then show what alias is. If no name, then show all aliases.
+
+		NOTE: The command should not be in quotes.
+
+		Parameters can be indicated by %1, %2, and so on, while %* is replaced by all parameters.
+		"""
+		raise NotImplementedError
+
+
+	def _command_unalias(self, command='unalias', name=''):
+		"""Delete the specified alias."""
+		if not name:
+			raise RuntimeError("Unalias must have a name to, well, un-alias.")
+		raise NotImplementedError
+
+
+	def _command_statement(self, raw_command, *tokens):
+		"""Execute the (one-line) statement. 
+		Start the statement with '!' if it starts with a command.
+
+		To set a global variable, prefix the assignment command with `global`
+		  (IPDB) global list_options; list_options['-1']
+		"""
+		# remove '!' or 'statement' from start first!
+		raise NotImplementedError
+	_command_default = _command_bang = _command_statement
+
+
+	def _command_run(self, command, *args):
+		"""Restart the debugged program. This is not and will not be implemented."""
+		raise NotImplementedError("IPDB will not implement the 'run' command.")
+	
+
+	def _command_quit(self, command):
+		"""Quit the debugger. Unlike in PDB, this will _not_ kill the program thread."""
+		self.shutdown()
+		self.sys._restore()
+	_command_shutdown = _command_die = _command_q = _command_quit
 
 
 
