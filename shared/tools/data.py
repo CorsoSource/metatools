@@ -26,7 +26,24 @@ def datasetToListDict(dataset):
 	try:
 		return [dict(zip(header, row)) for row in zip(*dataset.data)]
 	except:
-		return [dict(zip(header, row)) for row in zip(*dataset.delegateDataset.data)]
+		try:
+			possibleGetters = (
+				'getDelegateDataset', # Database
+				'toIgnitionDataset',  # Sepasoft OEE
+				)
+			for attr in possibleGetters:
+				getter = getattr(dataset, attr, None)
+				if getter:
+					resolvedDataset = getter()
+					break
+			else:
+				raise RuntimeError("Could not resolve dataset type.")
+	
+			return [dict(zip(header, row)) for row in zip(*resolvedDataset.data)]
+		except:
+			return [dict( (columnName, dataset.getValueAt(rix,columnName))
+					      for columnName in header + [sdfs])
+				    for rix in range(dataset.getRowCount()) ]
 
 		
 def datasetToDictList(dataset):
