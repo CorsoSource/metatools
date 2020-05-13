@@ -769,12 +769,37 @@ class Tracer(object):
 		"""Execute the (one-line) statement. 
 		Start the statement with '!' if it starts with a command.
 
+		IMPORTANT: Variables can not change identity - they may be mutated, if possible,
+		  but they may NOT be reassigned. 
+		  This means code can be executed against a frame, but things like integers
+		    are effectively immutable. New variables amy be added, though, and these
+		    may be changed.
+
 		To set a global variable, prefix the assignment command with `global`
 		  (IPDB) global list_options; list_options['-1']
 		"""
-		# remove '!' or 'statement' from start first!
-		raise NotImplementedError
+		raw_command = raw_command.strip()
+		if raw_command.startswith('!'):
+			raw_command = raw_command[1:].strip()
+		elif raw_command.startswith('statement'):
+			raw_command = raw_command[10:].strip()
+			
+		if isinstance(raw_command, (str, unicode)):
+			raw_command += '\n'
+
+		code = self._compile(raw_command, mode='exec')
+		
+		frame = self.cursor_frame
+		exec code in frame.f_globals, frame.f_locals	
+
+		# DO NOT RUN THIS - Frames can't be generated from within the Python
+		#   engine, it seems, and this just... locks everything up.
+		# frame = self.cursor_frame
+		# thread_state = self.sys._thread_state
+		# code.call(thread_state, frame)
 	_command_default = _command_bang = _command_statement
+
+
 
 
 	def _command_run(self, command, *args):
