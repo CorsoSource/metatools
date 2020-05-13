@@ -20,6 +20,8 @@ def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
 		time_delay = 0.5
 		find_me = 0
 		
+		some_dict = {"j": 43.21}
+		
 		def bar(x, steps=5):
 			
 			for y in range(steps):
@@ -52,78 +54,11 @@ def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
 	return TEST_TRACER
 
 
-# from shared.tools.debug._test import initialize_test
-# tracer = initialize_test()
-
-
-# Jython 2.5.3 (, Dec 6 2018, 12:34:00) 
-# [Java HotSpot(TM) 64-Bit Server VM (Oracle Corporation)] on java1.8.0_221
-
-# >>> 
-# Tracing from Thread[SwingWorker-pool-2-thread-2,5,javawsApplicationThreadGroup] onto Thread[debug_test,5,javawsApplicationThreadGroup]
-# >>> tracer.cursor_frame
-#   Properties of <'frame'>
-#   =========================
-#   <frame object at 0x682>
-#   -------------------------
-#   Attribute      (P)   Repr                                                                                                                         <Type>       
-#   ----------     ---   ------------------------------------------------------------------------------------------------------------------------     -----------  
-#   f_back               <frame in "<module:shared.tools.thread>" of "full_closure" on line 170>                                                                   
-#   f_builtins           {'coerce': <built-in function coerce>, 'callable': <built-in function callable>, 'AttributeError': <type 'exceptions....     dict         
-#   f_code               <code object monitored at 0x683, file "<module:shared.tools.debug._test>", line 16>                                          tablecode    
-#   f_globals            {'app': <app package app at 1668>, 'shared': <app package shared at 1669>, 'initialize_test': <function initialize_te...     dict         
-#   f_lasti              0                                                                                                                            int          
-#   f_lineno             36                                                                                                                           int          
-#   f_locals             <'dict'> of 4 elements                                                                                                                    
-#                                   bar : λ(x, steps=5)
-#                            close_loop : False
-#                               find_me : 22   
-#                            time_delay : 0.5  
-#   f_trace              None                                                                                                                         NoneType     
-
-# >>> tracer.cursor_frame
-#   Properties of <'frame'>
-#   =========================
-#   <frame object at 0x68d>
-#   -------------------------
-#   Attribute      (P)   Repr                                                                                                                         <Type>       
-#   ----------     ---   ------------------------------------------------------------------------------------------------------------------------     -----------  
-#   f_back               <frame in "<module:shared.tools.debug._test>" of "monitored" on line 34>                                                                  
-#   f_builtins           {'coerce': <built-in function coerce>, 'callable': <built-in function callable>, 'AttributeError': <type 'exceptions....     dict         
-#   f_code               <code object bar at 0x68e, file "<module:shared.tools.debug._test>", line 23>                                                tablecode    
-#   f_globals            {'app': <app package app at 1668>, 'shared': <app package shared at 1669>, 'initialize_test': <function initialize_te...     dict         
-#   f_lasti              0                                                                                                                            int          
-#   f_lineno             27                                                                                                                           int          
-#   f_locals             <'dict'> of 3 elements                                                                                                                    
-#                            steps : 2 
-#                                x : 28
-#                                y : 1 
-#   f_trace              None                                                                                                                         NoneType     
-
-# >>> tracer.interdict()
-# >>> 
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer._command_step()
-# >>> tracer.shutdown()
-# >>> tracer.shutdown()
+#from shared.tools.debug._test import initialize_test
+#tracer = initialize_test()
+#tracer.cursor_frame
+#
+#tracer.interdict()
+#tracer._pending_commands.extend(['s']*8)
+#for context in tracer.context_buffer:
+#	print repr(context)

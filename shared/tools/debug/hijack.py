@@ -6,14 +6,9 @@ from shared.tools.debug.proxy import ProxyIO
 class SysHijack(object):
 	"""Capture a thread's system state and redirect it's standard I/O."""
 
-	__slots__ = ('_thread_state', 
+	__slots__ = (
 				 '_target_thread', 
 				 '_io_proxy',
-	             
-	             '_original_stdin', 
-	             '_original_stdout', 
-	             '_original_stderr', 
-	             '_original_displayhook',
 	             )
 	
 	# _FAILSAFE_TIMEOUT = 20
@@ -23,32 +18,20 @@ class SysHijack(object):
 		self._target_thread = thread
 		
 		self._io_proxy = ProxyIO(coupled_sys=self)
-				
-		self._original_stdin       = self._thread_sys.stdin
-		self._original_stdout      = self._thread_sys.stdout
-		self._original_stderr      = self._thread_sys.stderr
-		self._original_displayhook = self._thread_sys.displayhook
-				
-		self._install()
 		
 		# @async(self._FAILSAFE_TIMEOUT)
 		# def failsafe_uninstall(self=self):
 		# 	self._restore()
 		# failsafe_uninstall()
 		
+
 	def _install(self):
 		"""Redirect all I/O to proxy's endpoints"""
-		self._thread_sys.stdin       = self._io_proxy.stdin
-		self._thread_sys.stdout      = self._io_proxy.stdout
-		self._thread_sys.stderr      = self._io_proxy.stderr
-		self._thread_sys.displayhook = self._io_proxy.displayhook
+		self._io_proxy.install()
 			
 	def _restore(self):
 		"""Restore all I/O to original's endpoints"""
-		self._thread_sys.stdin       = self._original_stdin
-		self._thread_sys.stdout      = self._original_stdout
-		self._thread_sys.stderr      = self._original_stderr
-		self._thread_sys.displayhook = self._original_displayhook
+		self._io_proxy.uninstall()
 		
 
 	@property
@@ -60,33 +43,22 @@ class SysHijack(object):
 		return self._thread_state.systemState
 	
 
-	@property
-	def stdin(self):
-		if Thread.currentThread() is self._target_thread:
-			return self._io_proxy.stdin
-		else:
-			return self._original_stdin
+	# I/O proxy redirection
+	# NOTE: This will not play well with other things attempting to hijack I/O
+	#       I think this is fair - only one bully per playground
 
 	@property
+	def stdin(self):
+		return self._io_proxy.stdin
+	@property
 	def stdout(self):
-		if Thread.currentThread() is self._target_thread:
-			return self._io_proxy.stdout
-		else:
-			return self._original_stdout
-			
+		return self._io_proxy.stdout
 	@property
 	def stderr(self):
-		if Thread.currentThread() is self._target_thread:
-			return self._io_proxy.stderr
-		else:
-			return self._original_stderr
-			
+		return self._io_proxy.stderr
 	@property
 	def displayhook(self):
-		if Thread.currentThread() is self._target_thread:
-			return self._io_proxy.displayhook
-		else:
-			return self._original_displayhook
+		return self._io_proxy.displayhook
 			
 
 	def _getframe(self, depth=0):
@@ -103,11 +75,17 @@ class SysHijack(object):
 
 
 	def setprofile(self, profilefunc=None):
-		if profilefunc is None:
-			self._thread_sys.setprofile(None)
-		else:
-			self._thread_sys.setprofile(profilefunc)
+		self._thread_sys.setprofile(None)
 
+
+	# Context management
+
+	def __enter__(self):
+		self._install()
+		return self
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		self._restore()
 
 	def __del__(self):
 		self._restore()

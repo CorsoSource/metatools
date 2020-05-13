@@ -1,95 +1,71 @@
 from StringIO import StringIO
 from collections import deque
 from time import sleep
+from datetime import datetime
 
 
-class ProxyStream(object):
-	"""I/O stream mixin to add history"""
+class StreamBuffer(object):
+	__slots__ = ('history', 
+				 '_target_io',
+				 '_parent_proxy', 
+				 '_cursors'
+				)
+	_MAX_HISTORY = 10000
+	_BUFFER_CHUNK = 1000
 
-	__slots__ = ('history', '_parent_proxyio')
-	_MAX_HISTORY = 1000
+	def __init__(self, target_io, parent_proxy=None):
+		self.history = []
+		self.log_entry(self.__init__, '#! Starting log...')
+		
+		self._target_io = target_io
+		self._parent_proxy = parent_proxy
 
-	def __init__(self, parent_proxyio=None):
-		self.history = deque(['#! Starting log...'])
-		self._parent_proxyio = parent_proxyio
-
-	def log(self, string):
-		self.history.append(string)
-		while len(self.history) > self._MAX_HISTORY:
-			_ = self.history.popleft()
 
 	@property
 	def parent(self):
-		return self._parent
+		return self._parent_proxy
 
 
-class PatientInputStream(StringIO, ProxyStream):
-	
-	_SLEEP_RATE = 0.05 # seconds
-	
-	def __init__(self, buffer='', parent_proxyio=None):
-		StringIO.__init__(self, buffer)
-		ProxyStream.__init__(self, parent_proxyio)
-	
-	def read(self, n=-1):
-		while True:
-			chunk = StringIO.read(n)
-			if chunk:
-				self.history.append('# %s' % chunk)
-				return chunk
-			else:
-				sleep(self._SLEEP_RATE)
+	def log_entry(self, target, string):
+		self.history.append((datetime.now(), string))
+
+		if len(self.history) > self._MAX_HISTORY:
+			self.history = self.history[-(self._MAX_HISTORY - self._BUFFER_CHUNK):]
 
 
-	def readline(self, length=None):
-		while True:
-			line = StringIO.readline(self, length)
-			if line:
-				self.history.append('>>> %s' % '... '.join(line.splitlines()))
-				return line
-			else:
-				sleep(self._SLEEP_RATE)			
-		
-	def inject(self, string):
-		current_pos = self.tell()
-		self.write(string)
-		self.pos = current_pos
-
-
-class OutputStream(StringIO, ProxyStream):
-	
-	def __init__(self, buffer='', parent_proxyio=None):
-		StringIO.__init__(self, buffer)
-		ProxyStream.__init__(self, parent_proxyio)
-		
 	def write(self, string):
-		if string != '\n':
-			self.history.append(string)
-		StringIO.write(self, string)
+		self._target_io.write(self, string)
+		self.log_entry(self.write, string)
 
 	def writelines(self, iterable):
-		self.history.append(iterable)
-		StringIO.writelines(self, iterable)
+		self._target_io.writelines(self, iterable)
+		self.log_entry(self.writelines, iterable)
+
 
 
 class ProxyIO(object):
 	"""Control the I/O"""
 	
-	__slots__ = ('stdin', 'stdout', 'stderr', 'displayhook', '_logger_name', '_coupled_sys')
+	__slots__ = ('_stdin', '_stdout', '_stderr', '_displayhook', 
+				 '_original_displayhook',
+				 '_coupled_sys', '_installed')
 	
 	def __init__(self, coupled_sys=None):
-		self._logger_name = 'proxy-io'
-		
+		self._installed = False
+
+		self._original_displayhook = None
+		self._stdin       = None
+		self._stdout      = None
+		self._stderr      = None
+		self._displayhook = None
+
 		self._coupled_sys = coupled_sys
-		
-		self.stdin = PatientInputStream(parent_proxyio=self)
-		self.stdout = OutputStream(parent_proxyio=self)
-		self.stderr = OutputStream(parent_proxyio=self)
-		self.displayhook = shared.tools.pretty.displayhook
 	
-	def log(self, s):
-		system.util.getLogger(self._logger_name).info(str(s))
-	
+
+	@property
+	def installed(self):
+		return self._installed	
+
 	@property
 	def coupled_sys(self):
 		return self._coupled_sys
@@ -97,13 +73,69 @@ class ProxyIO(object):
 	@property
 	def last_input(self):
 		return self.stdin.history[-1]
-
 	@property
 	def last_output(self):
 		return self.stdout.history[-1]
-
 	@property
 	def last_error(self):
 		return self.stderr.history[-1]
 
+
+	@property
+	def stdin(self):
+		return self._stdin
+	
+	@property
+	def stdout(self):
+		return self._stdout
+	
+	@property
+	def stderr(self):
+		return self._stderr
+	
+	@property
+	def displayhook(self):
+		return self._displayhook
+	
+
+	def install(self):
+		self._original_displayhook = self._coupled_sys.displayhook
+		self._displayhook = shared.tools.pretty.displayhook
+
+		self._stdin  = StreamBuffer(self._coupled_sys.stdin,  parent_proxy=self)
+		self._stdout = StreamBuffer(self._coupled_sys.stdout, parent_proxy=self)
+		self._stderr = StreamBuffer(self._coupled_sys.stderr, parent_proxy=self)
+		
+		self._coupled_sys.stdin       = self.stdin
+		self._coupled_sys.stdout      = self.stdout
+		self._coupled_sys.stderr      = self.stderr
+		self._coupled_sys.displayhook = self.displayhook
+		
+		self._installed = True
+
+
+	def uninstall(self):
+		if not self._installed:
+			return
+
+		self._coupled_sys.stdin       = self._stdin._target_io
+		self._coupled_sys.stdout      = self._stdout._target_io
+		self._coupled_sys.stderr      = self._stderr._target_io
+		self._coupled_sys.displayhook = self._original_displayhook
+
+		self._installed = False
+
+
+	# Context management
+
+	def __enter__(self):
+		self.install()
+		return self
+
+	def __exit__(self, exc_type, exc_val, exc_tb):
+		self.uninstall()
+
+	def __del__(self):
+		"""NOTE: This is NOT guaranteed to run, but it's a mild safeguard."""
+		self.uninstall()
 
