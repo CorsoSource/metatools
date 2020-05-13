@@ -346,7 +346,7 @@ class Tracer(object):
 		if not self.monitoring:
 			return
 
-		#self.logger.info('%r' % self._current_context)
+		self.logger.info('%r' % self._current_context)
 
 		# From user code to overrides, this is the section that can go wrong.
 		# Blast shield this with a try/except
@@ -475,6 +475,14 @@ class Tracer(object):
 		while not self._pending_commands:
 			sleep(self._UPDATE_CHECK_DELAY)
 
+
+	def _compile(self, expression, mode='eval'):
+		return self.sys.builtins['compile'](expression, '<tracer:expression>', mode)
+	
+	def cursor_eval(self, expression):
+		code = self._compile(expression)
+		return self.sys.builtins['eval'](code, self.cursor_frame.f_globals, self.cursor_frame.f_locals)
+		
 
 	#==========================================================================
 	# PDB Commands
@@ -722,16 +730,23 @@ class Tracer(object):
 		"""Print the expression."""
 		if expression == '':
 			return
-		raise NotImplementedError
+		return p(self.cursor_eval(expression), directPrint=False)
 
 
 	def _command_pp(self, command='pp', expression=''):
 		"""Print the expression via pretty printing. This is actually how p works, too."""
 		if expression == '':
 			return
-		raise NotImplementedError
+		return p(self.cursor_eval(expression), directPrint=False)
 
 
+	def _command_pdir(self, command='pdir', expression='', skip_private=True):
+		"""Print the expression via pretty printing. This is actually how p works, too."""
+		if expression == '':
+			return
+		return pdir(self.cursor_eval(expression), skipPrivate=skip_private, directPrint=False)
+		
+		
 	def _command_alias(self, command='alias', name='', command_string=''):
 		"""Create an alias called name that executes command. 
 		If no command, then show what alias is. If no name, then show all aliases.
