@@ -61,7 +61,7 @@ def cached(function):
 		if not args in cls._cache:
 			cls._cache[args] = function(cls, *args)
 		return cls._cache[args]
-
+	return check_cache_first
 
 
 class MetaCodeCache(type):
@@ -94,7 +94,7 @@ class MetaCodeCache(type):
 		if not code: 
 			return ''
 		
-		return code[frame.f_lineno]
+		return code.splitlines()[frame.f_lineno]
 		
 
 	def get_lines(cls, frame, radius=5):
@@ -122,7 +122,7 @@ class MetaCodeCache(type):
 		if end >= len(code):
 			end = len(code) - 1
 
-		return code[start:end]
+		return code.splitlines()[start:end]
 
 
 	def _code_at_frame(cls, frame):
@@ -145,7 +145,7 @@ class MetaCodeCache(type):
 			location = strip_angle_brackets(location)
 			script_type, _, identifier = location.partition(':')
 
-			if script_type == 'module:':
+			if script_type == 'module':
 				return cls._code_module(identifier)
 
 			elif script_type == 'event':
@@ -157,7 +157,6 @@ class MetaCodeCache(type):
 				return cls._code_tag_event()
 		
 		return None
-
 
 
 	@cached

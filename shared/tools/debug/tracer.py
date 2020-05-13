@@ -155,7 +155,8 @@ class Tracer(object):
 			
 		if cls.skip_frame(frame):
 			return None
-		#self.logger.info('%r %r %r' % (p(frame, directPrint=False), event, arg))
+		
+		#self.logger.info('NOP(): %r %r %r' % (p(frame, directPrint=False), event, arg))
 		#sleep(0.1)
 		return cls._nop
 	
@@ -345,6 +346,8 @@ class Tracer(object):
 		if not self.monitoring:
 			return
 
+		#self.logger.info('%r' % self._current_context)
+
 		# From user code to overrides, this is the section that can go wrong.
 		# Blast shield this with a try/except
 		try:
@@ -493,7 +496,7 @@ class Tracer(object):
 		"""Print a stack trace, with the most recent frame at the bottom, pointing to cursor frame."""
 		stack = [trace_entry_line(frame, indent= ('-> ' if index == self._cursor_index else '   ') )
 				 for index, frame
-				 in iter_frames(self.current_frame)]
+				 in iter_frames(self.cursor_frame)]
 
 		return '\n'.join(reversed(stack))
 
@@ -683,7 +686,7 @@ class Tracer(object):
 		Given first and last show code between the two given line numbers.
 		If last is less than first it goes last lines past the first. 
 		"""
-		code = CodeCache.get_lines(self.current_frame)
+		code = CodeCache.get_lines(self.cursor_frame)
 
 		if not last:
 			start = first - 5
@@ -708,7 +711,10 @@ class Tracer(object):
 
 	def _command_args(self, command='args'):
 		"""Show the argument list to this function."""
-		raise NotImplementedError
+		frame = self.cursor_frame
+		frame_code = frame.f_code
+		argnames = frame_code.co_varnames[:frame_code.co_argcount]
+		return dict((name, frame.f_locals[name]) for name in argnames)
 	_command_a = _command_args
 
 
