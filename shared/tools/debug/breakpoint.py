@@ -1,7 +1,7 @@
 from weakref import WeakValueDictionary
 from collections import defaultdict
 
-from shared.tools.debug.frame import strip_angle_brackets
+from shared.tools.debug.frame import normalize_filename
 
 
 class Breakpoint(object):
@@ -24,7 +24,7 @@ class Breakpoint(object):
 	def __init__(self, filename=None, location=None, 
 				 temporary=False, condition=None, note=''):
 
-		self._filename = strip_angle_brackets(filename)
+		self._filename = normalize_filename(filename)
 		try:
 			line_number = int(location)
 			self._line_number = line_number
@@ -52,7 +52,7 @@ class Breakpoint(object):
 		self.ignored = defaultdict(int)
 
 		self._add()
-		
+
 
 	# Properties that should not change once set
 	@property
@@ -126,7 +126,7 @@ class Breakpoint(object):
 		# Breakpoint set by line
 		if not self.function_name:
 			# always trip on contextless breakpoints
-			if not any(self.line_number, self.filename):
+			if not any((self.line_number, self.filename)):
 				return True
 			else:
 				return self.line_number == frame.f_lineno
@@ -154,11 +154,11 @@ class Breakpoint(object):
 
 	@staticmethod
 	def frame_location_by_line(frame):
-		return (frame.f_code.co_filename, frame.f_lineno)
+		return (normalize_filename(frame.f_code.co_filename), frame.f_lineno)
 
 	@staticmethod
 	def frame_location_by_function(frame):
-		return (frame.f_code.co_filename, frame.f_code.co_name)
+		return (normalize_filename(frame.f_code.co_filename), frame.f_code.co_name)
 
 
 	def enable(self, interested_party):
@@ -252,7 +252,7 @@ class Breakpoint(object):
 
 		func = (' for %s' % self.function_name) if self.function_name else ''
 
-		return '<Breakpoint %sin %s at %s%s>' % (func, self.filename, self.line_number, meta)
+		return '<Breakpoint [%d] %sin %s at %s%s>' % (self.id, func, self.filename, self.line_number, meta)
 
 
 	def __repr__(self):

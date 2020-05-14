@@ -1,7 +1,7 @@
 from __future__ import with_statement
 
 from shared.tools.meta import MetaSingleton
-from shared.tools.debug.frame import find_root_object, strip_angle_brackets
+from shared.tools.debug.frame import find_root_object, normalize_filename
 
 import system
 import sys
@@ -139,10 +139,9 @@ class MetaCodeCache(type):
 		Note that this caches after resolving objects. This is because name references
 		  may be ambiguous or change as the stack mutates.
 		"""
-		location = frame.f_code.co_filename
+		location = normalize_filename(frame.f_code.co_filename)
 
 		if ':' in location:
-			location = strip_angle_brackets(location)
 			script_type, _, identifier = location.partition(':')
 
 			if script_type == 'module':

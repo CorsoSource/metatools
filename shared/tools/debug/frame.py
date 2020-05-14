@@ -10,6 +10,10 @@ def strip_angle_brackets(internal_name):
 		return internal_name
 
 
+def normalize_filename(filename):
+	return strip_angle_brackets(filename)
+
+
 def iter_frames(frame):
 	while frame:
 		yield frame

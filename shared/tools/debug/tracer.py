@@ -28,6 +28,14 @@ class Tracer(object):
 	  constraints that running Pdb in a multi-threaded environment
 	  creates.
 
+	Breakpoints are created globally, enabled PER TRACER, and break by default.
+	Traps are created for a tracer, enabled by default, and break only on success.
+
+	Breakpoints are evaluated _before_ the line is executed.
+	  For example, if a breakpoint is set for the line 'x += 1' and 
+	  has a condition 'x == 20', then trace.cursor_frame (lowest frame) will show
+	  x is 20, _not_ 21.
+
 	NOTE: If this is activated inline with the code (same thread), it will NOT
 	      wait indefinitely. You MUST turn off the Tracer instance's INTERDICTION_FAILSAFE
 	      or it will time out quickly!

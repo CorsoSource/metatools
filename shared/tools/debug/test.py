@@ -54,11 +54,23 @@ def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
 	return TEST_TRACER
 
 
-#from shared.tools.debug._test import initialize_test
-#tracer = initialize_test()
-#tracer.cursor_frame
-#
-#tracer.interdict()
-#tracer._pending_commands.extend(['s']*8)
-#for context in tracer.context_buffer:
-#	print repr(context)
+
+from time import sleep
+from shared.tools.debug._test import initialize_test
+
+tracer = initialize_test()
+
+tracer.cursor_frame
+
+sleep(2.5)
+
+tracer.interdict()
+
+tracer.cursor_frame
+
+from shared.tools.debug.breakpoint import Breakpoint
+
+Breakpoint('module:shared.tools.debug._test', 31)
+
+Breakpoint._break_locations
+Breakpoint._instances
