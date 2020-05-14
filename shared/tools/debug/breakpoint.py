@@ -1,6 +1,7 @@
 from weakref import WeakValueDictionary
 from collections import defaultdict
 
+from shared.tools.debug.frame import strip_angle_brackets
 
 
 class Breakpoint(object):
@@ -23,7 +24,7 @@ class Breakpoint(object):
 	def __init__(self, filename=None, location=None, 
 				 temporary=False, condition=None, note=''):
 
-		self._filename = filename
+		self._filename = strip_angle_brackets(filename)
 		try:
 			line_number = int(location)
 			self._line_number = line_number
@@ -34,7 +35,7 @@ class Breakpoint(object):
 
 		# A purely contextless breakpoint should not be abided for long.
 		# (since it'll stop. on. every. single. line.)
-		if not temporary and not any(filename, location, condition):
+		if not temporary and not any((filename, location, condition)):
 			temporary = True
 			if not note:
 				note = 'Contextless breaking ONCE at NEXT opportunity'
@@ -48,8 +49,10 @@ class Breakpoint(object):
 
 		# use Tracer/PDB instance as key for number of hits
 		self.enabled = defaultdict(bool) # no one is interested by default
-		self.ignored = defaultdict(int) 
+		self.ignored = defaultdict(int)
 
+		self._add()
+		
 
 	# Properties that should not change once set
 	@property
@@ -247,7 +250,7 @@ class Breakpoint(object):
 
 		meta = (' %r' % meta) if meta else ''
 
-		func = (' for %s' % self.function) if self.function else ''
+		func = (' for %s' % self.function_name) if self.function_name else ''
 
 		return '<Breakpoint %sin %s at %s%s>' % (func, self.filename, self.line_number, meta)
 

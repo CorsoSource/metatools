@@ -142,7 +142,7 @@ class Tracer(object):
 		self.sys.settrace(Tracer._nop)
 		
 		self._active_tracers[thread] = self
-		ExtraGlobal[self:'Tracer'] = self
+		ExtraGlobal[thread:'Tracer'] = self
 		self._FAILSAFE_TIMEOUT = datetime.now()
 
 		self.step_speed = 0
