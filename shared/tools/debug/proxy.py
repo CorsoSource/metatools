@@ -3,44 +3,76 @@ from collections import deque
 from time import sleep
 from datetime import datetime
 
+try:
+	from shared.tools.compat import next
+except ImportError:
+	pass
+
 
 class StreamBuffer(object):
 	__slots__ = ('history', 
 				 '_target_io',
 				 '_parent_proxy', 
-				 '_cursors'
+				 '_buffer_line',
 				)
 	_MAX_HISTORY = 10000
 	_BUFFER_CHUNK = 1000
 
 	def __init__(self, target_io, parent_proxy=None):
-		self.history = []
-		self.log_entry(self.__init__, '#! Starting log...')
+		self._buffer_line = ''
+		self.history = ['[%s] %s' % (str(datetime.now()), '#! Starting log...')]
 		
+		# Failsafe to drill past repeated inits
+		while isinstance(target_io, StreamBuffer):
+			target_io = target_io._target_io
+					
 		self._target_io = target_io
 		self._parent_proxy = parent_proxy
 
+		system.util.getLogger('FAILPROXY').info(repr(self._target_io))
 
+				
 	@property
 	def parent(self):
 		return self._parent_proxy
 
 
-	def log_entry(self, target, string):
-		self.history.append((datetime.now(), string))
-
-		if len(self.history) > self._MAX_HISTORY:
-			self.history = self.history[-(self._MAX_HISTORY - self._BUFFER_CHUNK):]
-
-
 	def write(self, string):
-		self._target_io.write(self, string)
-		self.log_entry(self.write, string)
+		self._target_io.write(string)
+		
+		buffer = self._buffer_line + string
+		timestamp = str(datetime.now())
+		ix = 0
+		while '\n' in buffer:
+			line, _, buffer = buffer.partition('\n')
+			self.history.append('[%s] %s' % (timestamp, line))
+		self._buffer_line = buffer
+		
 
 	def writelines(self, iterable):
-		self._target_io.writelines(self, iterable)
-		self.log_entry(self.writelines, iterable)
+		self._target_io.writelines(iterable)
+		
+		timestamp = str(datetime.now())
+		for ix, line in enumerate(iterable):
+			if ix == 0:
+				line = self._buffer_line + line
+				self._buffer_line = ''
+			self.history.append('[%s %d] %s' % (timestamp, ix, line))
 
+
+	def __getattr__(self, attribute):
+		"""Get from this class first, otherwise use the wrapped item."""
+		try:
+			return super(StreamBuffer, self).__getattr__(attribute)
+		except AttributeError:
+			return getattr(self._target_io, attribute)
+
+	def __setattr__(self, attribute, value):
+		"""Set to this class first, otherwise use the wrapped item."""
+		try:
+			return super(StreamBuffer, self).__setattr__(attribute, value)
+		except AttributeError:
+			return setattr(self._target_io, attribute, value)
 
 
 class ProxyIO(object):
@@ -48,9 +80,9 @@ class ProxyIO(object):
 	
 	__slots__ = ('_stdin', '_stdout', '_stderr', '_displayhook', 
 				 '_original_displayhook',
-				 '_coupled_sys', '_installed')
+				 '_hijacked_sys', '_installed')
 	
-	def __init__(self, coupled_sys=None):
+	def __init__(self, hijacked_sys=None):
 		self._installed = False
 
 		self._original_displayhook = None
@@ -59,7 +91,7 @@ class ProxyIO(object):
 		self._stderr      = None
 		self._displayhook = None
 
-		self._coupled_sys = coupled_sys
+		self._hijacked_sys = hijacked_sys
 	
 
 	@property
@@ -73,9 +105,11 @@ class ProxyIO(object):
 	@property
 	def last_input(self):
 		return self.stdin.history[-1]
+			
 	@property
 	def last_output(self):
 		return self.stdout.history[-1]
+
 	@property
 	def last_error(self):
 		return self.stderr.history[-1]
@@ -96,6 +130,10 @@ class ProxyIO(object):
 	@property
 	def displayhook(self):
 		return self._displayhook
+	
+	@property
+	def _coupled_sys(self):
+		return self._hijacked_sys._thread_sys
 	
 
 	def install(self):
@@ -138,4 +176,3 @@ class ProxyIO(object):
 	def __del__(self):
 		"""NOTE: This is NOT guaranteed to run, but it's a mild safeguard."""
 		self.uninstall()
-

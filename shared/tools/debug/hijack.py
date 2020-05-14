@@ -10,21 +10,13 @@ class SysHijack(object):
 				 '_target_thread', 
 				 '_io_proxy',
 	             )
-	
-	# _FAILSAFE_TIMEOUT = 20
-	
+		
 	def __init__(self, thread):
-		
 		self._target_thread = thread
+		self._io_proxy = ProxyIO(hijacked_sys=self)
+		self._install()
 		
-		self._io_proxy = ProxyIO(coupled_sys=self)
 		
-		# @async(self._FAILSAFE_TIMEOUT)
-		# def failsafe_uninstall(self=self):
-		# 	self._restore()
-		# failsafe_uninstall()
-		
-
 	def _install(self):
 		"""Redirect all I/O to proxy's endpoints"""
 		self._io_proxy.install()
@@ -49,16 +41,28 @@ class SysHijack(object):
 
 	@property
 	def stdin(self):
-		return self._io_proxy.stdin
+		if self._io_proxy.installed:
+			return self._io_proxy.stdin
+		else:
+			return self._thread_sys.stdin
 	@property
 	def stdout(self):
-		return self._io_proxy.stdout
+		if self._io_proxy.installed:
+			return self._io_proxy.stdout
+		else:
+			return self._thread_sys.stdout
 	@property
 	def stderr(self):
-		return self._io_proxy.stderr
+		if self._io_proxy.installed:
+			return self._io_proxy.stderr
+		else:
+			return self._thread_sys.stderr
 	@property
 	def displayhook(self):
-		return self._io_proxy.displayhook
+		if self._io_proxy.installed:
+			return self._io_proxy.displayhook
+		else:
+			return self._thread_sys.displayhook
 			
 
 	def _getframe(self, depth=0):
@@ -98,7 +102,7 @@ class SysHijack(object):
 		try:
 			return super(SysHijack, self).__getattr__(attribute)
 		except AttributeError:
-			return getattr(self._thread_sys).__getattr__(attribute)
+			return getattr(self._thread_sys, attribute)
 	
 	
 	def __setattr__(self, attribute, value):
