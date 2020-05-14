@@ -138,7 +138,7 @@ class ProxyIO(object):
 
 	def install(self):
 		self._original_displayhook = self._coupled_sys.displayhook
-		self._displayhook = shared.tools.pretty.displayhook
+		self._displayhook = self._original_displayhook # shared.tools.pretty.displayhook
 
 		self._stdin  = StreamBuffer(self._coupled_sys.stdin,  parent_proxy=self)
 		self._stdout = StreamBuffer(self._coupled_sys.stdout, parent_proxy=self)
