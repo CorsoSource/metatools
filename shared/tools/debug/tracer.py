@@ -2,6 +2,7 @@ from weakref import WeakValueDictionary
 from time import sleep
 
 from shared.tools.thread import getThreadState, Thread
+from shared.tools.global import ExtraGlobal
 
 from shared.tools.debug.hijack import SysHijack
 from shared.tools.debug.frame import iter_frames
@@ -26,6 +27,10 @@ class Tracer(object):
 	This is designed to overcome and take advantage of the different
 	  constraints that running Pdb in a multi-threaded environment
 	  creates.
+
+	NOTE: If this is activated inline with the code (same thread), it will NOT
+	      wait indefinitely. You MUST turn off the Tracer instance's INTERDICTION_FAILSAFE
+	      or it will time out quickly!
 	  
 	For more information and the cool implementation that we're tweaking here,
 	  see also rpdb at https://github.com/tamentis/rpdb
@@ -120,11 +125,11 @@ class Tracer(object):
 		# Tracer init
 
 		self.tracer_thread = Thread.currentThread()
-		self.thread = thread
+		self.thread = thread or self.tracer_thread
 		
 		self.logger.info("Tracing from %r onto %r" % (self.tracer_thread, self.thread))
 		
-		self.sys = SysHijack(thread)
+		self.sys = SysHijack(self.thread)
 
 		self.interdicting = False		
 
@@ -137,6 +142,7 @@ class Tracer(object):
 		self.sys.settrace(Tracer._nop)
 		
 		self._active_tracers[thread] = self
+		ExtraGlobal[self:'Tracer']
 		self._FAILSAFE_TIMEOUT = datetime.now()
 
 		self.step_speed = 0

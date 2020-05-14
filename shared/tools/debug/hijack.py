@@ -2,6 +2,8 @@ from shared.tools.thread import getThreadState, Thread
 
 from shared.tools.debug.proxy import ProxyIO
 
+from org.python.core import Py
+
 
 class SysHijack(object):
 	"""Capture a thread's system state and redirect it's standard I/O."""
@@ -28,7 +30,14 @@ class SysHijack(object):
 
 	@property
 	def _thread_state(self):
-		return getThreadState(self._target_thread)
+		"""If we're in the same thread, we need to grab the state from the master Py object.
+		Otherwise we rip it from the thread itself. 
+		We'll also want this to be calculated every call to ensure it's the correct reference. 
+		"""
+		if Thread.currentThread() is self._target_thread:
+			return Py.getThreadState()
+		else:
+			return getThreadState(self._target_thread)
 	
 	@property
 	def _thread_sys(self):
