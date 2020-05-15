@@ -86,7 +86,7 @@ class Tracer(object):
 	# 					 ])	
 	
 	SKIP_NAMESPACES = set([
-		'weakref', 'datetime', 		
+		'weakref', 'datetime', 'encodings',
 		])
 	
 	SKIP_FILES = set([
@@ -371,13 +371,13 @@ class Tracer(object):
 		if self.SCRAM_SIGNAL:
 			self._scram(frame)
 			return None
-
+		
 		if not self.monitoring:
 			return None
-
+				
 		if self.skip_frame(frame):
 			return None
-
+			
 		if self.step_speed:
 			sleep(self.step_speed) # DEBUG
 		
@@ -388,7 +388,6 @@ class Tracer(object):
 			self.context_buffer.append(self._current_context)
 		while len(self.context_buffer) > self.CONTEXT_BUFFER_LIMIT:
 			_ = self.context_buffer.popleft()
-
 
 		self.logger.info('%r' % self._current_context)
 
@@ -483,7 +482,7 @@ class Tracer(object):
 			for arg in command.split():
 				try:
 					args.append(literal_eval(arg))
-				except ValueError:
+				except:
 					args.append(arg)
 			return self._map_o_commands.get(args[0], self._command_default)(command, *args[1:])
 
@@ -559,6 +558,7 @@ class Tracer(object):
 		"""Move the cursor to a more recent frame (down the stack)"""
 		if self._cursor_index:
 			self._cursor_index -= 1
+		return self._cursor_index
 	_command_d = _command_down
 
 
@@ -566,6 +566,7 @@ class Tracer(object):
 		"""Move the cursor to an older frame (up the stack)"""
 		if self._cursor_index < (len(self._cursor_stack) - 1):
 			self._cursor_index += 1
+		return self._cursor_index
 	_command_u = _command_up
 
 
@@ -676,12 +677,19 @@ class Tracer(object):
 	# Execution control
 	#--------------------------------------------------------------------------
 
+	def _command_release(self, command='release'):
+		"""Stop monitoring the thread (but do not tear down)"""
+		self.traps = set()
+		self.interdicting = False
+		self.monitoring = False	
+
 
 	def _command_step(self, command='step'):
 		"""Step into the next function in the current line (or to the next line, if done)."""
 		self.traps.add(Step())
 		self.interdicting = False
-	_command_s = _command_step
+		self.monitoring = True
+	_command_interdict = _command_s = _command_step 
 
 
 	def _command_next(self, command='next'):
@@ -691,6 +699,7 @@ class Tracer(object):
 		"""
 		self.traps.add(Next(self.current_context))
 		self.interdicting = False
+		self.monitoring = True
 	_command_n = _command_next
 
 
@@ -698,6 +707,7 @@ class Tracer(object):
 		"""Continue until a higher line number is reached, or optionally target_line."""
 		self.traps.add(Until(self.current_context))
 		self.interdicting = False
+		self.monitoring = True
 	_command_u = _command_until
 
 
@@ -705,6 +715,7 @@ class Tracer(object):
 		"""Continue until the current frame returns."""
 		self.traps.add(Return(self.current_context))
 		self.interdicting = False
+		self.monitoring = True
 	_command_r = _command_return
 
 
@@ -712,6 +723,7 @@ class Tracer(object):
 		"""Resume execution until a breakpoint is reached. Clears all traps."""
 		self.traps = set()
 		self.interdicting = False
+		self.monitoring = True
 	_command_c = _command_cont = _command_continue
 
 
@@ -767,6 +779,8 @@ class Tracer(object):
 		return code_lines[start:end]
 	_command_l = _command_list
 
+	def _command_source(self, command='source'):
+		return CodeCache.get_lines(self.cursor_frame, radius=0, sys_context=self.sys)
 
 	def _command_args(self, command='args'):
 		"""Show the argument list to this function."""
