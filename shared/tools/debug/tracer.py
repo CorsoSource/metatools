@@ -3,6 +3,7 @@ from time import sleep
 
 from shared.tools.thread import getThreadState, Thread
 from shared.tools.global import ExtraGlobal
+from shared.tools.data import randomId
 
 from shared.tools.debug.hijack import SysHijack
 from shared.tools.debug.frame import iter_frames
@@ -65,7 +66,7 @@ class Tracer(object):
 
 				 'step_speed',
 				 '_FAILSAFE_TIMEOUT', '_debug', # DeprecationWarning
-				 'logger',
+				 'logger', 'id',
 				)
 
 	CONTEXT_BUFFER_LIMIT = 1000
@@ -132,10 +133,12 @@ class Tracer(object):
 
 		# Tracer init
 
+		self.id = randomId()
+		
 		self.tracer_thread = Thread.currentThread()
 		self.thread = thread or self.tracer_thread
 		
-		self.logger.info("Tracing from %r onto %r" % (self.tracer_thread, self.thread))
+		self.logger.info("Tracing [%s] from %r onto %r" % (self.id, self.tracer_thread, self.thread))
 		
 		self.sys = SysHijack(self.thread)
 
@@ -150,7 +153,8 @@ class Tracer(object):
 		self.sys.settrace(Tracer._nop)
 		
 		self._active_tracers[thread] = self
-		ExtraGlobal[thread:'Tracer'] = self
+		ExtraGlobal[self.id:'Tracer'] = self		
+		
 		self._FAILSAFE_TIMEOUT = datetime.now()
 
 		self.step_speed = 0

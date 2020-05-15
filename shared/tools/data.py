@@ -14,6 +14,13 @@ __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
 
 
+def randomId(numLetters=10):
+    wo = ''.join(random.choice(string.ascii_uppercase + string.digits)
+                 for i in range(numLetters))
+    hyphen = random.randint(1, numLetters - 1)
+    return '%s-%s' % (wo[:hyphen], wo[hyphen:])
+
+
 def datasetToListDict(dataset):
 	"""Converts a dataset into a list of dictionaries. 
 	Convenient to treat data on a row-by-row basis naturally in Python.
