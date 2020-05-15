@@ -5,14 +5,16 @@ from shared.tools.debug.proxy import ProxyIO
 from org.python.core import Py
 
 
-class SysHijack(object):
-	"""Capture a thread's system state and redirect it's standard I/O."""
+class DefSysHijack(object):
+	"""The main SysHijack class. 
+	By adding a subclass, attribute resolution works reliably in the __getattr__ and __setattr__ overrides.
+	"""
 
 	__slots__ = (
 				 '_target_thread', 
 				 '_io_proxy',
 	             )
-		
+
 	def __init__(self, thread):
 		self._target_thread = thread
 		self._io_proxy = ProxyIO(hijacked_sys=self)
@@ -103,6 +105,9 @@ class SysHijack(object):
 	def __del__(self):
 		self._restore()
 	
+
+class SysHijack(DefSysHijack):
+	"""Capture a thread's system state and redirect it's standard I/O."""
 
 	# Override masking mechanic (the hijack)
 	

@@ -67,6 +67,8 @@ class Tracer(object):
 				 'step_speed',
 				 '_FAILSAFE_TIMEOUT', '_debug', # DeprecationWarning
 				 'logger', 'id',
+				 
+				 '__weakref__', # Allows the weakref mechanics to work on this slotted class.
 				)
 
 	CONTEXT_BUFFER_LIMIT = 1000
@@ -99,9 +101,10 @@ class Tracer(object):
 		])
 
 	def __init__(self, thread=None, *args, **kwargs):
-
-		self.logger = system.util.getLogger('Tracer')
 	
+		self.id = randomId()
+		self.logger = system.util.getLogger('Tracer %s' % self.id)
+
 		# Event init
 		
 		self.monitoring = False
@@ -133,8 +136,6 @@ class Tracer(object):
 
 		# Tracer init
 
-		self.id = randomId()
-		
 		self.tracer_thread = Thread.currentThread()
 		self.thread = thread or self.tracer_thread
 		
@@ -371,6 +372,9 @@ class Tracer(object):
 			self._scram(frame)
 			return None
 
+		if not self.monitoring:
+			return None
+
 		if self.skip_frame(frame):
 			return None
 
@@ -385,8 +389,6 @@ class Tracer(object):
 		while len(self.context_buffer) > self.CONTEXT_BUFFER_LIMIT:
 			_ = self.context_buffer.popleft()
 
-		if not self.monitoring:
-			return None
 
 		self.logger.info('%r' % self._current_context)
 
@@ -475,7 +477,7 @@ class Tracer(object):
 			return
 
 		if command.lstrip()[0] == '!':
-			self._command_statement(command)
+			return self._command_statement(command)
 		else:
 			args = []
 			for arg in command.split():
@@ -483,7 +485,7 @@ class Tracer(object):
 					args.append(literal_eval(arg))
 				except ValueError:
 					args.append(arg)
-			self._map_o_commands.get(args[0], self._command_default)(command, *args[1:])
+			return self._map_o_commands.get(args[0], self._command_default)(command, *args[1:])
 
 
 	def command_loop(self):
@@ -736,26 +738,33 @@ class Tracer(object):
 		Given first and last show code between the two given line numbers.
 		If last is less than first it goes last lines past the first. 
 		"""
-		code = CodeCache.get_lines(self.cursor_frame)
+		code_lines = CodeCache.get_lines(self.cursor_frame, radius=0, sys_context=self.sys)
 
-		if not last:
-			start = first - 5
-			end = first + 5
+		if not code_lines:
+			self.logger.warn('Code is empty in listing: %s %d %d' % (command, first, last))
+			
+		if last == 0:
+			if first == 0:
+				start = self.cursor_frame.f_lineno - 5
+				end   = self.cursor_frame.f_lineno + 5
+			else:
+				start = first - 5
+				end   = first + 5
 		else:
 			if last < first:
 				start = first
-				end = first + last
+				end   = first + last
 			else:
 				start = first
-				end = last
+				end   = last
 		
 		# sanity check
 		if start < 0:
 			start = 0
-		if end >= len(code):
-			end = len(code) - 1
+		if end >= len(code_lines):
+			end = len(code_lines) - 1
 
-		return code[start:end]
+		return code_lines[start:end]
 	_command_l = _command_list
 
 

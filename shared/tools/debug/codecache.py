@@ -59,8 +59,13 @@ def cached(function):
 	@wraps(function)
 	def check_cache_first(cls, *args):
 		if not args in cls._cache:
-			cls._cache[args] = function(cls, *args)
-		return cls._cache[args]
+			code = function(cls, *args)
+			if code:
+				cls._cache[args] = code
+				return code
+		else:
+			return cls._cache[args]
+		return None
 	return check_cache_first
 
 
@@ -109,10 +114,12 @@ class MetaCodeCache(type):
 		code = cls._dispatch_frame(frame)
 
 		if not code: 
-			return ''
+			return []
+		else:
+			code_lines = code.splitlines()
 
 		if not radius:
-			return code
+			return code_lines
 		
 		line_number = frame.f_lineno
 
@@ -121,10 +128,11 @@ class MetaCodeCache(type):
 
 		if start < 0:
 			start = 0
-		if end >= len(code):
-			end = len(code) - 1
+		if end >= len(code_lines):
+			end = len(code_lines) - 1
 
-		return code.splitlines()[start:end]
+		return code_lines[start:end]
+
 
 
 	def _dispatch_frame(cls, frame, sys_context=None):
@@ -184,12 +192,30 @@ class MetaCodeCache(type):
 
 	@cached
 	def _code_module(cls, filename, sys_context=None):
+	
+		if sys_context is None:
+			sys_context = cls._default_sys_context
 		
-		if sys_context:
+		try:
 			module = sys_context.modules[filename]
-		else:
-			module = cls._default_sys_context.modules[filename]
-
+		except KeyError:
+			# The Ignition environment puts the project library stuff in context
+			#   so they're not _really_ modules - sometimes the full chain
+			#   is not in sys.modules. Thus we'll get the root and pull from there.
+			module_chain = filename.split('.')
+			module = sys_context.modules[module_chain[0]]
+			for submodule_name in module_chain[1:]:
+				module = getattr(module, submodule_name)
+			
+			# NOTE: the following reduce statement DOES NOT WORK.
+			#   It's super inside baseball why, but the basic answer is that
+			#   Jython effectively has a GIL for import statements, and Ignition
+			#   sorta does the import mechanics during the getattr of it's 
+			#   pseudo-modules. They don't quite block, but they're not done
+			#   loading in, either. So we have to do a loop to let each
+			#   getattr statement take as long as the mechanics need.
+			# module = reduce(getattr, module_chain[1:], module)
+			
 		filepath = getattr(module, '__file__', None)
 		if filepath:
 			with open(filepath, 'r') as f:
