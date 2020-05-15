@@ -437,13 +437,16 @@ class MetaExtraGlobal(type):
 	# Scope tracking for easier filtering
 
 	def _scope_track(cls, label, scope):
-		self._scoped_labels[scope].add(label)
+		try:
+			cls._scoped_labels[scope].add(label)
+		except KeyError:
+			cls._scoped_labels[scope] = set([label])
 
 	def _scope_untrack(cls, label, scope):
-		if len(self._scoped_labels[scope]) == 1:
-			del self._scoped_labels[scope]
+		if len(cls._scoped_labels[scope]) == 1:
+			del cls._scoped_labels[scope]
 		else:
-			self._scoped_labels[scope].remove(label)
+			cls._scoped_labels[scope].remove(label)
 
 
 	@classmethod
@@ -623,7 +626,10 @@ class MetaExtraGlobal(type):
 	def keys(cls, scope=None):
 		"""Currently available keys in the cache. (Like a dict, but sorted)"""
 		if scope:
-			return sorted(cls._scoped_labels[scope])
+			try:
+				return sorted(cls._scoped_labels[scope])
+			except KeyError:
+				return []
 		else:
 			return sorted(cls._cache.keys())
 
