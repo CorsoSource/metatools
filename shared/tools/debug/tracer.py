@@ -153,7 +153,7 @@ class Tracer(object):
 		self.sys.settrace(Tracer._nop)
 		
 		self._active_tracers[thread] = self
-		ExtraGlobal[self.id:'Tracer'] = self		
+		ExtraGlobal.stash(self, self.id, scope='Tracer', callback=lambda self=self: self)
 		
 		self._FAILSAFE_TIMEOUT = datetime.now()
 

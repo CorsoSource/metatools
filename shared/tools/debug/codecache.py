@@ -84,12 +84,14 @@ class MetaCodeCache(type):
 
 
 	def __getitem__(cls, location):
-		return cls._code_at_frame(location)
+		if isinstance(location, slice):
+			return cls._dispatch_frame(location.start, sys_context=location.stop)
+		return cls._dispatch_frame(location)
 
 
-	def get_line(cls, frame):
+	def get_line(cls, frame, sys_context=None):
 		"""Retrieve the line of code at the frame location."""
-		code = cls._code_at_frame(frame)
+		code = cls._dispatch_frame(frame)
 
 		if not code: 
 			return ''
@@ -97,14 +99,14 @@ class MetaCodeCache(type):
 		return code.splitlines()[frame.f_lineno]
 		
 
-	def get_lines(cls, frame, radius=5):
+	def get_lines(cls, frame, radius=5, sys_context=None):
 		"""Retreive the lines of code at the frame location.
 
 		If radius is 0, return all the code in that frame's file.
 		Otherwise, return radius lines before and after the frame's
 		  active line, clamping to the start/end of the code block.
 		"""
-		code = cls._code_at_frame(frame)
+		code = cls._dispatch_frame(frame)
 
 		if not code: 
 			return ''
@@ -125,11 +127,7 @@ class MetaCodeCache(type):
 		return code.splitlines()[start:end]
 
 
-	def _code_at_frame(cls, frame):
-		return cls._dispatch_frame(frame)
-
-
-	def _dispatch_frame(cls, frame):
+	def _dispatch_frame(cls, frame, sys_context=None):
 		"""Resolve and make sense of the location given. 
 
 		It may be "module:shared.tools.debug.codecache" or perhaps 
@@ -145,7 +143,7 @@ class MetaCodeCache(type):
 			script_type, _, identifier = location.partition(':')
 
 			if script_type == 'module':
-				return cls._code_module(identifier)
+				return cls._code_module(identifier, sys_context)
 
 			elif script_type == 'event':
 				component = find_root_object('event', frame).source
@@ -185,9 +183,12 @@ class MetaCodeCache(type):
 
 
 	@cached
-	def _code_module(cls, filename):
+	def _code_module(cls, filename, sys_context=None):
 		
-		module = cls._default_sys_context.modules[filename]
+		if sys_context:
+			module = sys_context.modules[filename]
+		else:
+			module = cls._default_sys_context.modules[filename]
 
 		filepath = getattr(module, '__file__', None)
 		if filepath:
