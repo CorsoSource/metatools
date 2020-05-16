@@ -27,7 +27,7 @@ try:
 
 	replace_linenumber_format = lambda html: linenumber_format_pattern.sub(r'\g<1>\g<2>000000; color:#ffffff; ', html)
 
-	PYTHON_LEXER = PythonLexer(stripall=True)
+	PYTHON_LEXER = PythonLexer(stripall=True, tabsize=4)
 
 	def syntax_highlight(code, highlight_lines=[], style='monokai'):
 		formatter = HtmlFormatter(
@@ -134,7 +134,6 @@ class MetaCodeCache(type):
 		return code_lines[start:end]
 
 
-
 	def _dispatch_frame(cls, frame, sys_context=None):
 		"""Resolve and make sense of the location given. 
 
@@ -203,7 +202,7 @@ class MetaCodeCache(type):
 			#   so they're not _really_ modules - sometimes the full chain
 			#   is not in sys.modules. Thus we'll get the root and pull from there.
 			module_chain = filename.split('.')
-			module = sys_context.modules[module_chain[0]]
+			module = sys_context.modules[module_chain[0]]			
 			for submodule_name in module_chain[1:]:
 				module = getattr(module, submodule_name)
 			
@@ -222,6 +221,9 @@ class MetaCodeCache(type):
 				return f.read()
 
 		code = getattr(module, 'code', None)
+		if not code:
+			code = getattr(module, 'code', None) # try in case load failed the first time and import mechanics lagged
+
 		if code:
 			return code
 		

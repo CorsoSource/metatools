@@ -368,6 +368,7 @@ class Tracer(object):
 	#--------------------------------------------------------------------------
 	
 	def dispatch(self, frame, event, arg):
+	
 		if self.SCRAM_SIGNAL:
 			self._scram(frame)
 			return None
@@ -677,11 +678,26 @@ class Tracer(object):
 	# Execution control
 	#--------------------------------------------------------------------------
 
+	def _command_scram(self, command='scram'):
+		self._scram(self.cursor_frame)
+	_command_SCRAM = _command_scram
+
 	def _command_release(self, command='release'):
 		"""Stop monitoring the thread (but do not tear down)"""
 		self.traps = set()
 		self.interdicting = False
 		self.monitoring = False	
+
+	def _command_interdict(self, command='interdict'):
+		"""Halt execution and hold for command inputs"""
+		self.interdict()
+	_command_i = _command_interdict
+
+	def _command_monitor(self, command='monitor', step_speed=0):
+		"""Resume execution but watch for breaks. If step_speed is nonzero, wait that many seconds between steps."""
+		self.step_speed = step_speed
+		self.monitor()
+	_command_m = _command_monitor
 
 
 	def _command_step(self, command='step'):
@@ -689,7 +705,7 @@ class Tracer(object):
 		self.traps.add(Step())
 		self.interdicting = False
 		self.monitoring = True
-	_command_interdict = _command_s = _command_step 
+	_command_s = _command_step
 
 
 	def _command_next(self, command='next'):
@@ -779,8 +795,8 @@ class Tracer(object):
 		return code_lines[start:end]
 	_command_l = _command_list
 
-	def _command_source(self, command='source'):
-		return CodeCache.get_lines(self.cursor_frame, radius=0, sys_context=self.sys)
+	def _command_source(self, command='source', radius=0):
+		return CodeCache.get_lines(self.cursor_frame, radius=radius, sys_context=self.sys)
 
 	def _command_args(self, command='args'):
 		"""Show the argument list to this function."""
