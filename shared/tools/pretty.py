@@ -77,8 +77,8 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 	except:
 		pass
 	
-	if '__doc__' in dir(o) and o.__doc__:
-		docstringLines = o.__doc__.splitlines()
+	if getattr(o, '__doc__', ''):
+		docstringLines = o.__doc__.strip().splitlines()
 		if len(docstringLines) > 1:
 			docstringLines = [docstringLines[0]] + textwrap.dedent('\n'.join(docstringLines[1:])).splitlines()
 		maxDocLen = max([len(line) for line in docstringLines] + [1])
@@ -151,7 +151,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 						attrReprs.append('< ? >')
 				
 				try:
-					attrDocs.append(' '.join(attr.__doc__.splitlines()))	
+					attrDocs.append(' '.join(attr.__doc__.strip().splitlines()))	
 				except:
 					attrDocs.append(None)
 					
@@ -325,7 +325,7 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		try:
 			colEleWidths = [max([len(repr(r)) for r in row] + [1]) for row in zip(*o)]
 		except:
-			pass
+			colEleWidths = []
 		
 		if not colEleWidths:
 			colEleWidths = [max([len(repr(element) 

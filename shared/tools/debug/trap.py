@@ -22,6 +22,7 @@ def resolve_field(context, field):
 
 
 class BaseTrap(object):
+	__slots__ = ('__weakref__',)
 
 	def __init__(self):
 		raise NotImplementedError("Subclass for specific methods of trapping.")

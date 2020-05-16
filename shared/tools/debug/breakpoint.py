@@ -13,6 +13,7 @@ class Breakpoint(object):
 				 'temporary', 'condition', 'hits', 
 				 'enabled', 'ignored',
 				 'note',
+				 '__weakref__',
 				 )
 
 	_id_counter = 0

@@ -3,7 +3,7 @@ from time import sleep
 
 from shared.tools.thread import getThreadState, Thread
 from shared.tools.global import ExtraGlobal
-from shared.tools.data import randomId
+from shared.tools.data import randomId, chunks
 
 from shared.tools.debug.hijack import SysHijack
 from shared.tools.debug.frame import iter_frames
@@ -18,6 +18,7 @@ from ast import literal_eval
 from time import sleep
 from collections import deque 
 from datetime import datetime, timedelta
+import textwrap
 
 from shared.tools.pretty import p,pdir
 
@@ -51,7 +52,7 @@ class Tracer(object):
 
 				 # Command attributes
 
-				 '_cursor_index', '_cursor_stack',
+				 '_cursor_index', '_cursor_stack', '_cursor_context_index',
 				 '_pending_commands', 
 				 '_map_o_commands',
 				 '_current_context', 'recording', 'context_buffer',
@@ -123,6 +124,7 @@ class Tracer(object):
 		
 		self._pending_commands = []
 
+		self._cursor_context_index = 0
 		self._cursor_index = 0
 		self._cursor_stack = tuple()
 
@@ -263,6 +265,7 @@ class Tracer(object):
 		"""Stop the trace and tear down the setup."""
 		self.interdicting = False
 		self.monitoring = False
+		self._cursor_stack = tuple()
 		try:
 			self._stack_uninstall()
 			self.sys._restore()
@@ -278,28 +281,66 @@ class Tracer(object):
 	def debug(self):
 		return self._debug
 
-	@property 
-	def cursor_frame(self):
-		# Override to fail safe to local context (if we're not actively monitoring...)
-		if self._cursor_index < len(self._cursor_stack):
-			return self._cursor_stack[self._cursor_index]
+
+	@property
+	def current_frame(self):
+		if self._current_context:
+			return self._current_context.frame
 		else:
 			return self.sys._getframe()
+
+	@property 
+	def current_locals(self):
+		return self.current_frame.f_locals
+	@property
+	def current_globals(self):
+		return self.current_frame.f_globals
+	@property
+	def current_code(self):
+		return self.current_frame.f_code
+
+
+	@property 
+	def cursor_frame(self):
+		# Though technically the same, 
+		# we'll treat the very most present context directly instead of via buffer
+		if self._cursor_context_index == 0:
+			# Override to fail safe to local context (if we're not actively monitoring...)
+			if self._cursor_index < len(self._cursor_stack):
+				return self._cursor_stack[self._cursor_index]
+			else:
+				return self.sys._getframe()
+		else:
+			frame = self.cursor_context.frame
+			for i in range(self._cursor_index):
+				if frame.f_back:
+					frame = frame.f_back
+				else:
+					break
+			return frame
+
+	@property
+	def cursor_context(self):
+		return self.context_buffer[self._cursor_context_index]
+
 	@property 
 	def cursor_locals(self):
 		return self.cursor_frame.f_locals
 	@property
 	def cursor_globals(self):
 		return self.cursor_frame.f_globals
-
 	@property
-	def current_context(self):
-		return self._current_context
-
+	def cursor_code(self):
+		return self.cursor_frame.f_code
+	
 	@property
-	def context_traceback(self):
-		return [repr(context) for i, context in enumerate(self.context_buffer) 
-				if (len(self.context_buffer) - 20) < i < len(self.context_buffer)]
+	def context_recent_traceback(self, past=20):
+		context_traceback = []
+		for i, context in enumerate(self.context_buffer):
+			context_traceback.append(repr(context))
+			if i >= past:
+				break
+		return context_traceback
 
 	@property
 	def stdin_log(self):
@@ -373,7 +414,10 @@ class Tracer(object):
 			self._scram(frame)
 			return None
 		
+		self.cursor_reset()
+		
 		if not self.monitoring:
+			self._cursor_stack = tuple()
 			return None
 				
 		if self.skip_frame(frame):
@@ -385,10 +429,11 @@ class Tracer(object):
 		self._cursor_stack = tuple(iter_frames(frame))
 		self._current_context = Snapshot(frame, event, arg, clone=self.recording)
 		
+		# Buffer's most present is always index 0
 		if self.recording:
-			self.context_buffer.append(self._current_context)
+			self.context_buffer.appendleft(self._current_context)
 		while len(self.context_buffer) > self.CONTEXT_BUFFER_LIMIT:
-			_ = self.context_buffer.popleft()
+			_ = self.context_buffer.pop()
 
 		self.logger.info('%r' % self._current_context)
 
@@ -470,7 +515,8 @@ class Tracer(object):
 
 
 	def command(self, command):
-		"""Interpret commands like PDB: '!' means execute, 
+		"""
+		Interpret commands like PDB: '!' means execute, 
 		otherwise it's a command word followed by optional arguments.
 		"""
 		if not command:
@@ -526,7 +572,12 @@ class Tracer(object):
 	def cursor_eval(self, expression):
 		code = self._compile(expression)
 		return self.sys.builtins['eval'](code, self.cursor_frame.f_globals, self.cursor_frame.f_locals)
-		
+	
+
+	def cursor_reset(self):
+		self._cursor_context_index = 0
+		self._cursor_index = 0
+
 
 	#==========================================================================
 	# PDB Commands
@@ -538,37 +589,107 @@ class Tracer(object):
 	#--------------------------------------------------------------------------
 
 
-	def _command_help(self):
-		"""Print available commands. If given a command print the command data."""
-		raise NotImplementedError
+	def _command_help(self, command='help', context=''):
+		"""
+		Print available commands. If given a command print the command data.
+		"""
+		# Return the info for the specific command, if requested
+		if context:
+			comfunc = self._map_o_commands[context]
+
+			aliases = ', '.join(alias for alias,cf in self._map_o_commands.items() 
+								if cf == comfunc)
+			doc = textwrap.dedent(comfunc.__doc__.strip())
+
+			return 'Aliases: %s\n%s' % (aliases, doc)
+
+		# Otherwise list everything available
+		else:
+			help_columns = 5
+
+			command_aliases = {}
+			for alias, comfunc in self._map_o_commands.items():
+				if comfunc in command_aliases:
+					command_aliases[comfunc].append(alias)
+				else:
+					command_aliases[comfunc] = [alias]
+			for comfunc, aliases in command_aliases.items():
+				aliases.sort()
+				# move the main alias to the head of the list (in place)
+				# (name is _command_ALIAS, so skip first 9...)
+				aliases.insert(0, aliases.pop(aliases.index(comfunc.__name__[9:])))
+
+			all_aliases = [', '.join(aliases) for aliases in sorted(command_aliases.values())]
+
+			width = max(len(a) for a in all_aliases)
+
+			format_string = '%%-%ds' % width
+
+			return 'Commands available (with aliases)\n|%s|' % '|\n|'.join(
+				' | '.join(
+					format_string % a for a in chunk
+				) for chunk in chunks(all_aliases, help_columns))
 	_command_h = _command_help
 
 
-	def _command_where(self):
-		"""Print a stack trace, with the most recent frame at the bottom, pointing to cursor frame."""
+	def _command_where(self, command='where'):
+		"""
+		Print a stack trace, with the most recent frame at the bottom, pointing to cursor frame.
+		"""
 		stack = [trace_entry_line(frame, indent= ('-> ' if index == self._cursor_index else '   ') )
 				 for index, frame
 				 in iter_frames(self.cursor_frame)]
+
+		stack.append('Cursor is %s current execution frame in %s context' % (
+			'at' if not self._cursor_index else ('%d from' % self._cursor_index),
+			'the present' if not self._cursor_context_index else ('%d step(s) past' % self._cursor_context_index),
+			))
 
 		return '\n'.join(reversed(stack))
 
 	_command_w = _command_where 
 
 
-	def _command_down(self):
-		"""Move the cursor to a more recent frame (down the stack)"""
+	# Position frame
+
+	def _command_down(self, command='up'):
+		"""
+		Move the cursor to a more recent frame (down the stack)
+		"""
 		if self._cursor_index:
 			self._cursor_index -= 1
 		return self._cursor_index
 	_command_d = _command_down
 
-
-	def _command_up(self):
-		"""Move the cursor to an older frame (up the stack)"""
+	def _command_up(self, command='up'):
+		"""
+		Move the cursor to an older frame (up the stack)
+		"""
 		if self._cursor_index < (len(self._cursor_stack) - 1):
 			self._cursor_index += 1
 		return self._cursor_index
 	_command_u = _command_up
+
+
+	# Position context
+
+	def _command_back(self, command='back'):
+		"""
+		Move the context to an older executed line (into the past)
+		"""
+		if self._cursor_context_index < (len(self.context_buffer)-1):
+			self._cursor_context_index += 1
+		return self._cursor_context_index
+	_command_b = _command_back
+
+	def _command_forward(self, command='forward'):
+		"""
+		Move the context to a more recent executed line (towards the present)
+		"""
+		if self._cursor_context_index:
+			self._cursor_context_index -= 1
+		return self._cursor_context_index
+	_command_f = _command_forward
 
 
 	#--------------------------------------------------------------------------
@@ -577,10 +698,8 @@ class Tracer(object):
 
 
 	def _command_clear(self, command='clear', *breakpoints):
-		"""Clear breakpoint(s).
-
-		Breakpoints can be by ID, location, or instance.
-
+		"""
+		Clear breakpoint(s). Breakpoints can be by ID, location, or instance.
 		If none are provided, clear all after confirmation. (Pulled off _pending_commands)
 		"""
 		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
@@ -602,7 +721,9 @@ class Tracer(object):
 
 
 	def _command_enable(self, command='enable', *breakpoints):
-		"""Enable the breakpoints"""
+		"""
+		Enable the given breakpoints
+		"""
 		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
 
 		for breakpoint in breakpoints:
@@ -610,7 +731,9 @@ class Tracer(object):
 
 
 	def _command_disable(self, command='disable', *breakpoints):
-		"""Disable the breakpoints"""
+		"""
+		Disable the given breakpoints
+		"""
 		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
 
 		for breakpoint in breakpoints:
@@ -618,15 +741,18 @@ class Tracer(object):
 
 
 	def _command_ignore(self, command='ignore', breakpoint=None, num_passes=0):
-		"""Run past breakpoint num_passes times. 
-		Once count goes to zero the breakpoint activates."""
+		"""
+		Run past breakpoint num_passes times. 
+		Once count goes to zero the breakpoint activates.
+		"""
 		if breakpoint is None:
 			return
 		breakpoint.ignore(self, num_passes)
 
 
 	def _command_break(self, command='break', stop_location='', stop_condition=lambda:True):
-		"""Create a breakpoint at the given location.
+		"""
+		Create a breakpoint at the given location.
 		
 		The stop_location can be
 		 - a line in the current file
@@ -647,19 +773,24 @@ class Tracer(object):
 
 
 	def _command_tbreak(self, command='tbreak', stop_location='', stop_condition=lambda:True):
-		"""Create a temporary breakpoint at the given location. Same usage otherwise as break."""
+		"""
+		Create a temporary breakpoint at the given location. Same usage otherwise as break.
+		"""
 		raise NotImplementedError
 
 
 	def _command_condition(self, command='condition', breakpoint=None, condition=None):
-		"""Stop on breakpoint if condition is True"""
+		"""
+		Stop on breakpoint if condition is True
+		"""
 		if condition is None:
 			raise RuntimeError("Condition is required for conditional breakpoints.")
 		raise NotImplementedError
 
 
 	def _command_commands(self, command='commands', breakpoint=None):
-		"""Run commands when breakpoint is reached. 
+		"""
+		Run commands when breakpoint is reached. 
 		Commands entered will be assigned to this breakpoint until 'end' is seen.
 
 		To clear a breakpoint's commands, enter this mode and enter 'end' immediately.
@@ -679,29 +810,41 @@ class Tracer(object):
 	#--------------------------------------------------------------------------
 
 	def _command_scram(self, command='scram'):
+		"""
+		Halt interdiction, monitoring, tracing, and remove from callstack and hijacked sys.
+		"""
 		self._scram(self.cursor_frame)
 	_command_SCRAM = _command_scram
 
 	def _command_release(self, command='release'):
-		"""Stop monitoring the thread (but do not tear down)"""
+		"""
+		Stop monitoring the thread (but do not tear down)
+		"""
 		self.traps = set()
 		self.interdicting = False
 		self.monitoring = False	
 
 	def _command_interdict(self, command='interdict'):
-		"""Halt execution and hold for command inputs"""
+		"""
+		Halt execution and hold for command inputs
+		"""
 		self.interdict()
 	_command_i = _command_interdict
 
 	def _command_monitor(self, command='monitor', step_speed=0):
-		"""Resume execution but watch for breaks. If step_speed is nonzero, wait that many seconds between steps."""
+		"""
+		Resume execution but watch for breaks. 
+		If step_speed is nonzero, wait that many seconds between steps.
+		"""
 		self.step_speed = step_speed
 		self.monitor()
 	_command_m = _command_monitor
 
 
 	def _command_step(self, command='step'):
-		"""Step into the next function in the current line (or to the next line, if done)."""
+		"""
+		Step into the next function in the current line (or to the next line, if done).
+		"""
 		self.traps.add(Step())
 		self.interdicting = False
 		self.monitoring = True
@@ -709,7 +852,8 @@ class Tracer(object):
 
 
 	def _command_next(self, command='next'):
-		"""Continue to the next line (or return statement). 
+		"""
+		Continue to the next line (or return statement). 
 		Note step 'steps into a line' (possibly making the call stack deeper)
 		  while next goes to the 'next line in this frame'. 
 		"""
@@ -720,7 +864,9 @@ class Tracer(object):
 
 
 	def _command_until(self, command='until', target_line=0):
-		"""Continue until a higher line number is reached, or optionally target_line."""
+		"""
+		Continue until a higher line number is reached, or optionally target_line.
+		"""
 		self.traps.add(Until(self.current_context))
 		self.interdicting = False
 		self.monitoring = True
@@ -728,7 +874,9 @@ class Tracer(object):
 
 
 	def _command_return(self, command='return'):
-		"""Continue until the current frame returns."""
+		"""
+		Continue until the current frame returns.
+		"""
 		self.traps.add(Return(self.current_context))
 		self.interdicting = False
 		self.monitoring = True
@@ -736,7 +884,9 @@ class Tracer(object):
 
 
 	def _command_continue(self, command='continue'):
-		"""Resume execution until a breakpoint is reached. Clears all traps."""
+		"""
+		Resume execution until a breakpoint is reached. Clears all traps.
+		"""
 		self.traps = set()
 		self.interdicting = False
 		self.monitoring = True
@@ -744,7 +894,8 @@ class Tracer(object):
 
 
 	def _command_jump(self, command='jump', target_line=0):
-		"""Set the next line to be executed. Only possible in the bottom frame.
+		"""
+		Set the next line to be executed. Only possible in the bottom frame.
 		
 		Use this to re-run code or skip code in the current frame.
 		NOTE: You can note jump into the middle of a for loop or out of a finally clause.
@@ -761,7 +912,8 @@ class Tracer(object):
 
 
 	def _command_list(self, command='list', first=0, last=0):
-		"""List the source code for the current file, +/- 5 lines.
+		"""
+		List the source code for the current file, +/- 5 lines.
 		Given just first, show code +/- 5 lines around first.
 		Given first and last show code between the two given line numbers.
 		If last is less than first it goes last lines past the first. 
@@ -796,10 +948,15 @@ class Tracer(object):
 	_command_l = _command_list
 
 	def _command_source(self, command='source', radius=0):
+		"""
+		Returns the source code for the file at the cursor frame.
+		"""
 		return CodeCache.get_lines(self.cursor_frame, radius=radius, sys_context=self.sys)
 
 	def _command_args(self, command='args'):
-		"""Show the argument list to this function."""
+		"""
+		Show the argument list to the function at the cursor frame.
+		"""
 		frame = self.cursor_frame
 		frame_code = frame.f_code
 		argnames = frame_code.co_varnames[:frame_code.co_argcount]
@@ -808,28 +965,35 @@ class Tracer(object):
 
 
 	def _command_p(self, command='p', expression=''):
-		"""Print the expression."""
+		"""
+		(Pretty) Print the expression.
+		"""
 		if expression == '':
 			return
 		return p(self.cursor_eval(expression), directPrint=False)
 
 
 	def _command_pp(self, command='pp', expression=''):
-		"""Print the expression via pretty printing. This is actually how p works, too."""
+		"""
+		Print the expression via pretty printing. This is actually how p works, too.
+		"""
 		if expression == '':
 			return
 		return p(self.cursor_eval(expression), directPrint=False)
 
 
 	def _command_pdir(self, command='pdir', expression='', skip_private=True):
-		"""Print the expression via pretty printing. This is actually how p works, too."""
+		"""
+		Print the dir() command via pretty printing.
+		"""
 		if expression == '':
 			return
 		return pdir(self.cursor_eval(expression), skipPrivate=skip_private, directPrint=False)
 		
 		
 	def _command_alias(self, command='alias', name='', command_string=''):
-		"""Create an alias called name that executes command. 
+		"""
+		Create an alias called name that executes command. 
 		If no command, then show what alias is. If no name, then show all aliases.
 
 		NOTE: The command should not be in quotes.
@@ -840,14 +1004,17 @@ class Tracer(object):
 
 
 	def _command_unalias(self, command='unalias', name=''):
-		"""Delete the specified alias."""
+		"""
+		Delete the specified alias.
+		"""
 		if not name:
 			raise RuntimeError("Unalias must have a name to, well, un-alias.")
 		raise NotImplementedError
 
 
 	def _command_statement(self, raw_command, *tokens):
-		"""Execute the (one-line) statement. 
+		"""
+		Execute the (one-line) statement. 
 		Start the statement with '!' if it starts with a command.
 
 		To set a global variable, prefix the assignment command with `global`
@@ -877,12 +1044,18 @@ class Tracer(object):
 
 
 	def _command_run(self, command, *args):
-		"""Restart the debugged program. This is not and will not be implemented."""
+		"""
+		Warning: NotImplementedError
+
+		Restart the debugged program. This is not and will not be implemented.
+		"""
 		raise NotImplementedError("IPDB will not implement the 'run' command.")
 	
 
 	def _command_quit(self, command):
-		"""Quit the debugger. Unlike in PDB, this will _not_ kill the program thread."""
+		"""
+		Quit the debugger. Unlike in PDB, this will _not_ kill the program thread.
+		"""
 		self.shutdown()
 		self.sys._restore()
 	_command_shutdown = _command_die = _command_q = _command_quit

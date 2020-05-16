@@ -5,13 +5,32 @@
 
 from com.inductiveautomation.ignition.common import BasicDataset
 from itertools import izip as zip
-import re, fnmatch
+import re, fnmatch, random, string
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
 __license__ = 'Apache 2.0'
 __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
+
+
+def chunks(l, n):
+    """https://stackoverflow.com/a/1751478"""
+    n = max(1, n)
+    return (l[i:i+n] for i in xrange(0, len(l), n))
+
+
+def unchunk(listOfLists):
+    linList = []
+    numBuckets = len(listOfLists)
+    maxDepth = max(len(subList) for subList in listOfLists)
+    for i in range(maxDepth):
+        for subList in listOfLists:
+            try:
+                linList.append(subList[i])
+            except IndexError:
+                continue
+    return linList
 
 
 def randomId(numLetters=10):

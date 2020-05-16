@@ -13,6 +13,7 @@ class DefSysHijack(object):
 	__slots__ = (
 				 '_target_thread', 
 				 '_io_proxy',
+				 '__weakref__',
 	             )
 
 	def __init__(self, thread):

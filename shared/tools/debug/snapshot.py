@@ -8,7 +8,8 @@ class Snapshot(object):
 	__slots__ = ('_event', '_arg', '_frame',
 				 '_filename', '_line', '_caller', '_depth',
 				 '_locals_key', '_locals_dup', '_locals_ref', '_locals_err', 
-				 '_cloned')
+				 '_cloned', 
+				 '__weakref__',)
 	
 	_repr_markers = {'line': '|',  'call': '+',   'return': '/',   'exception': 'X',
 							     'c_call': '+', 'c_return': '/', 'c_exception': 'X', 

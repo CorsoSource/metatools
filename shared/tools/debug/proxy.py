@@ -14,6 +14,7 @@ class StreamBuffer(object):
 				 '_target_io',
 				 '_parent_proxy', 
 				 '_buffer_line',
+				 '__weakref__',
 				)
 	_MAX_HISTORY = 10000
 	_BUFFER_CHUNK = 1000
