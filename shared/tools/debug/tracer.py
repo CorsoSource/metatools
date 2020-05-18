@@ -1,7 +1,7 @@
 from weakref import WeakValueDictionary
 from time import sleep
 
-from shared.tools.thread import getThreadState, Thread
+from shared.tools.thread import getThreadState, Thread, async
 from shared.tools.global import ExtraGlobal
 from shared.tools.data import randomId, chunks
 
@@ -21,6 +21,8 @@ from datetime import datetime, timedelta
 import textwrap
 
 from shared.tools.pretty import p,pdir
+
+from shared.tools.enum import Enum
 
 
 class Tracer(object):
@@ -54,7 +56,7 @@ class Tracer(object):
 
 				 '_cursor_index', '_cursor_stack', '_cursor_context_index',
 				 '_pending_commands', 
-				 '_map_o_commands',
+				 '_map_o_commands', '_logged_commands',
 				 '_current_context', 'recording', 'context_buffer',
 				 
 				 '_alias_commands', 
@@ -68,11 +70,19 @@ class Tracer(object):
 				 'step_speed',
 				 '_FAILSAFE_TIMEOUT', '_debug', # DeprecationWarning
 				 'logger', 'id',
+
+				 # Ignition details
+				 '_ignition_host', '_ignition_scope', '_ignition_client', '_ignition_project',
+
+				 # Remote control handles
+				 '_remote_request_handle', '_remote_request_thread',
 				 
 				 '__weakref__', # Allows the weakref mechanics to work on this slotted class.
 				)
 
+
 	CONTEXT_BUFFER_LIMIT = 1000
+	COMMAND_BUFFER_LIMIT = 1000
 	_UPDATE_CHECK_DELAY = 0.01
 	INTERDICTION_FAILSAFE = False # True
 	INTERDICTION_FAILSAFE_TIMEOUT = 30000 # milliseconds (seconds if failsafe disabled)
@@ -101,10 +111,21 @@ class Tracer(object):
 		'<module:shared.tools.debug.trap>',
 		])
 
+
 	def __init__(self, thread=None, *args, **kwargs):
 	
-		self.id = randomId()
+		self._ignition_host = ''
+		self._ignition_scope = None
+		self._ignition_client = None
+		self._ignition_project = ''
+		self._resolve_ignition_scope()
+
+		self.id = randomId(5)
 		self.logger = system.util.getLogger('Tracer %s' % self.id)
+
+		# Remote control handles
+		self._remote_request_handle = None
+		self._remote_request_thread = None
 
 		# Event init
 		
@@ -123,7 +144,7 @@ class Tracer(object):
 			if attribute.startswith('_command_'))
 		
 		self._pending_commands = []
-
+		self._logged_commands = deque()
 		self._cursor_context_index = 0
 		self._cursor_index = 0
 		self._cursor_stack = tuple()
@@ -155,12 +176,14 @@ class Tracer(object):
 		#self.sys.settrace(Tracer.dispatch)
 		self.sys.settrace(Tracer._nop)
 		
-		self._active_tracers[thread] = self
-		ExtraGlobal.stash(self, self.id, scope='Tracer', callback=lambda self=self: self)
+		self._active_tracers[self.id] = self
+		ExtraGlobal.stash(self, self.id, scope=self.ExtraGlobalScopes.INSTANCES, callback=lambda self=self: self)
 		
 		self._FAILSAFE_TIMEOUT = datetime.now()
 
 		self.step_speed = 0
+
+		self._log_command('<INIT>', 'Done.')
 
 
 	@classmethod
@@ -269,6 +292,8 @@ class Tracer(object):
 		try:
 			self._stack_uninstall()
 			self.sys._restore()
+			if self._remote_request_handle:
+				self._remote_request_handle.cancel()
 		except:
 			raise RuntimeError('Tracer shutdown gracelessly - traced thread is likely already dead and cleanup thus failed.')
 
@@ -298,6 +323,10 @@ class Tracer(object):
 	@property
 	def current_code(self):
 		return self.current_frame.f_code
+
+	@property
+	def current_context(self):
+		return self._current_context
 
 
 	@property 
@@ -510,8 +539,277 @@ class Tracer(object):
 
 
 	#==========================================================================
+	# Ignition Messages
+	#==========================================================================
+
+	IGNITION_MESSAGE_PROJECT = 'Tracing Debugger'
+	IGNITION_MESSAGE_HANDLER = 'Remote Tracer Control'
+
+	# If possible, allow Ignition message traffic to request inputs
+	REMOTE_CONTROLLABLE = True if getattr(system.util, 'sendRequestAsync', None) else False
+
+	_MESSAGE_CALLBACK_TIMEOUT = 0.500
+
+	# Standardize the string keys that will be used
+	# NOTE: Enum will break the message handlers when in payloads, apparently. 
+	#   It's _literally_ a string, but the Jython reflection gets hung up on the details, it seems.
+	# Python doesn't treat it as different, but Java has a different opinion.
+
+	class MessageTypes(Enum):
+		INPUT = 'input'
+		COMMAND = 'command'
+		STATE_UPDATE = 'update'
+		STATE_CHECK = 'check'
+		
+	class MessageScopes(Enum):
+		GATEWAY = 'G'
+		CLIENT = 'C'
+		ALL = 'GC'
+
+	class ExtraGlobalScopes(Enum):
+		INSTANCES = 'Tracers'
+		REMOTE_INFO = 'Remote Tracers'
+		REMOTE_COMMANDS = 'Remote Tracer Commands'
+
+	class IgnitionContexts(Enum):
+		DESIGNER = 'D'
+		GATEWAY = 'G'
+		VISION_CLIENT = 'V'
+		PERSPECTIVE_SESSION = 'P'
+
+
+	def _resolve_ignition_scope(self):
+
+		self._ignition_project = system.util.getProjectName()
+		self._ignition_host = system.net.getHostName()
+
+		if getattr(system.util, 'getSystemFlags', None):
+			sysFlags = system.util.getSystemFlags()
+			if sysFlags & system.util.DESIGNER_FLAG:
+				self._ignition_scope = self.IgnitionContexts.DESIGNER
+				self._ignition_client = system.util.getClientId()
+			elif sysFlags & system.util.CLIENT_FLAG:
+				self._ignition_scope = self.IgnitionContexts.VISION_CLIENT
+				self._ignition_client = system.util.getClientId()
+		else:
+			try:
+				session = getObjectByName('session', startRecent=False)
+				self._ignition_scope = self.IgnitionContexts.PERSPECTIVE_SESSION
+				self._ignition_client = session.props.id
+			except:
+				self._ignition_scope = self.IgnitionContexts.GATEWAY
+				self._ignition_client = None
+
+
+	#--------------------------------------------------------------------------
+	# Ignition message hooks
+	#--------------------------------------------------------------------------
+
+	def _request_command(self):
+		"""
+		Ask the debug project for input. 
+		This supplements the self._pending_commands waiting loop.
+		"""
+		if not self.REMOTE_CONTROLLABLE:
+			return
+
+		# Don't attempt a request if already in progress
+		if self._remote_request_handle:
+			return
+
+		# Run in an async, since we don't want to risk waiting for GUI to finish
+		#   while we're blocking it with a tracer
+		@async(name='Tracer-%s-CommandRequest' % self.id)
+		def request_command(self=self):
+
+			# Don't attempt a request if already in progress
+			if self._remote_request_handle:
+				return
+
+			self._remote_request_handle = request_handle = system.util.sendRequestAsync(
+					project=self.IGNITION_MESSAGE_PROJECT,
+					messageHandler=self.IGNITION_MESSAGE_HANDLER,
+					payload = {
+						'message': str(self.MessageTypes.INPUT),
+						'id': self.id,
+					},
+					timeoutSec=self._MESSAGE_CALLBACK_TIMEOUT,
+
+					# This runs on the GUI thread. That... may go badly if we're tracing a GUI script.
+					#   So for that reason we'll just not use callbacks, and instead block explicitly.
+					#onSuccess=self._request_reply_onSuccess,
+					#onError=self._request_reply_onError
+				)
+
+			# Pass in request_handle as a sanity check.
+			# It's possible that the request has been cancelled, replaced, or otherwise ignored.
+			try:
+				self._request_command_onSuccess(request_handle.get(), request_handle)
+			except:
+				self._request_command_onError(request_handle.getError(), request_handle)
+
+		self._remote_request_thread = request_command()
+
+
+	def _request_command_onSuccess(self, result, request_handle=None):
+		# Fail if callback is deprecated or already handled
+		if not self._remote_request_handle:
+			return
+		if request_handle and (self._remote_request_handle is not request_handle):
+			return
+
+		# Request complete - clear it. 
+		#   Assume that if not sanity check request_handle was passed in, this was correctly called back. 
+		self._remote_request_handle = None
+
+		if result:
+			if isinstance(result, (str, unicode)):
+				self._pending_commands.append(result)
+			elif isinstance(result, (list, tuple, set)):
+				for command in result:
+					self._pending_commands.append(command)
+
+
+	def _request_command_onError(self, error, request_handle=None):
+		# Fail if callback is deprecated or already handled
+		if not self._remote_request_handle:
+			return
+		if request_handle and (self._remote_request_handle is not request_handle):
+			return
+
+		# Request complete - clear it. 
+		#   Assume that if not sanity check request_handle was passed in, this was correctly called back. 
+		self._remote_request_handle = None
+
+		pass # don't do anything on error yet...
+
+
+
+	@classmethod
+	def _handle_payload(cls, payload):
+		"""Handle payloads sent for debug messages."""
+		tracer_id = payload['id']
+		message_type = payload['message']
+
+		# Reply to a tracer's request for commands (if any have been buffered)
+		if message_type == cls.MessageTypes.INPUT:
+			commands = ExtraGlobal.get(label=tracer_id, 
+									   scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS, 
+									   default=[])
+			ExtraGlobal.trash(label=tracer_id, 
+							  scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS)
+			return commands
+
+		if message_type == cls.MessageTypes.COMMAND:
+			ExtraGlobal.stash(payload,
+							  label=tracer_id,
+							  scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS)
+
+		if message_type == cls.MessageTypes.STATE_UPDATE:
+			ExtraGlobal.stash(payload,
+							  label=tracer_id, 
+							  scope=cls.ExtraGlobalScopes.REMOTE_INFO)
+
+		if message_type == cls.MessageTypes.STATE_CHECK:
+			return ExtraGlobal.get(label=tracer_id,
+								   scope=cls.ExtraGlobalScopes.REMOTE_INFO,
+								   default=None)
+
+
+	@classmethod
+	def _request_update(self, tracer_id):
+		return system.util.sendRequest(
+				project=cls.IGNITION_MESSAGE_PROJECT,
+				messageHandler=cls.IGNITION_MESSAGE_HANDLER,
+				payload = {
+					'message': str(cls.MessageTypes.STATE_CHECK),
+					'id': tracer_id,
+				},
+				timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
+			)
+
+
+	def _send_update(self):
+		if self.REMOTE_CONTROLLABLE:
+			_ = system.util.sendMessage(
+				project=self.IGNITION_MESSAGE_PROJECT,
+				messageHandler=self.IGNITION_MESSAGE_HANDLER,
+				payload=self._payload_tracer_state,
+				scope=self.MessageScopes.ALL
+				)
+
+
+	#--------------------------------------------------------------------------
+	# Payloads
+	#--------------------------------------------------------------------------
+
+	@property
+	def _payload_tracer_state(self):
+		return {
+			'message': str(self.MessageTypes.STATE_UPDATE),
+			'id': self.id,
+			'ignition': self._payload_ignition_info,
+			'cursor': self._payload_cursor_info,
+			'log': self._payload_last_log,
+		}
+	
+	@property
+	def _payload_ignition_info(self):
+		return {
+			'host': self._ignition_host,			
+			'project': self._ignition_project,
+			'client': self._ignition_client,
+			'scope': str(self._ignition_scope),
+		}
+
+	def _payload_last_logs(self, n=5):
+		return {
+ 			'stdout': self.sys.stdout.history[-n:],
+			'stdin': self.sys.stdin.history[-n:],
+			'stderr': self.sys.stderr.history[-n:],
+			'commands': [ {
+					'in': self._logged_commands[i][0],
+					'out': self._logged_commands[i][1],
+				} for i in reversed(range(n)) if i < len(self._logged_commands)
+			] 				
+		}
+
+	@property 
+	def _payload_last_log(self, n=5):
+		return {
+ 			'stdout': self.sys.stdout.history[-1:],
+			'stdin': self.sys.stdin.history[-1:],
+			'stderr': self.sys.stderr.history[-1:],
+			'command': {
+				'in': self._logged_commands[0][0],
+				'out': self._logged_commands[0][1],
+			}
+		}
+
+	@property
+	def _payload_cursor_info(self):
+
+		frame = self.cursor_frame
+
+		return {
+			'source': self._command_source(),
+			'locals': p(frame.f_locals, directPrint=False),
+			'globals': p(frame.f_globals, directPrint=False),
+			'code': p(frame.f_code, directPrint=False),
+			'index': {
+				'stack': self._cursor_index,
+				'context': self._cursor_context_index,
+			},
+		}
+		
+
+	#==========================================================================
 	# Interaction
 	#==========================================================================
+
+	#--------------------------------------------------------------------------
+	# Command controls
+	#--------------------------------------------------------------------------
 
 
 	def command(self, command):
@@ -522,8 +820,13 @@ class Tracer(object):
 		if not command:
 			return
 
+		# In case a command runs slower than fast, or if you want to compare cause and effect
+		#   in the std* histories, then the timestamp should happen before it is run.
+		# So capture here, then log after.
+		timestamp = datetime.now()
+
 		if command.lstrip()[0] == '!':
-			return self._command_statement(command)
+			result = self._command_statement(command)
 		else:
 			args = []
 			for arg in command.split():
@@ -531,7 +834,10 @@ class Tracer(object):
 					args.append(literal_eval(arg))
 				except:
 					args.append(arg)
-			return self._map_o_commands.get(args[0], self._command_default)(command, *args[1:])
+			result = self._map_o_commands.get(args[0], self._command_default)(command, *args[1:])
+
+		self._log_command(command, result, timestamp)
+		return result
 
 
 	def command_loop(self):
@@ -549,6 +855,11 @@ class Tracer(object):
 		
 		while self.interdicting:
 			if not self._pending_commands:
+
+				# Attempt to allow remote control of tracer (in case of gui thread blocking, for example)
+				if not self._remote_request_handle:
+					self._request_command()
+
 				sleep(self._UPDATE_CHECK_DELAY)
 
 				# Failsafe off ramp
@@ -560,7 +871,14 @@ class Tracer(object):
 				#self.logger.info('Command: %s' % self.command)
 				self.command(self._pending_commands.pop())
 
-	
+
+	def _log_command(self, command, result, timestamp=None):
+		format_string = '[%s] (IPD) %s'
+		self._logged_commands.appendleft((format_string % (timestamp or datetime.now(), command), result))
+		while len(self._logged_commands) > self.COMMAND_BUFFER_LIMIT:
+			_ = self._logged_commands.pop()	
+
+
 	def _await_pause(self):
 		while not self._pending_commands:
 			sleep(self._UPDATE_CHECK_DELAY)
@@ -700,19 +1018,20 @@ class Tracer(object):
 	def _command_clear(self, command='clear', *breakpoints):
 		"""
 		Clear breakpoint(s). Breakpoints can be by ID, location, or instance.
-		If none are provided, clear all after confirmation. (Pulled off _pending_commands)
+		If none are provided, clear all.
 		"""
 		breakpoints = Breakpoint.resolve_breakpoints(breakpoints)
 
 		if not breakpoints:
-			print "Please confirm clearing all breakpoints (yes/no)"
-			self._await_pause()
-			command = self._pending_commands.pop()
-			if command.lower() in ('y','yes',):
-				breakpoints = Breakpoint._instances.values()
-			else:
-				print "Breakpoints were not cleared."
-				return
+			# self.logger.warn("Please confirm clearing all breakpoints (yes/no)")
+			# self._await_pause()
+			# command = self._pending_commands.pop()
+			# if command.lower() in ('y','yes',):
+			self.logger.warn("Clearing all breakpoints")
+			breakpoints = Breakpoint._instances.values()
+			# else:
+			# 	self.logger.warn("Breakpoints were not cleared.")
+			# 	return
 
 		for breakpoint in breakpoints:
 			breakpoint._remove()
