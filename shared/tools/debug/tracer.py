@@ -84,7 +84,7 @@ class Tracer(object):
 
 	CONTEXT_BUFFER_LIMIT = 1000
 	COMMAND_BUFFER_LIMIT = 1000
-	_UPDATE_CHECK_DELAY = 0.01
+	_UPDATE_CHECK_DELAY = 0.100 # seconds (leave relatively high since it should be driven by human input.)
 	INTERDICTION_FAILSAFE = False # True
 	INTERDICTION_FAILSAFE_TIMEOUT = 30000 # milliseconds (seconds if failsafe disabled)
 
@@ -550,9 +550,11 @@ class Tracer(object):
 	IGNITION_MESSAGE_HANDLER = 'Remote Tracer Control'
 
 	# If possible, allow Ignition message traffic to request inputs
-	REMOTE_CONTROLLABLE = False # True if getattr(system.util, 'sendRequestAsync', None) else False
+	REMOTE_CONTROLLABLE = True if getattr(system.util, 'sendRequest', None) else False
 
-	_MESSAGE_CALLBACK_TIMEOUT = 0.500
+	# Make sure the sendRequest is not called more often than a few times a second, 
+	#   or the client starts to log jam events a bit.
+	_MESSAGE_CALLBACK_TIMEOUT = 1.00 # seconds
 
 	# Standardize the string keys that will be used
 	# NOTE: Enum will break the message handlers when in payloads, apparently. 
@@ -609,7 +611,7 @@ class Tracer(object):
 	# Ignition message hooks
 	#--------------------------------------------------------------------------
 
-	def _request_command(self):
+	def _request_command(self, blocking=True):
 		"""
 		Ask the debug project for input. 
 		This supplements the self._pending_commands waiting loop.
@@ -619,6 +621,25 @@ class Tracer(object):
 
 		# Don't attempt a request if already in progress
 		if self._remote_request_handle:
+			return
+
+		if blocking:
+			result = system.util.sendRequest(
+					project=self.IGNITION_MESSAGE_PROJECT,
+					messageHandler=self.IGNITION_MESSAGE_HANDLER,
+					payload = {
+						'message': str(self.MessageTypes.INPUT),
+						'id': self.id,
+					},
+					timeoutSec=self._MESSAGE_CALLBACK_TIMEOUT,
+					scope=self.MessageScopes.GATEWAY
+					)
+
+			if result:
+				self._remote_request_handle = True
+				self._request_command_onSuccess(result)
+			
+			sleep(self._UPDATE_CHECK_DELAY)
 			return
 
 		# Run in an async, since we don't want to risk waiting for GUI to finish
@@ -711,8 +732,9 @@ class Tracer(object):
 			commands = ExtraGlobal.get(label=tracer_id, 
 									   scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS, 
 									   default=[])
-			ExtraGlobal.trash(label=tracer_id, 
-							  scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS)
+			if commands:
+				ExtraGlobal.trash(label=tracer_id, 
+								  scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS)
 			return commands
 
 		if message_type == cls.MessageTypes.COMMAND:
@@ -873,7 +895,7 @@ class Tracer(object):
 
 				# Attempt to allow remote control of tracer (in case of gui thread blocking, for example)
 				if self.REMOTE_CONTROLLABLE and not self._remote_request_handle:
-					self._request_command()
+					self._request_command(blocking=True)
 
 				# If given a tag for input, check if it has a command ready.
 				# To prevent repeated commands, value must be cleared between commands.
@@ -901,6 +923,11 @@ class Tracer(object):
 				if self.tag_path:
 					if not self.tag_acked:
 						system.tag.write(self.tag_path, str(result))
+	
+			# Send update after all commands are run (query for logs if batch set...)
+			if self.REMOTE_CONTROLLABLE:
+				self._send_update()
+
 
 
 	def _log_command(self, command, result, timestamp=None):
