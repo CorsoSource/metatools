@@ -546,7 +546,7 @@ class Tracer(object):
 	IGNITION_MESSAGE_HANDLER = 'Remote Tracer Control'
 
 	# If possible, allow Ignition message traffic to request inputs
-	REMOTE_CONTROLLABLE = True if getattr(system.util, 'sendRequestAsync', None) else False
+	REMOTE_CONTROLLABLE = False # True if getattr(system.util, 'sendRequestAsync', None) else False
 
 	_MESSAGE_CALLBACK_TIMEOUT = 0.500
 
@@ -619,7 +619,7 @@ class Tracer(object):
 
 		# Run in an async, since we don't want to risk waiting for GUI to finish
 		#   while we're blocking it with a tracer
-		@async(name='Tracer-%s-CommandRequest' % self.id)
+		@async(startDelaySeconds=self._UPDATE_CHECK_DELAY, name='Tracer-%s-CommandRequest' % self.id)
 		def request_command(self=self):
 
 			# Don't attempt a request if already in progress
@@ -658,16 +658,17 @@ class Tracer(object):
 		if request_handle and (self._remote_request_handle is not request_handle):
 			return
 
-		# Request complete - clear it. 
-		#   Assume that if not sanity check request_handle was passed in, this was correctly called back. 
-		self._remote_request_handle = None
-
 		if result:
 			if isinstance(result, (str, unicode)):
 				self._pending_commands.append(result)
 			elif isinstance(result, (list, tuple, set)):
 				for command in result:
 					self._pending_commands.append(command)
+
+		# Request complete - clear it. 
+		#   Assume that if not sanity check request_handle was passed in, this was correctly called back. 
+		sleep(self._UPDATE_CHECK_DELAY)
+		self._remote_request_handle = None
 
 
 	def _request_command_onError(self, error, request_handle=None):
@@ -677,12 +678,12 @@ class Tracer(object):
 		if request_handle and (self._remote_request_handle is not request_handle):
 			return
 
-		# Request complete - clear it. 
-		#   Assume that if not sanity check request_handle was passed in, this was correctly called back. 
-		self._remote_request_handle = None
-
 		pass # don't do anything on error yet...
 
+		# Request complete - clear it. 
+		#   Assume that if not sanity check request_handle was passed in, this was correctly called back. 
+		sleep(self._UPDATE_CHECK_DELAY)
+		self._remote_request_handle = None
 
 
 	@classmethod
@@ -857,7 +858,7 @@ class Tracer(object):
 			if not self._pending_commands:
 
 				# Attempt to allow remote control of tracer (in case of gui thread blocking, for example)
-				if not self._remote_request_handle:
+				if self.REMOTE_CONTROLLABLE and not self._remote_request_handle:
 					self._request_command()
 
 				sleep(self._UPDATE_CHECK_DELAY)
