@@ -542,7 +542,7 @@ class Tracer(object):
 	# Ignition Messages
 	#==========================================================================
 
-	IGNITION_MESSAGE_PROJECT = 'Tracing Debugger'
+	IGNITION_MESSAGE_PROJECT = 'Debugger'
 	IGNITION_MESSAGE_HANDLER = 'Remote Tracer Control'
 
 	# If possible, allow Ignition message traffic to request inputs
@@ -634,6 +634,7 @@ class Tracer(object):
 						'id': self.id,
 					},
 					timeoutSec=self._MESSAGE_CALLBACK_TIMEOUT,
+					scope=self.MessageScopes.GATEWAY,
 
 					# This runs on the GUI thread. That... may go badly if we're tracing a GUI script.
 					#   So for that reason we'll just not use callbacks, and instead block explicitly.
@@ -688,9 +689,18 @@ class Tracer(object):
 
 	@classmethod
 	def _handle_payload(cls, payload):
-		"""Handle payloads sent for debug messages."""
+		"""
+		Handle payloads sent for debug messages.
+
+
+		To use, paste this in the event script at IGNITION_MESSAGE_HANDLER in IGNITION_MESSAGE_PROJECT
+
+			return shared.tools.debug.tracer.Tracer._handle_payload(payload)
+		"""
 		tracer_id = payload['id']
 		message_type = payload['message']
+
+		# system.util.getLogger('Tracer').info('Message "%s" for "%s" recieved' % (message_type, tracer_id))
 
 		# Reply to a tracer's request for commands (if any have been buffered)
 		if message_type == cls.MessageTypes.INPUT:
@@ -718,7 +728,7 @@ class Tracer(object):
 
 
 	@classmethod
-	def _request_update(self, tracer_id):
+	def _request_update(cls, tracer_id):
 		return system.util.sendRequest(
 				project=cls.IGNITION_MESSAGE_PROJECT,
 				messageHandler=cls.IGNITION_MESSAGE_HANDLER,
@@ -727,17 +737,17 @@ class Tracer(object):
 					'id': tracer_id,
 				},
 				timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
+				scope=cls.MessageScopes.GATEWAY,
 			)
 
 
 	def _send_update(self):
-		if self.REMOTE_CONTROLLABLE:
-			_ = system.util.sendMessage(
-				project=self.IGNITION_MESSAGE_PROJECT,
-				messageHandler=self.IGNITION_MESSAGE_HANDLER,
-				payload=self._payload_tracer_state,
-				scope=self.MessageScopes.ALL
-				)
+		_ = system.util.sendMessage(
+			project=self.IGNITION_MESSAGE_PROJECT,
+			messageHandler=self.IGNITION_MESSAGE_HANDLER,
+			payload=self._payload_tracer_state,
+			scope=self.MessageScopes.GATEWAY,
+			)
 
 
 	#--------------------------------------------------------------------------
