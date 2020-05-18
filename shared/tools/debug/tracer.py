@@ -76,6 +76,7 @@ class Tracer(object):
 
 				 # Remote control handles
 				 '_remote_request_handle', '_remote_request_thread',
+				 'tag_path', 'tag_acked',
 				 
 				 '__weakref__', # Allows the weakref mechanics to work on this slotted class.
 				)
@@ -126,6 +127,9 @@ class Tracer(object):
 		# Remote control handles
 		self._remote_request_handle = None
 		self._remote_request_thread = None
+
+		self.tag_path = ''
+		self.tag_acked = False
 
 		# Event init
 		
@@ -871,6 +875,17 @@ class Tracer(object):
 				if self.REMOTE_CONTROLLABLE and not self._remote_request_handle:
 					self._request_command()
 
+				# If given a tag for input, check if it has a command ready.
+				# To prevent repeated commands, value must be cleared between commands.
+				if self.tag_path:
+					tag_command = system.tag.read(self.tag_path).value
+					if tag_command:
+						if self.tag_acked:
+							self._pending_commands.append(tag_command)
+						self.tag_acked = False
+					else:
+						self.tag_acked = True
+
 				sleep(self._UPDATE_CHECK_DELAY)
 
 				# Failsafe off ramp
@@ -880,7 +895,12 @@ class Tracer(object):
 		
 			while self._pending_commands and self.interdicting:
 				#self.logger.info('Command: %s' % self.command)
-				self.command(self._pending_commands.pop())
+				result = self.command(self._pending_commands.pop())
+
+				# Reply to the tag's command with results
+				if self.tag_path:
+					if not self.tag_acked:
+						system.tag.write(self.tag_path, str(result))
 
 
 	def _log_command(self, command, result, timestamp=None):
