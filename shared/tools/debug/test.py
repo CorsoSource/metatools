@@ -16,7 +16,8 @@ def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
 	@async(name=test_thread_name)
 	def monitored():
 		close_loop = False
-		
+		throw_error = False
+
 		time_delay = 0.5
 		find_me = 0
 		
@@ -39,7 +40,10 @@ def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
 			
 			if close_loop:
 				break
-		
+			
+			if throw_error:
+				x = 1/0
+			
 		print 'Finished'
 
 	running_thread = monitored()
