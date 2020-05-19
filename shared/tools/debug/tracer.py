@@ -552,11 +552,11 @@ class Tracer(object):
 	IGNITION_MESSAGE_HANDLER = 'Remote Tracer Control'
 
 	# If possible, allow Ignition message traffic to request inputs
-	REMOTE_CONTROLLABLE = True if getattr(system.util, 'sendRequest', None) else False
+	REMOTE_MESSAGING = False # True if getattr(system.util, 'sendRequest', None) else False
 
 	# Make sure the sendRequest is not called more often than a few times a second, 
 	#   or the client starts to log jam events a bit.
-	_MESSAGE_CALLBACK_TIMEOUT = 1.00 # seconds
+	_MESSAGE_CALLBACK_TIMEOUT = 1.50 # seconds
 
 	# Standardize the string keys that will be used
 	# NOTE: Enum will break the message handlers when in payloads, apparently. 
@@ -619,7 +619,7 @@ class Tracer(object):
 		Ask the debug project for input. 
 		This supplements the self._pending_commands waiting loop.
 		"""
-		if not self.REMOTE_CONTROLLABLE:
+		if not self.REMOTE_MESSAGING:
 			return
 
 		# Don't attempt a request if already in progress
@@ -795,7 +795,7 @@ class Tracer(object):
 
 
 	def _send_update(self):
-		if self.REMOTE_CONTROLLABLE:
+		if self.REMOTE_MESSAGING:
 			_ = system.util.sendMessage(
 				project=self.IGNITION_MESSAGE_PROJECT,
 				messageHandler=self.IGNITION_MESSAGE_HANDLER,
@@ -832,37 +832,42 @@ class Tracer(object):
 	@classmethod
 	def request_ids(cls):
 		"""Requests the listing of currently active tracers (from the hub's perspective)"""
-		return system.util.sendRequest(
-				project=cls.IGNITION_MESSAGE_PROJECT,
-				messageHandler=cls.IGNITION_MESSAGE_HANDLER,
-				payload = {
-					'message': str(cls.MessageTypes.LISTING),
-					'id': None,
-				},
-				timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
-				scope=cls.MessageScopes.GATEWAY,
-			)
-
+		if cls.REMOTE_MESSAGING:
+			return system.util.sendRequest(
+					project=cls.IGNITION_MESSAGE_PROJECT,
+					messageHandler=cls.IGNITION_MESSAGE_HANDLER,
+					payload = {
+						'message': str(cls.MessageTypes.LISTING),
+						'id': None,
+					},
+					timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
+					scope=cls.MessageScopes.GATEWAY,
+				)
+		else:
+			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
 
 	@classmethod
 	def request_state(cls, tracer_id):
 		"""Requests the last logged state for the tracer id given."""
-		return system.util.sendRequest(
-				project=cls.IGNITION_MESSAGE_PROJECT,
-				messageHandler=cls.IGNITION_MESSAGE_HANDLER,
-				payload = {
-					'message': str(cls.MessageTypes.STATE_CHECK),
-					'id': tracer_id,
-				},
-				timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
-				scope=cls.MessageScopes.GATEWAY,
-			)
+		if cls.REMOTE_MESSAGING:
+			return system.util.sendRequest(
+					project=cls.IGNITION_MESSAGE_PROJECT,
+					messageHandler=cls.IGNITION_MESSAGE_HANDLER,
+					payload = {
+						'message': str(cls.MessageTypes.STATE_CHECK),
+						'id': tracer_id,
+					},
+					timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
+					scope=cls.MessageScopes.GATEWAY,
+				)
+		else:
+			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
 
 
 	@classmethod
 	def send_command(cls, tracer_id, command):
 		"""Send a request to the tracer hub (gateway) to set up a command."""
-		if cls.REMOTE_CONTROLLABLE:
+		if cls.REMOTE_MESSAGING:
 			_ = system.util.sendMessage(
 				project=cls.IGNITION_MESSAGE_PROJECT,
 				messageHandler=cls.IGNITION_MESSAGE_HANDLER,
@@ -874,7 +879,8 @@ class Tracer(object):
 				scope=cls.MessageScopes.GATEWAY,
 				)
 		else:
-			raise RuntimeError("Remote control is not possible/allowed.\nCheck Tracer configuration: Tracer.REMOTE_CONTROLLABLE = %s" % cls.REMOTE_CONTROLLABLE)
+			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
+
 
 
 	#--------------------------------------------------------------------------
@@ -997,7 +1003,7 @@ class Tracer(object):
 			if not self._pending_commands:
 
 				# Attempt to allow remote control of tracer (in case of gui thread blocking, for example)
-				if self.REMOTE_CONTROLLABLE and not self._remote_request_handle:
+				if self.REMOTE_MESSAGING and not self._remote_request_handle:
 					self._request_command(blocking=True)
 
 				# If given a tag for input, check if it has a command ready.
@@ -1025,7 +1031,10 @@ class Tracer(object):
 				# Reply to the tag's command with results
 				if self.tag_path:
 					if not self.tag_acked:
-						system.tag.write(self.tag_path, str(result))
+						if isinstance(result, (list, tuple, dict)):
+							system.tag.write(self.tag_path, system.util.jsonEncode(result))
+						else:
+							system.tag.write(self.tag_path, str(result))
 	
 			# Send update after all commands are run (query for logs if batch set...)
 			self._send_update()
