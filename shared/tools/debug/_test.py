@@ -8,16 +8,14 @@ RUNNING_THREAD_NAME = 'debug_test'
 
 TEST_TRACER = None
 
-def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
-	global TEST_TRACER
-
+def launch_target_thread(test_thread_name=RUNNING_THREAD_NAME):
+	
 	dangerouslyKillThreads(test_thread_name, bypass_interlock='Yes, seriously.')
 
 	@async(name=test_thread_name)
 	def monitored():
 		close_loop = False
-		throw_error = False
-
+		
 		time_delay = 0.5
 		find_me = 0
 		
@@ -36,18 +34,27 @@ def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
 		while True:
 			find_me = bar(find_me, steps=2)
 			
+			print 'find_me: ', find_me
 			sleep(time_delay)
 			
 			if close_loop:
 				break
 			
-			if throw_error:
-				x = 1/0
-			
+			try:
+				if throw_error:
+					x = 1/0
+			except NameError:
+				pass
+					
 		print 'Finished'
 
-	running_thread = monitored()
+	return monitored()
+	
 
+def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
+	global TEST_TRACER
+
+	running_thread = launch_target_thread(test_thread_name)
 
 	# Install pretty printing
 	shared.tools.pretty.install()
@@ -58,23 +65,20 @@ def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
 	return TEST_TRACER
 
 
+#from shared.tools.debug._test import initialize_test
+#tracer = initialize_test()
+#tracer.cursor_frame
+#tracer.interdict()
 
-from time import sleep
-from shared.tools.debug._test import initialize_test
 
-tracer = initialize_test()
-
-tracer.cursor_frame
-
-sleep(2.5)
-
-tracer.interdict()
-
-tracer.cursor_frame
-
-from shared.tools.debug.breakpoint import Breakpoint
-
-Breakpoint('module:shared.tools.debug._test', 31)
-
-Breakpoint._break_locations
-Breakpoint._instances
+# from time import sleep
+# from shared.tools.debug._test import initialize_test
+# tracer = initialize_test()
+# tracer.cursor_frame
+# sleep(2.5)
+# tracer.interdict()
+# tracer.cursor_frame
+# from shared.tools.debug.breakpoint import Breakpoint
+# Breakpoint('module:shared.tools.debug._test', 31)
+# Breakpoint._break_locations
+# Breakpoint._instances
