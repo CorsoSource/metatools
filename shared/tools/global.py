@@ -161,6 +161,12 @@ class CacheEntry(object):
 			if ret_val is not None:
 				self._obj = ret_val
 				self._last_time = time()
+
+
+	def extend(self, additional_time=0.0):
+		"""Extend the effective lifespan of the cache entry by additional_time seconds."""
+		self._last_time += additional_time
+
 	
 	@property
 	def key(self):
@@ -433,6 +439,14 @@ class MetaExtraGlobal(type):
 		system.util.getLogger('ExtraGlobal').trace('Trashed (scope:%r, label:%r) from %r' % (scope, label, Thread.currentThread()))
 		cls.spawn_cache_monitor()
 	
+
+	# Cache entry helpers
+
+	def extend(cls, label, scope=None, additional_time=0.0):
+		"""Extend the cache timeout by additional_time seconds."""
+		cache_entry = cls._cache[CacheEntry.gen_key(label, scope)]
+		cache_entry.extend(additional_time)
+
 
 	# Scope tracking for easier filtering
 
