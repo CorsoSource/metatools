@@ -18,7 +18,7 @@ from ast import literal_eval
 from time import sleep
 from collections import deque 
 from datetime import datetime, timedelta
-import textwrap
+import textwrap, math
 
 from shared.tools.pretty import p,pdir
 
@@ -935,8 +935,12 @@ class Tracer(object):
 
 		frame = self.cursor_frame
 
+		radius = 10
+		source_lines, source_start = self._command_source(radius=radius)
+
 		return {
-			'source': self._command_source(),
+			'source': source_lines,
+			'source_start': source_start,
 			'locals': p(frame.f_locals, directPrint=False),
 			'globals': p(frame.f_globals, directPrint=False),
 			'code': pdir(frame.f_code, directPrint=False),
@@ -1411,7 +1415,9 @@ class Tracer(object):
 		Given first and last show code between the two given line numbers.
 		If last is less than first it goes last lines past the first. 
 		"""
-		code_lines = CodeCache.get_lines(self.cursor_frame, radius=0, sys_context=self.sys)
+		frame = self.cursor_frame
+
+		code_lines = CodeCache.get_lines(frame, radius=0, sys_context=self.sys)
 
 		if not code_lines:
 			self.logger.warn('Code is empty in listing: %s %d %d' % (command, first, last))
@@ -1437,14 +1443,31 @@ class Tracer(object):
 		if end >= len(code_lines):
 			end = len(code_lines) - 1
 
-		return code_lines[start:end]
+		rendered_code = CodeCache._render_tabstops(code_lines[start:end])
+
+		line_order = (int(math.log10(end)) + 1)
+		fmt_line = '[ %%%dd]  %%s' % line_order
+		cur_line = ' >%%%dd > %%s' % line_order
+		annotated_block = '\n'.join([(cur_line 
+										if (i + start + 1) == frame.f_lineno 
+										else fmt_line
+										) % (i + start + 1, line)
+									 for i, line in enumerate(rendered_code)])									 for i, line in enumerate(rendered_code)])
+		return 'Source in "%s"\n%s' % (frame.f_code.co_filename, annotated_block)
 	_command_l = _command_list
+
 
 	def _command_source(self, command='source', radius=0):
 		"""
 		Returns the source code for the file at the cursor frame.
+		Just source code lines returned by default, otherwise the starting 
+		  line is also returned (to contextualize block of code).
 		"""
-		return CodeCache.get_lines(self.cursor_frame, radius=radius, sys_context=self.sys)
+		if radius:
+			return CodeCache.get_lines_with_start(self.cursor_frame, radius=radius, sys_context=self.sys)
+		else:
+			return CodeCache.get_lines(self.cursor_frame, radius=radius, sys_context=self.sys)
+
 
 	def _command_args(self, command='args'):
 		"""

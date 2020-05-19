@@ -87,6 +87,8 @@ class MetaCodeCache(type):
 
 	_default_sys_context = sys
 
+	TAB_STOP = 4
+
 
 	def __getitem__(cls, location):
 		if isinstance(location, slice):
@@ -111,28 +113,69 @@ class MetaCodeCache(type):
 		Otherwise, return radius lines before and after the frame's
 		  active line, clamping to the start/end of the code block.
 		"""
-		code = cls._dispatch_frame(frame)
+		code_lines, start_line = cls.get_lines_with_start(frame, radius, sys_context)
+		return code_lines
 
+
+	def get_lines_with_start(cls, frame, radius=5, sys_context=None):
+		"""Retreive the lines of code at the frame location as a tuple of code and the starting line.
+		(Use this in case the radius blocks to a different initial offset)
+	
+		If radius is 0, return all the code in that frame's file.
+		Otherwise, return radius lines before and after the frame's
+		  active line, clamping to the start/end of the code block.
+		"""
+		code = cls._dispatch_frame(frame)
+	
 		if not code: 
 			return []
 		else:
 			code_lines = code.splitlines()
-
+	
 		if not radius:
-			return code_lines
-		
-		line_number = frame.f_lineno
+			return code_lines, 1
+		else:
+			block_slice = cls._calc_block_ends(frame.f_lineno, len(code_lines), radius)
+			return code_lines[block_slice], block_slice.start		
 
+
+	@staticmethod
+	def _calc_block_ends(line_number, list_length, radius):
+		"""Calculate ends assuming a full block is preferred at ends"""
 		start = line_number - radius
-		end = line_number + radius
-
+		end = line_number + radius + 1
+	
+		# Realign if over/undershot
+		if start < 0:
+			end -= start
+			start = 0
+		if end >= list_length:
+			start -= end - list_length
+			end = list_length
+			
+		# Clamp to limits
 		if start < 0:
 			start = 0
-		if end >= len(code_lines):
-			end = len(code_lines) - 1
+		if end >= list_length:
+			end = list_length
+		
+		return slice(start, end)
 
-		return code_lines[start:end]
-
+	
+	def _render_tabstops(cls, code_lines):
+		"""Replace tab characters with spaces to align to tab stops."""
+		rendered_lines = []
+		
+		for line in code_lines:
+			rendered = ''
+			while '\t' in line:
+				pre, tab, line = line.partition('\t')
+				rendered += pre
+				rendered += ' '*(cls.TAB_STOP - (len(rendered) % cls.TAB_STOP))
+			rendered += line
+			rendered_lines.append(rendered)
+		return rendered_lines
+		
 
 	def _dispatch_frame(cls, frame, sys_context=None):
 		"""Resolve and make sense of the location given. 
