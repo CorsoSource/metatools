@@ -765,6 +765,8 @@ class Tracer(object):
 			state = ExtraGlobal.get(label=tracer_id,
 								   scope=cls.ExtraGlobalScopes.REMOTE_INFO,
 								   default=None)
+			if not state:
+				return None
 			state['message'] = str(cls.MessageTypes.STATE_CHECK)
 			return state
 
@@ -936,6 +938,8 @@ class Tracer(object):
 				'stack': self._cursor_index,
 				'context': self._cursor_context_index,
 			},
+			'line': frame.f_lineno,
+			'filename': frame.f_code.co_filename,
 		}
 		
 
