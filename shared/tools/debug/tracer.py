@@ -210,9 +210,6 @@ class MetaTracer(type):
 
 
 
-
-
-
 class Tracer(object):
 	"""A variant of the Python Debugger (Pdb)
 	
@@ -1065,9 +1062,9 @@ class Tracer(object):
 		if not self.interdicting:
 			return
 	
-		if Thread.currentThread() is self.tracer_thread:
-			raise RuntimeError("Await called from the wrong context! %r instead of %r" % (
-							self.tracer_thread, self.thread,) )
+		# if Thread.currentThread() is self.tracer_thread:
+		# 	raise RuntimeError("Await called from the wrong context! %r instead of %r" % (
+		# 					self.tracer_thread, self.thread,) )
 		
 		if self.INTERDICTION_FAILSAFE:
 			self._FAILSAFE_TIMEOUT = datetime.now() + timedelta(microseconds=self.INTERDICTION_FAILSAFE_TIMEOUT * 1000)

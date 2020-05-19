@@ -1,12 +1,14 @@
-from shared.tools.debug.tracer import Tracer
+#from shared.tools.debug._test import initialize_test
+#tracer = initialize_test()
+#tracer.cursor_frame
 
 from shared.tools.thread import async, dangerouslyKillThreads
-
+from shared.tools.debug.tracer import Tracer
 from time import sleep
+
 
 RUNNING_THREAD_NAME = 'debug_test'
 
-TEST_TRACER = None
 
 def launch_target_thread(test_thread_name=RUNNING_THREAD_NAME):
 	
@@ -15,6 +17,8 @@ def launch_target_thread(test_thread_name=RUNNING_THREAD_NAME):
 	@async(name=test_thread_name)
 	def monitored():
 		close_loop = False
+		
+		Tracer().interdict()		
 		
 		time_delay = 0.5
 		find_me = 0
@@ -49,36 +53,5 @@ def launch_target_thread(test_thread_name=RUNNING_THREAD_NAME):
 		print 'Finished'
 
 	return monitored()
-	
 
-def initialize_test(test_thread_name=RUNNING_THREAD_NAME, FAILSAFE=False):
-	global TEST_TRACER
-
-	running_thread = launch_target_thread(test_thread_name)
-
-	# Install pretty printing
-	shared.tools.pretty.install()
-
-	# Load up tracer instance
-	Tracer.INTERDICTION_FAILSAFE = FAILSAFE
-	TEST_TRACER = Tracer(running_thread, record=True)
-	return TEST_TRACER
-
-
-#from shared.tools.debug._test import initialize_test
-#tracer = initialize_test()
-#tracer.cursor_frame
-#tracer.interdict()
-
-
-# from time import sleep
-# from shared.tools.debug._test import initialize_test
-# tracer = initialize_test()
-# tracer.cursor_frame
-# sleep(2.5)
-# tracer.interdict()
-# tracer.cursor_frame
-# from shared.tools.debug.breakpoint import Breakpoint
-# Breakpoint('module:shared.tools.debug._test', 31)
-# Breakpoint._break_locations
-# Breakpoint._instances
+target_thread = launch_target_thread()
