@@ -25,6 +25,194 @@ from shared.tools.pretty import p,pdir
 from shared.tools.enum import Enum
 
 
+class MetaTracer(type):
+	"""
+	Class-level details are broken out here as a metaclass. 
+
+	It allows certain convenience functions to work and makes 
+	  instance/class methods easier to tell apart.
+	"""
+
+	_active_tracers = WeakValueDictionary()
+
+	def __getitem__(cls, tracer_id):
+		"""Return the tracer for the given ID"""
+		return cls._active_tracers[tracer_id]
+
+	def __setitem__(cls, *args):
+		"""Tracers are internally managed. This is a ERRNOP"""
+		raise NotImplementedError("Tracers may not be manually set.")
+
+	@property
+	def tracers(self):
+		return frozenset(self._active_tracers.keys())
+
+
+	#==========================================================================
+	# Ignition Messages
+	#==========================================================================
+
+
+	#--------------------------------------------------------------------------
+	# Remote API
+	#--------------------------------------------------------------------------
+
+	def request_ids(cls):
+		"""Requests the listing of currently active tracers (from the hub's perspective)"""
+		if cls.REMOTE_MESSAGING:
+			return system.util.sendRequest(
+					project=cls.IGNITION_MESSAGE_PROJECT,
+					messageHandler=cls.IGNITION_MESSAGE_HANDLER,
+					payload = {
+						'message': str(cls.MessageTypes.LISTING),
+						'id': None,
+					},
+					timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
+					scope=cls.MessageScopes.GATEWAY,
+				)
+		else:
+			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
+
+
+	def request_state(cls, tracer_id):
+		"""Requests the last logged state for the tracer id given."""
+		if cls.REMOTE_MESSAGING:
+			return system.util.sendRequest(
+					project=cls.IGNITION_MESSAGE_PROJECT,
+					messageHandler=cls.IGNITION_MESSAGE_HANDLER,
+					payload = {
+						'message': str(cls.MessageTypes.STATE_CHECK),
+						'id': tracer_id,
+					},
+					timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
+					scope=cls.MessageScopes.GATEWAY,
+				)
+		else:
+			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
+
+
+	def send_command(cls, tracer_id, command):
+		"""Send a request to the tracer hub (gateway) to set up a command."""
+		if cls.REMOTE_MESSAGING:
+			_ = system.util.sendMessage(
+				project=cls.IGNITION_MESSAGE_PROJECT,
+				messageHandler=cls.IGNITION_MESSAGE_HANDLER,
+				payload={
+					'id': tracer_id,
+					'message': str(cls.MessageTypes.COMMAND),
+					'command': command,
+					},
+				scope=cls.MessageScopes.GATEWAY,
+				)
+		else:
+			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
+
+
+	#--------------------------------------------------------------------------
+	# Message Handler
+	#--------------------------------------------------------------------------
+
+	def _handle_payload(cls, payload):
+		"""
+		Handle payloads sent for debug messages.
+		To use, paste this in the event script at IGNITION_MESSAGE_HANDLER in IGNITION_MESSAGE_PROJECT
+
+			return shared.tools.debug.tracer.Tracer._handle_payload(payload)
+		"""
+		tracer_id = payload['id']
+		message_type = payload['message']
+
+		# system.util.getLogger('Tracer %s' % (tracer_id,)).info('Message "%s" for "%s" recieved' % (message_type, tracer_id))
+
+		# Replate with the current tracer IDs available for remote control
+		if message_type == cls.MessageTypes.LISTING:
+			return ExtraGlobal.keys(scope=cls.ExtraGlobalScopes.REMOTE_INFO)
+
+		# Reply to a tracer's request for commands (if any have been buffered)
+		if message_type == cls.MessageTypes.INPUT:
+			commands = ExtraGlobal.get(label=tracer_id, 
+									   scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS, 
+									   default=[])
+			if commands:
+				ExtraGlobal.trash(label=tracer_id, 
+								  scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS)
+			return commands
+
+		# Enqueue a command sent to the hub
+		if message_type == cls.MessageTypes.COMMAND:
+			command = payload.get('command', payload.get('commands', []))
+			system.util.getLogger('Tracer %s' % (tracer_id,)).info('Message "%s" for "%s" recieved: %r' % (message_type, tracer_id, command))
+			cls._queue_command(tracer_id, command)
+			return
+
+		# Update currently known state
+		if message_type == cls.MessageTypes.STATE_UPDATE:
+			def heartbeat_check(cls=cls, tracer_id=tracer_id):
+				cls._check_heartbeat(tracer_id)
+			ExtraGlobal.stash(payload,
+							  label=tracer_id, 
+							  scope=cls.ExtraGlobalScopes.REMOTE_INFO,
+							  lifespan=30, # seconds
+							  callback=heartbeat_check)
+			return 
+			
+		# Reply with tracer state
+		if message_type == cls.MessageTypes.STATE_CHECK:
+			state = ExtraGlobal.get(label=tracer_id,
+								   scope=cls.ExtraGlobalScopes.REMOTE_INFO,
+								   default=None)
+			if not state:
+				return None
+			state['message'] = str(cls.MessageTypes.STATE_CHECK)
+			return state
+
+			
+	def _check_heartbeat(cls, tracer_id):
+		#system.util.getLogger('Tracer %s' % (tracer_id,)).info('Heartbeat check...')
+
+		pending_commands = ExtraGlobal.get(label=tracer_id, 
+									   scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS, 
+									   default=[])
+		if isinstance(pending_commands, (list, tuple)):
+			# Check if we've already tried to send the command and failed
+			if 'heartbeat' in pending_commands:
+				return
+		elif isinstance(pending_commands, (str, unicode)):
+			if 'heartbeat' == pending_commands:
+				return
+		
+		#system.util.getLogger('Tracer %s' % (tracer_id,)).info('Heartbeat extending')
+
+		cls._queue_command(tracer_id, 'heartbeat')
+		ExtraGlobal.extend(label=tracer_id, 
+						   scope=cls.ExtraGlobalScopes.REMOTE_INFO,
+						   additional_time=self._MESSAGE_CALLBACK_TIMEOUT)
+
+
+	def _queue_command(cls, tracer_id, command):
+		"""Enqueue a command onto the local ExtraGlobal remote control list"""
+		commands = ExtraGlobal.get(label=tracer_id, 
+								   scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS, 
+								   default=[])
+		if not commands:
+			commands = command
+		if isinstance(commands, (list, tuple)):
+			if isinstance(command, (list, tuple)):
+				commands += command
+			else:
+				commands.append(command)
+		elif isinstance(commands, (str, unicode)):
+			commands = command
+
+		ExtraGlobal.stash(commands,
+						  label=tracer_id, 
+						  scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS)
+
+
+
+
+
+
 class Tracer(object):
 	"""A variant of the Python Debugger (Pdb)
 	
@@ -47,6 +235,8 @@ class Tracer(object):
 	For more information and the cool implementation that we're tweaking here,
 	  see also rpdb at https://github.com/tamentis/rpdb
 	"""
+	__metaclass__ = MetaTracer
+
 	__slots__ = (
 				 # Event attributes
 				 '_map_for_dispatch', 
@@ -82,21 +272,24 @@ class Tracer(object):
 				)
 
 
+	#==========================================================================
+	# Constants and references
+	#==========================================================================
+
 	CONTEXT_BUFFER_LIMIT = 1000
 	COMMAND_BUFFER_LIMIT = 1000
 	_UPDATE_CHECK_DELAY = 0.200 # seconds (leave relatively high since it should be driven by human input.)
 	INTERDICTION_FAILSAFE = False # True
 	INTERDICTION_FAILSAFE_TIMEOUT = 30000 # milliseconds (seconds if failsafe disabled)
 
-	# Set to true to have any active traces using this class to purge themselves (on next call)
+	# Set Tracer.SCRAM_SIGNAL to true to have any active traces using this class to purge themselves (on next call)
 	SCRAM_SIGNAL = False
-	
-	_active_tracers = WeakValueDictionary()
-	
+		
 	# _event_labels = set(['call', 'line', 'return', 'exception', 
 	# 					 'c_call', 'c_return', 'c_exception',
 	# 					 ])	
-	
+
+
 	SKIP_NAMESPACES = set([
 		'weakref', 'datetime', 'encodings',
 		])
@@ -111,6 +304,56 @@ class Tracer(object):
 		'<module:shared.tools.debug.tracer>',
 		'<module:shared.tools.debug.trap>',
 		])
+
+
+	class ExtraGlobalScopes(Enum):
+		INSTANCES = 'Tracers'
+		REMOTE_INFO = 'Remote Tracers'
+		REMOTE_COMMANDS = 'Remote Tracer Commands'
+
+
+	#--------------------------------------------------------------------------
+	# Ignition Messaging
+	#--------------------------------------------------------------------------
+
+
+	IGNITION_MESSAGE_PROJECT = 'Debugger'
+	IGNITION_MESSAGE_HANDLER = 'Remote Tracer Control'
+
+	# If possible, allow Ignition message traffic to request inputs
+	REMOTE_MESSAGING = False # True if getattr(system.util, 'sendRequest', None) else False
+
+	# Make sure the sendRequest is not called more often than a few times a second, 
+	#   or the client starts to log jam events a bit.
+	_MESSAGE_CALLBACK_TIMEOUT = 1.50 # seconds
+
+	# Standardize the string keys that will be used
+	# NOTE: Enum will break the message handlers when in payloads, apparently. 
+	#   It's _literally_ a string, but the Jython reflection gets hung up on the details, it seems.
+	# Python doesn't treat it as different, but Java has a different opinion.
+
+	class MessageTypes(Enum):
+		LISTING = 'list'
+		INPUT = 'input'
+		COMMAND = 'command'
+		STATE_UPDATE = 'update'
+		STATE_CHECK = 'check'
+		
+	class MessageScopes(Enum):
+		GATEWAY = 'G'
+		CLIENT = 'C'
+		ALL = 'GC'
+
+	class IgnitionContexts(Enum):
+		DESIGNER = 'D'
+		GATEWAY = 'G'
+		VISION_CLIENT = 'V'
+		PERSPECTIVE_SESSION = 'P'
+
+
+	#==========================================================================
+	# Tracer INIT
+	#==========================================================================
 
 
 	def __init__(self, thread=None, *args, **kwargs):
@@ -180,9 +423,8 @@ class Tracer(object):
 		#self.sys.settrace(Tracer.dispatch)
 		self.sys.settrace(Tracer._nop)
 		
-		self._active_tracers[self.id] = self
-		ExtraGlobal.stash(self, self.id, scope=self.ExtraGlobalScopes.INSTANCES, callback=lambda self=self: self)
-		
+		self._add_tracer(self)
+
 		self._FAILSAFE_TIMEOUT = datetime.now()
 
 		self.step_speed = 0
@@ -191,6 +433,14 @@ class Tracer(object):
 
 		self._send_update()
 
+
+	@classmethod
+	def _add_tracer(cls, tracer):
+		cls._active_tracers[tracer.id] = tracer
+		ExtraGlobal.stash(tracer, 
+						  tracer.id, 
+						  scope=cls.ExtraGlobalScopes.INSTANCES, 
+						  callback=lambda self=tracer: self)
 
 	@classmethod
 	def _scram(cls, base_frame):
@@ -563,44 +813,6 @@ class Tracer(object):
 	# Ignition Messages
 	#==========================================================================
 
-	IGNITION_MESSAGE_PROJECT = 'Debugger'
-	IGNITION_MESSAGE_HANDLER = 'Remote Tracer Control'
-
-	# If possible, allow Ignition message traffic to request inputs
-	REMOTE_MESSAGING = False # True if getattr(system.util, 'sendRequest', None) else False
-
-	# Make sure the sendRequest is not called more often than a few times a second, 
-	#   or the client starts to log jam events a bit.
-	_MESSAGE_CALLBACK_TIMEOUT = 1.50 # seconds
-
-	# Standardize the string keys that will be used
-	# NOTE: Enum will break the message handlers when in payloads, apparently. 
-	#   It's _literally_ a string, but the Jython reflection gets hung up on the details, it seems.
-	# Python doesn't treat it as different, but Java has a different opinion.
-
-	class MessageTypes(Enum):
-		LISTING = 'list'
-		INPUT = 'input'
-		COMMAND = 'command'
-		STATE_UPDATE = 'update'
-		STATE_CHECK = 'check'
-		
-	class MessageScopes(Enum):
-		GATEWAY = 'G'
-		CLIENT = 'C'
-		ALL = 'GC'
-
-	class ExtraGlobalScopes(Enum):
-		INSTANCES = 'Tracers'
-		REMOTE_INFO = 'Remote Tracers'
-		REMOTE_COMMANDS = 'Remote Tracer Commands'
-
-	class IgnitionContexts(Enum):
-		DESIGNER = 'D'
-		GATEWAY = 'G'
-		VISION_CLIENT = 'V'
-		PERSPECTIVE_SESSION = 'P'
-
 
 	def _resolve_ignition_scope(self):
 
@@ -635,7 +847,7 @@ class Tracer(object):
 		This supplements the self._pending_commands waiting loop.
 		"""
 		if not self.REMOTE_MESSAGING:
-			return
+			raise RuntimeError("Remote messaging is not enabled.")
 
 		# Don't attempt a request if already in progress
 		if self._remote_request_handle:
@@ -730,85 +942,6 @@ class Tracer(object):
 		self._remote_request_handle = None
 
 
-	@classmethod
-	def _handle_payload(cls, payload):
-		"""
-		Handle payloads sent for debug messages.
-		To use, paste this in the event script at IGNITION_MESSAGE_HANDLER in IGNITION_MESSAGE_PROJECT
-
-			return shared.tools.debug.tracer.Tracer._handle_payload(payload)
-		"""
-		tracer_id = payload['id']
-		message_type = payload['message']
-
-		# system.util.getLogger('Tracer %s' % (tracer_id,)).info('Message "%s" for "%s" recieved' % (message_type, tracer_id))
-
-		# Replate with the current tracer IDs available for remote control
-		if message_type == cls.MessageTypes.LISTING:
-			return ExtraGlobal.keys(scope=cls.ExtraGlobalScopes.REMOTE_INFO)
-
-		# Reply to a tracer's request for commands (if any have been buffered)
-		if message_type == cls.MessageTypes.INPUT:
-			commands = ExtraGlobal.get(label=tracer_id, 
-									   scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS, 
-									   default=[])
-			if commands:
-				ExtraGlobal.trash(label=tracer_id, 
-								  scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS)
-			return commands
-
-		# Enqueue a command sent to the hub
-		if message_type == cls.MessageTypes.COMMAND:
-			command = payload.get('command', payload.get('commands', []))
-			system.util.getLogger('Tracer %s' % (tracer_id,)).info('Message "%s" for "%s" recieved: %r' % (message_type, tracer_id, command))
-			cls._queue_command(tracer_id, command)
-			return
-
-		# Update currently known state
-		if message_type == cls.MessageTypes.STATE_UPDATE:
-			def heartbeat_check(cls=cls, tracer_id=tracer_id):
-				cls._check_heartbeat(tracer_id)
-			ExtraGlobal.stash(payload,
-							  label=tracer_id, 
-							  scope=cls.ExtraGlobalScopes.REMOTE_INFO,
-							  lifespan=30, # seconds
-							  callback=heartbeat_check)
-			return 
-			
-		# Reply with tracer state
-		if message_type == cls.MessageTypes.STATE_CHECK:
-			state = ExtraGlobal.get(label=tracer_id,
-								   scope=cls.ExtraGlobalScopes.REMOTE_INFO,
-								   default=None)
-			if not state:
-				return None
-			state['message'] = str(cls.MessageTypes.STATE_CHECK)
-			return state
-
-			
-	@classmethod
-	def _check_heartbeat(cls, tracer_id):
-		#system.util.getLogger('Tracer %s' % (tracer_id,)).info('Heartbeat check...')
-
-		pending_commands = ExtraGlobal.get(label=tracer_id, 
-									   scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS, 
-									   default=[])
-		if isinstance(pending_commands, (list, tuple)):
-			# Check if we've already tried to send the command and failed
-			if 'heartbeat' in pending_commands:
-				return
-		elif isinstance(pending_commands, (str, unicode)):
-			if 'heartbeat' == pending_commands:
-				return
-		
-		#system.util.getLogger('Tracer %s' % (tracer_id,)).info('Heartbeat extending')
-
-		cls._queue_command(tracer_id, 'heartbeat')
-		ExtraGlobal.extend(label=tracer_id, 
-						   scope=cls.ExtraGlobalScopes.REMOTE_INFO,
-						   additional_time=self._MESSAGE_CALLBACK_TIMEOUT)
-
-
 	def _send_update(self):
 		if self.REMOTE_MESSAGING:
 			_ = system.util.sendMessage(
@@ -817,85 +950,6 @@ class Tracer(object):
 				payload=self._payload_tracer_state,
 				scope=self.MessageScopes.GATEWAY,
 				)
-
-
-	@classmethod
-	def _queue_command(cls, tracer_id, command):
-		"""Enqueue a command onto the local ExtraGlobal remote control list"""
-		commands = ExtraGlobal.get(label=tracer_id, 
-								   scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS, 
-								   default=[])
-		if not commands:
-			commands = command
-		if isinstance(commands, (list, tuple)):
-			if isinstance(command, (list, tuple)):
-				commands += command
-			else:
-				commands.append(command)
-		elif isinstance(commands, (str, unicode)):
-			commands = command
-
-		ExtraGlobal.stash(commands,
-						  label=tracer_id, 
-						  scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS)
-
-
-	#--------------------------------------------------------------------------
-	# Remote API
-	#--------------------------------------------------------------------------
-
-	@classmethod
-	def request_ids(cls):
-		"""Requests the listing of currently active tracers (from the hub's perspective)"""
-		if cls.REMOTE_MESSAGING:
-			return system.util.sendRequest(
-					project=cls.IGNITION_MESSAGE_PROJECT,
-					messageHandler=cls.IGNITION_MESSAGE_HANDLER,
-					payload = {
-						'message': str(cls.MessageTypes.LISTING),
-						'id': None,
-					},
-					timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
-					scope=cls.MessageScopes.GATEWAY,
-				)
-		else:
-			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
-
-	@classmethod
-	def request_state(cls, tracer_id):
-		"""Requests the last logged state for the tracer id given."""
-		if cls.REMOTE_MESSAGING:
-			return system.util.sendRequest(
-					project=cls.IGNITION_MESSAGE_PROJECT,
-					messageHandler=cls.IGNITION_MESSAGE_HANDLER,
-					payload = {
-						'message': str(cls.MessageTypes.STATE_CHECK),
-						'id': tracer_id,
-					},
-					timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
-					scope=cls.MessageScopes.GATEWAY,
-				)
-		else:
-			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
-
-
-	@classmethod
-	def send_command(cls, tracer_id, command):
-		"""Send a request to the tracer hub (gateway) to set up a command."""
-		if cls.REMOTE_MESSAGING:
-			_ = system.util.sendMessage(
-				project=cls.IGNITION_MESSAGE_PROJECT,
-				messageHandler=cls.IGNITION_MESSAGE_HANDLER,
-				payload={
-					'id': tracer_id,
-					'message': str(cls.MessageTypes.COMMAND),
-					'command': command,
-					},
-				scope=cls.MessageScopes.GATEWAY,
-				)
-		else:
-			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
-
 
 
 	#--------------------------------------------------------------------------
@@ -1467,7 +1521,7 @@ class Tracer(object):
 										if (i + start + 1) == frame.f_lineno 
 										else fmt_line
 										) % (i + start + 1, line)
-									 for i, line in enumerate(rendered_code)])									 for i, line in enumerate(rendered_code)])
+									 for i, line in enumerate(rendered_code)])
 		return 'Source in "%s"\n%s' % (frame.f_code.co_filename, annotated_block)
 	_command_l = _command_list
 

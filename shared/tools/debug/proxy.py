@@ -30,7 +30,7 @@ class StreamBuffer(object):
 		self._target_io = target_io
 		self._parent_proxy = parent_proxy
 
-		system.util.getLogger('FAILPROXY').info(repr(self._target_io))
+		system.util.getLogger('StreamBuffer').debug(repr(self._target_io))
 
 				
 	@property
