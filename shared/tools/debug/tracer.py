@@ -387,6 +387,21 @@ class Tracer(object):
 	def stderr_log(self):
 		return self.sys._io_proxy.stderr.history
 
+
+	def __lshift__(self, command):
+		"""
+		Run command like 
+		tracer << 'source 5'
+		"""
+		return self.command(command)
+
+	def __rrshift__(self, command):
+		"""
+		Run command like
+		'source 5' >> tracer
+		"""
+		return self.command(command)
+
 	
 	#==========================================================================
 	# Interdiction Triggers
