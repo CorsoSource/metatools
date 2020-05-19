@@ -257,6 +257,10 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 	"""Pretty print objects. This helps make lists, dicts, and other things easier to understand.
 	Handy for quickly looking at datasets and lists of lists, too, since it aligns columns.
 	"""
+	# Pass-thru for strings
+	if isinstance(o, (str, unicode)):
+		return o
+
 	out = []
 	
 	strElePattern = '%%-%ds'
