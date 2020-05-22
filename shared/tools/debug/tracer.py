@@ -25,6 +25,34 @@ from shared.tools.pretty import p,pdir
 from shared.tools.enum import Enum
 
 
+def SCRAM():
+	"""Iterate over all the currently tracked tracers, shut 'em down, and remove them."""
+	for tracer_id in Tracer.tracers:
+		try:
+			tracer = Tracer[tracer_id]
+			tracer.shutdown()
+			Tracer._remove_tracer(tracer)
+		except:
+			pass
+			
+			
+def NOP_TRACE(frame=None, event=None, arg=None):
+	"""
+	The trace mechanics need to be active, but it only needs to keep itself running.
+	This acts mostly like a no-op function, returning itself for frames that
+	  are not explicitly blocked (by Tracer.skip_frame(...)).
+	It also checks if a SCRAM has been requested, and if so begins the flush.
+	"""	
+	if Tracer.SCRAM_SIGNAL:
+		Tracer._scram(frame)
+		return None
+	
+	if Tracer.skip_frame(frame):
+		return None
+	
+	return NOP_TRACE
+
+
 class MetaTracer(type):
 	"""
 	Class-level details are broken out here as a metaclass. 
@@ -33,19 +61,17 @@ class MetaTracer(type):
 	  instance/class methods easier to tell apart.
 	"""
 
-	_active_tracers = WeakValueDictionary()
-
 	def __getitem__(cls, tracer_id):
 		"""Return the tracer for the given ID"""
-		return cls._active_tracers[tracer_id]
+		return cls._get_tracer(tracer_id)
 
 	def __setitem__(cls, *args):
 		"""Tracers are internally managed. This is a ERRNOP"""
 		raise NotImplementedError("Tracers may not be manually set.")
 
 	@property
-	def tracers(self):
-		return frozenset(self._active_tracers.keys())
+	def tracers(cls):
+		return cls._tracer_ids()
 
 
 	#==========================================================================
@@ -418,7 +444,7 @@ class Tracer(object):
 		
 		#start the machinery so we can inject directly
 		#self.sys.settrace(Tracer.dispatch)
-		self.sys.settrace(Tracer._nop)
+		self.sys.settrace(NOP_TRACE)
 		
 		self._add_tracer(self)
 
@@ -431,13 +457,27 @@ class Tracer(object):
 		self._send_update()
 
 
+	def __repr__(self):
+		if self.interdicting:
+			state = 'interdicting'
+		elif self.monitoring:
+			state = 'monitoring'
+		else:
+			state = 'inactive'
+		return '<Tracer [%s] (%s) on %r>' % (self.id, state, self.thread)
+
+
 	@classmethod
 	def _add_tracer(cls, tracer):
-		cls._active_tracers[tracer.id] = tracer
 		ExtraGlobal.stash(tracer, 
 						  tracer.id, 
 						  scope=cls.ExtraGlobalScopes.INSTANCES, 
-						  callback=lambda self=tracer: self)
+						  callback=tracer._renew_cache_entry)
+
+	@classmethod
+	def _remove_tracer(cls, tracer):
+		ExtraGlobal.trash(tracer.id, 
+						  scope=cls.ExtraGlobalScopes.INSTANCES)
 
 	@classmethod
 	def _scram(cls, base_frame):
@@ -446,25 +486,9 @@ class Tracer(object):
 			if frame.f_trace:
 				del frame.f_trace
 		
-		# Attempt to ask all the active tracers to gracefully unwind
-		for tracer in cls._active_tracers.values():
-			try:
-				tracer.shutdown()
-			except:
-				pass
-
-	@classmethod
-	def _nop(cls, frame=None, event=None, arg=None):
-		if cls.SCRAM_SIGNAL:
-			cls._scram(frame)
-			return None
-			
-		if cls.skip_frame(frame):
-			return None
+		# This is not attached to the Tracer class so debug can be scrammed from the outside.
+		SCRAM()
 		
-		#self.logger.info('NOP(): %r %r %r' % (p(frame, directPrint=False), event, arg))
-		#sleep(0.1)
-		return cls._nop
 	
 	@classmethod
 	def skip_frame(cls, frame):
@@ -472,6 +496,22 @@ class Tracer(object):
 			frame.f_globals.get('__name__') in cls.SKIP_NAMESPACES,
 			frame.f_code.co_filename in cls.SKIP_FILES,
 			))
+
+	@classmethod
+	def _tracer_ids(cls):
+		"""List the active tracers from the global cache"""
+		return ExtraGlobal.keys(scope=cls.ExtraGlobalScopes.INSTANCES)
+
+	@classmethod
+	def _get_tracer(cls, tracer_id):
+		"""Return the tracer from the global cache"""
+		return ExtraGlobal[tracer_id:cls.ExtraGlobalScopes.INSTANCES]
+
+
+	def _renew_cache_entry(self):
+		"""Drop the tracer if its monitoring thread dies."""
+		if self.thread.getState() != Thread.State.TERMINATED:
+			return self
 
 	#--------------------------------------------------------------------------
 	# Context control - start and stop active tracing
@@ -547,6 +587,7 @@ class Tracer(object):
 			self.sys._restore()
 			if self._remote_request_handle:
 				self._remote_request_handle.cancel()
+			self.logger.info('Tracer shutdown complete.')
 		except:
 			raise RuntimeError('Tracer shutdown gracelessly - traced thread is likely already dead and cleanup thus failed.')
 
@@ -554,7 +595,7 @@ class Tracer(object):
 	#==========================================================================
 	# Convenience properties
 	#==========================================================================
-	
+		
 	@property
 	def debug(self):
 		return self._debug
@@ -740,7 +781,7 @@ class Tracer(object):
 			# Dispatch and continue as normal
 			# Note that we don't really do anything with this...
 			#   The rest of the function determines how we reply to sys' trace
-			dispatch_retval = self._map_for_dispatch.get(event, self._nop)(frame, arg)
+			dispatch_retval = self._map_for_dispatch.get(event, NOP_TRACE)(frame, arg)
 			
 			self.check_traps()
 
@@ -1643,9 +1684,80 @@ class Tracer(object):
 	_command_shutdown = _command_die = _command_q = _command_quit
 
 
+	def fork_scenario(self, **local_overrides):
+		"""
+		Fork another tracer off from the cursor frame to inspect as a new scenario. 
+		
+		Returns the new thread that is getting traced.
+		
+		WARNING: Other tracers may block until they exit!
+		"""	
+		back_reference = tracer.id
+		frame = self.cursor_frame
+
+		source = CodeCache.get_lines(frame, radius=0, sys_context=self.sys)
+		
+		# frame lines are one-indexed
+		frame_first_line_number = frame.f_code.co_firstlineno
+		frame_first_line = source[frame_first_line_number - 1]
+		
+		spacer = frame_first_line[0]
+		
+		for indent_count, c in enumerate(frame_first_line):
+			# zero-index means we end on the count
+			if c != spacer:
+				break
+		
+		# increase the indent by one since the frame is actually executed
+		#   inside the definition, not _on_ it.
+		indent = spacer * (indent_count + 1)
+		code_block = []
+		for line in source[frame_first_line_number:]:
+			# add any lines that are the expected indent
+			if line.startswith(indent):
+				code_block.append(line)
+			# once we're past the def statement, break if we dedent
+			elif code_block:
+				break
+		
+		while not code_block[-1].strip():
+			_ = code_block.pop(-1)
+		
+		head_code = [indent + line.strip() for line in """
+			from shared.tools.debug.tracer import set_trace
+			set_trace()
+			""".splitlines() if line]
+		
+		code_block = head_code + code_block
+		
+		#CodeCache._render_tabstops(code_block)
+		code = compile(textwrap.dedent('\n'.join(code_block)), '<tracer-scenario:%s>' % back_reference, 'exec')
+		
+		argument_names = frame.f_code.co_varnames[:frame.f_code.co_argcount]
+		
+		scenario_locals = local_overrides
+		scenario_locals.update(dict((arg_name, frame.f_locals[arg_name]) 
+							   for arg_name in argument_names))
+		
+		scenario_globals = frame.f_globals
+		#del scenario_globals['Tracer']
+		
+		@async(name='Tracer Scenario: %s' % back_reference)
+		def initialize_scenario(code=code, 
+								scenario_globals=scenario_globals, 
+								scenario_locals=scenario_locals):
+			exec(code, scenario_globals, scenario_locals)
+			
+		return initialize_scenario()
+
+
+
+
+
 
 def set_trace():
-	raise NotImplementedError("TODO: ADD FEATURE")
+	"""Crashstop execution and begin interdiction."""
+	Tracer().interdict()
 
 
 def record():
