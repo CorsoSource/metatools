@@ -291,3 +291,10 @@ def getFromThreadScope(target_thread, object_name):
 	# The ThreadState object contains the current Python frame under execution.
 	# Frames have all the needed context to execute, including the variable references in scope.
 	return frame.f_locals[object_name]
+
+
+def getThreadInfo(thread):
+	"""Get the thread info object from the Java ThreadMXBean. Thing."""
+	from java.lang.management import ManagementFactory
+	TMXB = ManagementFactory.getThreadMXBean()
+	return TMXB.getThreadInfo(thread.id)

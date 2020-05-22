@@ -37,7 +37,6 @@ from shared.tools.timing import EveryFixedDelay
 from shared.tools.meta import MetaSingleton
 
 from time import time, sleep
-from weakref import WeakKeyDictionary
 from functools import wraps
 from java.lang import Thread
 
