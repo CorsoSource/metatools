@@ -1,7 +1,7 @@
 from weakref import WeakValueDictionary
 from time import sleep
 
-from shared.tools.thread import getThreadState, Thread, async
+from shared.tools.thread import getThreadState, Thread, async, getThreadInfo
 from shared.tools.global import ExtraGlobal
 from shared.tools.data import randomId, chunks
 
@@ -22,35 +22,101 @@ import textwrap, math
 
 from shared.tools.pretty import p,pdir
 
+
+# Standardize the string keys that will be used
+# NOTE: Enum will break the message handlers when in payloads, apparently. 
+#   It's _literally_ a string, but the Jython reflection gets hung up on the details, it seems.
+# Python doesn't treat it as different, but Java has a different opinion.
+
 from shared.tools.enum import Enum
 
+class ExtraGlobalScopes(Enum):
+	INSTANCES = 'Tracers'
+	REMOTE_INFO = 'Remote Tracers'
+	REMOTE_COMMANDS = 'Remote Tracer Commands'
+
+class MessageTypes(Enum):
+	LISTING = 'list'
+	INPUT = 'input'
+	COMMAND = 'command'
+	STATE_UPDATE = 'update'
+	STATE_CHECK = 'check'
+	
+class MessageScopes(Enum):
+	GATEWAY = 'G'
+	CLIENT = 'C'
+	ALL = 'GC'
+
+class IgnitionContexts(Enum):
+	DESIGNER = 'D'
+	GATEWAY = 'G'
+	VISION_CLIENT = 'V'
+	PERSPECTIVE_SESSION = 'P'
+
+
+#==========================================================================
+# SCRAM
+#==========================================================================
+#   Makes kill -9 an option
 
 def SCRAM():
 	"""Iterate over all the currently tracked tracers, shut 'em down, and remove them."""
 	for tracer_id in Tracer.tracers:
-		try:
-			tracer = Tracer[tracer_id]
-			tracer.shutdown()
-			Tracer._remove_tracer(tracer)
-		except:
-			pass
+		tracer = Tracer[tracer_id]
+		tracer.shut
+		del Tracer[tracer_id]
 			
-			
-def NOP_TRACE(frame=None, event=None, arg=None):
+SCRAM_DEADMAN_SIGNAL = {'SCRAMS on empty': True}
+
+
+#==========================================================================
+# NOP Trace function
+#==========================================================================
+#   Keeps the motor running
+
+def NOP_TRACE(frame=None, event=None, arg=None, SCRAM_DEADMAN_SIGNAL=SCRAM_DEADMAN_SIGNAL):
 	"""
 	The trace mechanics need to be active, but it only needs to keep itself running.
 	This acts mostly like a no-op function, returning itself for frames that
 	  are not explicitly blocked (by Tracer.skip_frame(...)).
 	It also checks if a SCRAM has been requested, and if so begins the flush.
 	"""	
-	if Tracer.SCRAM_SIGNAL:
-		Tracer._scram(frame)
+	if not SCRAM_DEADMAN_SIGNAL:
+		SCRAM()
 		return None
 	
-	if Tracer.skip_frame(frame):
+	# Overhead likely worth it to avoid tracing builtins and such
+	if _skip_frame(frame):
 		return None
 	
 	return NOP_TRACE
+
+
+SKIP_NAMESPACES = set([
+	'weakref', 'datetime', 'encodings',
+	])
+
+SKIP_FILES = set([
+	'<module:shared.tools.debug.breakpoint>',
+	'<module:shared.tools.debug.codecache>',
+	'<module:shared.tools.debug.frame>',
+	'<module:shared.tools.debug.hijack>',
+	'<module:shared.tools.debug.proxy>',
+	'<module:shared.tools.debug.snapshot>',
+	'<module:shared.tools.debug.tracer>',
+	'<module:shared.tools.debug.trap>',
+	])
+
+def _skip_frame(frame):
+	return any((
+		frame.f_globals.get('__name__') in SKIP_NAMESPACES,
+		frame.f_code.co_filename in SKIP_FILES,
+		))
+
+
+#==========================================================================
+# Meta - Tracer class methods
+#==========================================================================
 
 
 class MetaTracer(type):
@@ -62,22 +128,53 @@ class MetaTracer(type):
 	"""
 
 	def __getitem__(cls, tracer_id):
-		"""Return the tracer for the given ID"""
-		return cls._get_tracer(tracer_id)
+		"""Get the tracer from the global cache"""
+		if isinstance(tracer_id, (str,unicode)):
+			return ExtraGlobal[tracer_id:ExtraGlobalScopes.INSTANCES]
+		if isinstance(tracer_id, (int, long)):
+			for tracer in cls:
+				if tracer.thread.id == tracer_id:
+					return tracer
+			raise KeyError("Tracer working on Thread ID %d not found" % tracer_id)
+		if isinstance(tracer_id, Thread):
+			for tracer in cls:
+				if tracer.thread is tracer_id:
+					return tracer
+			raise KeyError("Tracer working on Thread %r not found" % tracer_id)
+		
+		raise KeyError("Tracer associated with %r not found" % tracer_id)
 
 	def __setitem__(cls, *args):
 		"""Tracers are internally managed. This is a ERRNOP"""
 		raise NotImplementedError("Tracers may not be manually set.")
 
+	def __delitem__(cls, tracer_id):
+		"""Trash a tracer from the global cache"""
+		try:
+			tracer = ExtraGlobal[tracer_id:ExtraGlobalScopes.INSTANCES]
+			tracer.shutdown()
+			del ExtraGlobal[tracer_id:ExtraGlobalScopes.INSTANCES]
+		except Exception, err:
+			system.util.getLogger('MetaTracer').error("Tracer [%s] did NOT shutdown gracefully" % tracer_id)
+			raise err
+			
+	def __iter__(cls):
+		"""Iterate over all tracers currently tracked"""
+		for tracer_id in cls.tracer_ids:
+			yield ExtraGlobal[tracer_id:ExtraGlobalScopes.INSTANCES]
+
 	@property
 	def tracers(cls):
-		return cls._tracer_ids()
+		return list(cls.__iter__())
+
+	@property
+	def tracer_ids(cls):
+		return ExtraGlobal.keys(scope=ExtraGlobalScopes.INSTANCES)
 
 
 	#==========================================================================
 	# Ignition Messages
 	#==========================================================================
-
 
 	#--------------------------------------------------------------------------
 	# Remote API
@@ -90,11 +187,11 @@ class MetaTracer(type):
 					project=cls.IGNITION_MESSAGE_PROJECT,
 					messageHandler=cls.IGNITION_MESSAGE_HANDLER,
 					payload = {
-						'message': str(cls.MessageTypes.LISTING),
+						'message': str(MessageTypes.LISTING),
 						'id': None,
 					},
 					timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
-					scope=cls.MessageScopes.GATEWAY,
+					scope=MessageScopes.GATEWAY,
 				)
 		else:
 			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
@@ -107,11 +204,11 @@ class MetaTracer(type):
 					project=cls.IGNITION_MESSAGE_PROJECT,
 					messageHandler=cls.IGNITION_MESSAGE_HANDLER,
 					payload = {
-						'message': str(cls.MessageTypes.STATE_CHECK),
+						'message': str(MessageTypes.STATE_CHECK),
 						'id': tracer_id,
 					},
 					timeoutSec=cls._MESSAGE_CALLBACK_TIMEOUT,
-					scope=cls.MessageScopes.GATEWAY,
+					scope=MessageScopes.GATEWAY,
 				)
 		else:
 			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
@@ -125,10 +222,10 @@ class MetaTracer(type):
 				messageHandler=cls.IGNITION_MESSAGE_HANDLER,
 				payload={
 					'id': tracer_id,
-					'message': str(cls.MessageTypes.COMMAND),
+					'message': str(MessageTypes.COMMAND),
 					'command': command,
 					},
-				scope=cls.MessageScopes.GATEWAY,
+				scope=MessageScopes.GATEWAY,
 				)
 		else:
 			raise RuntimeError("Tracer REMOTE_MESSAGING is not enabled.")
@@ -151,45 +248,45 @@ class MetaTracer(type):
 		# system.util.getLogger('Tracer %s' % (tracer_id,)).info('Message "%s" for "%s" recieved' % (message_type, tracer_id))
 
 		# Replate with the current tracer IDs available for remote control
-		if message_type == cls.MessageTypes.LISTING:
-			return ExtraGlobal.keys(scope=cls.ExtraGlobalScopes.REMOTE_INFO)
+		if message_type == MessageTypes.LISTING:
+			return ExtraGlobal.keys(scope=ExtraGlobalScopes.REMOTE_INFO)
 
 		# Reply to a tracer's request for commands (if any have been buffered)
-		if message_type == cls.MessageTypes.INPUT:
+		if message_type == MessageTypes.INPUT:
 			commands = ExtraGlobal.get(label=tracer_id, 
-									   scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS, 
+									   scope=ExtraGlobalScopes.REMOTE_COMMANDS, 
 									   default=[])
 			if commands:
 				ExtraGlobal.trash(label=tracer_id, 
-								  scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS)
+								  scope=ExtraGlobalScopes.REMOTE_COMMANDS)
 			return commands
 
 		# Enqueue a command sent to the hub
-		if message_type == cls.MessageTypes.COMMAND:
+		if message_type == MessageTypes.COMMAND:
 			command = payload.get('command', payload.get('commands', []))
 			system.util.getLogger('Tracer %s' % (tracer_id,)).info('Message "%s" for "%s" recieved: %r' % (message_type, tracer_id, command))
 			cls._queue_command(tracer_id, command)
 			return
 
 		# Update currently known state
-		if message_type == cls.MessageTypes.STATE_UPDATE:
+		if message_type == MessageTypes.STATE_UPDATE:
 			def heartbeat_check(cls=cls, tracer_id=tracer_id):
 				cls._check_heartbeat(tracer_id)
 			ExtraGlobal.stash(payload,
 							  label=tracer_id, 
-							  scope=cls.ExtraGlobalScopes.REMOTE_INFO,
+							  scope=ExtraGlobalScopes.REMOTE_INFO,
 							  lifespan=30, # seconds
 							  callback=heartbeat_check)
 			return 
 			
 		# Reply with tracer state
-		if message_type == cls.MessageTypes.STATE_CHECK:
+		if message_type == MessageTypes.STATE_CHECK:
 			state = ExtraGlobal.get(label=tracer_id,
-								   scope=cls.ExtraGlobalScopes.REMOTE_INFO,
+								   scope=ExtraGlobalScopes.REMOTE_INFO,
 								   default=None)
 			if not state:
 				return None
-			state['message'] = str(cls.MessageTypes.STATE_CHECK)
+			state['message'] = str(MessageTypes.STATE_CHECK)
 			return state
 
 			
@@ -197,7 +294,7 @@ class MetaTracer(type):
 		#system.util.getLogger('Tracer %s' % (tracer_id,)).info('Heartbeat check...')
 
 		pending_commands = ExtraGlobal.get(label=tracer_id, 
-									   scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS, 
+									   scope=ExtraGlobalScopes.REMOTE_COMMANDS, 
 									   default=[])
 		if isinstance(pending_commands, (list, tuple)):
 			# Check if we've already tried to send the command and failed
@@ -211,14 +308,14 @@ class MetaTracer(type):
 
 		cls._queue_command(tracer_id, 'heartbeat')
 		ExtraGlobal.extend(label=tracer_id, 
-						   scope=cls.ExtraGlobalScopes.REMOTE_INFO,
+						   scope=ExtraGlobalScopes.REMOTE_INFO,
 						   additional_time=self._MESSAGE_CALLBACK_TIMEOUT)
 
 
 	def _queue_command(cls, tracer_id, command):
 		"""Enqueue a command onto the local ExtraGlobal remote control list"""
 		commands = ExtraGlobal.get(label=tracer_id, 
-								   scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS, 
+								   scope=ExtraGlobalScopes.REMOTE_COMMANDS, 
 								   default=[])
 		if not commands:
 			commands = command
@@ -232,9 +329,12 @@ class MetaTracer(type):
 
 		ExtraGlobal.stash(commands,
 						  label=tracer_id, 
-						  scope=cls.ExtraGlobalScopes.REMOTE_COMMANDS)
+						  scope=ExtraGlobalScopes.REMOTE_COMMANDS)
 
 
+#==========================================================================
+# Tracer definition
+#==========================================================================
 
 class Tracer(object):
 	"""A variant of the Python Debugger (Pdb)
@@ -298,47 +398,22 @@ class Tracer(object):
 	#==========================================================================
 	# Constants and references
 	#==========================================================================
-
+	
+	SCRAM_DEADMAN_SIGNAL = SCRAM_DEADMAN_SIGNAL
+	
 	CONTEXT_BUFFER_LIMIT = 1000
 	COMMAND_BUFFER_LIMIT = 1000
 	_UPDATE_CHECK_DELAY = 0.200 # seconds (leave relatively high since it should be driven by human input.)
 	INTERDICTION_FAILSAFE = False # True
 	INTERDICTION_FAILSAFE_TIMEOUT = 30000 # milliseconds (seconds if failsafe disabled)
-
-	# Set Tracer.SCRAM_SIGNAL to true to have any active traces using this class to purge themselves (on next call)
-	SCRAM_SIGNAL = False
 		
 	# _event_labels = set(['call', 'line', 'return', 'exception', 
 	# 					 'c_call', 'c_return', 'c_exception',
 	# 					 ])	
 
-
-	SKIP_NAMESPACES = set([
-		'weakref', 'datetime', 'encodings',
-		])
-	
-	SKIP_FILES = set([
-		'<module:shared.tools.debug.breakpoint>',
-		'<module:shared.tools.debug.codecache>',
-		'<module:shared.tools.debug.frame>',
-		'<module:shared.tools.debug.hijack>',
-		'<module:shared.tools.debug.proxy>',
-		'<module:shared.tools.debug.snapshot>',
-		'<module:shared.tools.debug.tracer>',
-		'<module:shared.tools.debug.trap>',
-		])
-
-
-	class ExtraGlobalScopes(Enum):
-		INSTANCES = 'Tracers'
-		REMOTE_INFO = 'Remote Tracers'
-		REMOTE_COMMANDS = 'Remote Tracer Commands'
-
-
 	#--------------------------------------------------------------------------
 	# Ignition Messaging
 	#--------------------------------------------------------------------------
-
 
 	IGNITION_MESSAGE_PROJECT = 'Debugger'
 	IGNITION_MESSAGE_HANDLER = 'Remote Tracer Control'
@@ -349,29 +424,6 @@ class Tracer(object):
 	# Make sure the sendRequest is not called more often than a few times a second, 
 	#   or the client starts to log jam events a bit.
 	_MESSAGE_CALLBACK_TIMEOUT = 1.50 # seconds
-
-	# Standardize the string keys that will be used
-	# NOTE: Enum will break the message handlers when in payloads, apparently. 
-	#   It's _literally_ a string, but the Jython reflection gets hung up on the details, it seems.
-	# Python doesn't treat it as different, but Java has a different opinion.
-
-	class MessageTypes(Enum):
-		LISTING = 'list'
-		INPUT = 'input'
-		COMMAND = 'command'
-		STATE_UPDATE = 'update'
-		STATE_CHECK = 'check'
-		
-	class MessageScopes(Enum):
-		GATEWAY = 'G'
-		CLIENT = 'C'
-		ALL = 'GC'
-
-	class IgnitionContexts(Enum):
-		DESIGNER = 'D'
-		GATEWAY = 'G'
-		VISION_CLIENT = 'V'
-		PERSPECTIVE_SESSION = 'P'
 
 
 	#==========================================================================
@@ -437,75 +489,41 @@ class Tracer(object):
 		self.sys = SysHijack(self.thread)
 
 		self.interdicting = False		
-
 		self._top_frame = None
-
 		self._debug = {}
-		
-		#start the machinery so we can inject directly
-		#self.sys.settrace(Tracer.dispatch)
-		self.sys.settrace(NOP_TRACE)
-		
-		self._add_tracer(self)
+		self.step_speed = 0
 
 		self._FAILSAFE_TIMEOUT = datetime.now()
 
-		self.step_speed = 0
 
+		self._add_tracer(self)
 		self._log_command('<INIT>', 'Done.')
 
 		self._send_update()
 
+		#start the machinery so we can inject directly
+		#self.sys.settrace(Tracer.dispatch)
+		self.sys.settrace(NOP_TRACE)
+		
+		
+	def __repr__(self):	
+		"""Custom high level glance at tracer"""
+		return '<Tracer [%s] (%s) on %r>' % (self.id, self.state, self.thread)
 
-	def __repr__(self):
-		if self.interdicting:
-			state = 'interdicting'
-		elif self.monitoring:
-			state = 'monitoring'
-		else:
-			state = 'inactive'
-		return '<Tracer [%s] (%s) on %r>' % (self.id, state, self.thread)
-
-
-	@classmethod
-	def _add_tracer(cls, tracer):
-		ExtraGlobal.stash(tracer, 
-						  tracer.id, 
-						  scope=cls.ExtraGlobalScopes.INSTANCES, 
-						  callback=tracer._renew_cache_entry)
-
-	@classmethod
-	def _remove_tracer(cls, tracer):
-		ExtraGlobal.trash(tracer.id, 
-						  scope=cls.ExtraGlobalScopes.INSTANCES)
-
-	@classmethod
-	def _scram(cls, base_frame):
+		
+	def SCRAM(self):
 		# Clear out any active traces running
-		for frame in iter_frames(base_frame):
+		for frame in iter_frames(self.current_frame):
 			if frame.f_trace:
 				del frame.f_trace
-		
-		# This is not attached to the Tracer class so debug can be scrammed from the outside.
-		SCRAM()
-		
-	
-	@classmethod
-	def skip_frame(cls, frame):
-		return any((
-			frame.f_globals.get('__name__') in cls.SKIP_NAMESPACES,
-			frame.f_code.co_filename in cls.SKIP_FILES,
-			))
+		self.shutdown()
 
-	@classmethod
-	def _tracer_ids(cls):
-		"""List the active tracers from the global cache"""
-		return ExtraGlobal.keys(scope=cls.ExtraGlobalScopes.INSTANCES)
 
-	@classmethod
-	def _get_tracer(cls, tracer_id):
-		"""Return the tracer from the global cache"""
-		return ExtraGlobal[tracer_id:cls.ExtraGlobalScopes.INSTANCES]
+	def _add_tracer(self, tracer):
+		ExtraGlobal.stash(tracer, 
+						  tracer.id, 
+						  scope=ExtraGlobalScopes.INSTANCES, 
+						  callback=tracer._renew_cache_entry)
 
 
 	def _renew_cache_entry(self):
@@ -595,11 +613,32 @@ class Tracer(object):
 	#==========================================================================
 	# Convenience properties
 	#==========================================================================
+
+	@property
+	def state(self):
+		"""Quick convenience label"""
+		if self.interdicting:
+			state = 'interdicting'
+		elif self.monitoring:
+			state = 'monitoring'
+		else:
+			state = 'inactive'
+		
+		if self.thread.state == Thread.State.BLOCKED:
+			thread_info = getThreadInfo(self.thread)
+			try:
+				blocker = Tracer[thread_info.getLockOwnerId()]
+				if blocker is self:
+					state += ", possible self-deadlock!"
+				else:
+					state += ", currently [%s] tracing" % blocker.id
+			except KeyError:
+				state += ", currently blocked by Thread[%s, %d]" % (thread_info.getLockOwnerName(), thread_info.getLockOwnerId())
+		return state
 		
 	@property
 	def debug(self):
 		return self._debug
-
 
 	@property
 	def current_frame(self):
@@ -747,9 +786,15 @@ class Tracer(object):
 	#--------------------------------------------------------------------------
 	
 	def dispatch(self, frame, event, arg):
-	
-		if self.SCRAM_SIGNAL:
-			self._scram(frame)
+		"""
+		The master dispatch called from the sys.settrace tracing functionality.
+		
+		NOTE: Due to the way Jython performs tracing, this WILL block other
+		      trace threads. This is part of the Jython implementation of 
+		      the tracing call function, where it forces a synchronized state.
+		"""		
+		if not self.SCRAM_DEADMAN_SIGNAL:
+			self.SCRAM(frame)
 			return None
 		
 		self.cursor_reset()
@@ -758,7 +803,7 @@ class Tracer(object):
 			self._cursor_stack = tuple()
 			return None
 				
-		if self.skip_frame(frame):
+		if _skip_frame(frame):
 			return None
 			
 		if self.step_speed:
@@ -770,6 +815,7 @@ class Tracer(object):
 		# Buffer's most present is always index 0
 		if self.recording:
 			self.context_buffer.appendleft(self._current_context)
+			#self.context_buffer.insert(0,self._current_context)
 		while len(self.context_buffer) > self.CONTEXT_BUFFER_LIMIT:
 			_ = self.context_buffer.pop()
 
@@ -798,7 +844,7 @@ class Tracer(object):
 			frame.f_trace = self.dispatch
 		
 		# Ideally we'd use sys.gettrace but that ain't a thing in Jython 2.5
-		if self.monitoring and not Tracer.skip_frame(frame):
+		if self.monitoring and not _skip_frame(frame):
 			self.sys.settrace(self.dispatch)
 		else:
 			self.shutdown()
@@ -860,18 +906,18 @@ class Tracer(object):
 		if getattr(system.util, 'getSystemFlags', None):
 			sysFlags = system.util.getSystemFlags()
 			if sysFlags & system.util.DESIGNER_FLAG:
-				self._ignition_scope = self.IgnitionContexts.DESIGNER
+				self._ignition_scope = IgnitionContexts.DESIGNER
 				self._ignition_client = system.util.getClientId()
 			elif sysFlags & system.util.CLIENT_FLAG:
-				self._ignition_scope = self.IgnitionContexts.VISION_CLIENT
+				self._ignition_scope = IgnitionContexts.VISION_CLIENT
 				self._ignition_client = system.util.getClientId()
 		else:
 			try:
 				session = getObjectByName('session', startRecent=False)
-				self._ignition_scope = self.IgnitionContexts.PERSPECTIVE_SESSION
+				self._ignition_scope = IgnitionContexts.PERSPECTIVE_SESSION
 				self._ignition_client = session.props.id
 			except:
-				self._ignition_scope = self.IgnitionContexts.GATEWAY
+				self._ignition_scope = IgnitionContexts.GATEWAY
 				self._ignition_client = None
 
 
@@ -896,11 +942,11 @@ class Tracer(object):
 					project=self.IGNITION_MESSAGE_PROJECT,
 					messageHandler=self.IGNITION_MESSAGE_HANDLER,
 					payload = {
-						'message': str(self.MessageTypes.INPUT),
+						'message': str(MessageTypes.INPUT),
 						'id': self.id,
 					},
 					timeoutSec=self._MESSAGE_CALLBACK_TIMEOUT,
-					scope=self.MessageScopes.GATEWAY
+					scope=MessageScopes.GATEWAY
 					)
 
 			if result:
@@ -923,11 +969,11 @@ class Tracer(object):
 					project=self.IGNITION_MESSAGE_PROJECT,
 					messageHandler=self.IGNITION_MESSAGE_HANDLER,
 					payload = {
-						'message': str(self.MessageTypes.INPUT),
+						'message': str(MessageTypes.INPUT),
 						'id': self.id,
 					},
 					timeoutSec=self._MESSAGE_CALLBACK_TIMEOUT,
-					scope=self.MessageScopes.GATEWAY,
+					scope=MessageScopes.GATEWAY,
 
 					# This runs on the GUI thread. That... may go badly if we're tracing a GUI script.
 					#   So for that reason we'll just not use callbacks, and instead block explicitly.
@@ -981,13 +1027,14 @@ class Tracer(object):
 
 
 	def _send_update(self):
-		if self.REMOTE_MESSAGING:
-			_ = system.util.sendMessage(
-				project=self.IGNITION_MESSAGE_PROJECT,
-				messageHandler=self.IGNITION_MESSAGE_HANDLER,
-				payload=self._payload_tracer_state,
-				scope=self.MessageScopes.GATEWAY,
-				)
+		pass
+#		if self.REMOTE_MESSAGING:
+#			_ = system.util.sendMessage(
+#				project=self.IGNITION_MESSAGE_PROJECT,
+#				messageHandler=self.IGNITION_MESSAGE_HANDLER,
+#				payload=self._payload_tracer_state,
+#				scope=MessageScopes.GATEWAY,
+#				)
 
 
 	#--------------------------------------------------------------------------
@@ -997,7 +1044,7 @@ class Tracer(object):
 	@property
 	def _payload_tracer_state(self):
 		return {
-			'message': str(self.MessageTypes.STATE_UPDATE),
+			'message': str(MessageTypes.STATE_UPDATE),
 			'id': self.id,
 			'ignition': self._payload_ignition_info,
 			'cursor': self._payload_cursor_info,
@@ -1155,6 +1202,7 @@ class Tracer(object):
 	def _log_command(self, command, result, timestamp=None):
 		format_string = '[%s] (IPD) %s'
 		self._logged_commands.appendleft((format_string % (timestamp or datetime.now(), command), result))
+		# self._logged_commands.insert(0, (format_string % (timestamp or datetime.now(), command), result))
 		while len(self._logged_commands) > self.COMMAND_BUFFER_LIMIT:
 			_ = self._logged_commands.pop()	
 
@@ -1417,7 +1465,7 @@ class Tracer(object):
 		"""
 		Halt interdiction, monitoring, tracing, and remove from callstack and hijacked sys.
 		"""
-		self._scram(self.cursor_frame)
+		self.SCRAM()
 	_command_SCRAM = _command_scram
 
 	def _command_release(self, command='release'):

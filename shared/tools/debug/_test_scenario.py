@@ -5,7 +5,7 @@
 #sleep(0.5)
 #
 #from shared.tools.debug.tracer import Tracer
-#tracer = Tracer[Tracer.tracers[0]]
+#tracer = Tracer.tracers[0]
 #tracer
 
 # print "Pausing before scenario..."
@@ -80,7 +80,7 @@ scenario_thread = fork_scenario(tracer.cursor_frame, tracer.id, tracer.sys)
 
 sleep(0.5)
 
-from shared.tools.thread import getThreadState
+from shared.tools.thread import getThreadState, getThreadInfo
 scenario_thread.state
 getThreadState(scenario_thread).frame
 
