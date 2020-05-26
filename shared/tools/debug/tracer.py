@@ -34,6 +34,7 @@ class ExtraGlobalScopes(Enum):
 	INSTANCES = 'Tracers'
 	REMOTE_INFO = 'Remote Tracers'
 	REMOTE_COMMANDS = 'Remote Tracer Commands'
+	LOCK = 'Tracer Queue'	
 
 class MessageTypes(Enum):
 	LISTING = 'list'
@@ -58,12 +59,14 @@ class IgnitionContexts(Enum):
 # SCRAM
 #==========================================================================
 #   Makes kill -9 an option
+#   It's not perfect. But it's got a few ways to trigger and the
+#     loops all respect it.
 
 def SCRAM():
 	"""Iterate over all the currently tracked tracers, shut 'em down, and remove them."""
 	for tracer_id in Tracer.tracers:
 		tracer = Tracer[tracer_id]
-		tracer.shut
+		tracer.SCRAM()
 		del Tracer[tracer_id]
 			
 SCRAM_DEADMAN_SIGNAL = {'SCRAMS on empty': True}
@@ -118,6 +121,10 @@ def _skip_frame(frame):
 # Meta - Tracer class methods
 #==========================================================================
 
+class TracerException(Exception):
+	"""Placeholder for throwing Tracer-specific errors."""
+	pass
+
 
 class MetaTracer(type):
 	"""
@@ -170,6 +177,68 @@ class MetaTracer(type):
 	@property
 	def tracer_ids(cls):
 		return ExtraGlobal.keys(scope=ExtraGlobalScopes.INSTANCES)
+
+
+	#==========================================================================
+	# Jython faux-GIL semaphores
+	#==========================================================================
+	#  Jython is pretty darn multithreaded. Except for imports and tracing.
+	#  Multiple traces may run at once, but they'll block each other.
+	#    See Jython source: 
+	#    https://github.com/jythontools/jython/blob/1cbd35ce6604198019eb0913fd381a783eb299f2/src/org/python/core/PythonTraceFunction.java#L14-L15
+
+	@property
+	def trace_lock(cls):
+		"""
+		A trace lock is checked to make sure another tracer is not active.
+
+		While it can be detected in Jython 2.7, sys.gettrace() is not available
+		  in Jython 2.5 meaning we need to keep track of this ourselves. If two
+		  tracers are active at once, one will merely be blocked until the earlier
+		  clears or the two will simply trip over each other constantly.
+
+		The return value is the ID of the currently active tracer. 
+		"""
+		current_tracer = ExtraGlobal.setdefault('Active Tracer ID', 
+												scope=ExtraGlobalScopes.LOCK, 
+												default=None)
+		if not current_tracer:
+			tracer_queue = ExtraGlobal.get('Pending Queue', 
+										   scope=ExtraGlobalScopes.LOCK, 
+										   default=[])
+			if tracer_queue:
+				current_tracer = tracer_queue.pop(0)
+				ExtraGlobal.set('Active Tracer ID', 
+								scope=ExtraGlobalScopes.LOCK, 
+								current_tracer, 
+								callback=lambda tracer_id=current_tracer: tracer_id)
+		return current_tracer
+
+
+	def _enque_tracer(cls, tracer_id):
+		"""Add the given tracer ID to the queue for next opportunity for activation."""
+		tracer_queue = ExtraGlobal.setdefault('Pending Queue', scope=ExtraGlobalScopes.LOCK, [])
+		if not tracer_id in tracer_queue:
+			tracer_queue.append(tracer_id)
+
+
+	def _abdicate_tracer(cls, tracer_id):
+		"""
+		Remove the tracer from the queue and active marker, if applicable.
+
+		Returns the next active tracer, if applicable.
+		"""
+		tracer_queue = ExtraGlobal.setdefault('Pending Queue', scope=ExtraGlobalScopes.LOCK, [])
+		if tracer_id in tracer_queue:
+			tracer_queue.remove(tracer_id)
+		current_tracer = ExtraGlobal.setdefault('Active Tracer ID', 
+												scope=ExtraGlobalScopes.LOCK, 
+												default=None)
+		if current_tracer == tracer_id:
+			ExtraGlobal.trash('Active Tracer ID', scope=ExtraGlobalScopes.LOCK) 
+
+		# Check if the trace lock needs to be updated
+		return cls.trace_lock
 
 
 	#==========================================================================
@@ -431,22 +500,61 @@ class Tracer(object):
 	#==========================================================================
 
 
-	def __init__(self, thread=None, *args, **kwargs):
-	
+	def __init__(self, thread=None, tracer_id=None, control_tag='', trace_asap=False, *args, **kwargs):
+		"""
+
+		If a tracer_id is provided, then if it's already active then it will NOT start a new one.
+		"""
+		# Set the ID - catch the KeyError to gracefully bypass 
+		if tracer_id:
+			if tracer_id in self.tracer_ids:
+				raise TracerException("Tracer ID [%s] is already taken." % tracer_id)
+			else:
+				self.id = tracer_id
+		else:
+			self.id = randomId(5)
+		self.logger = system.util.getLogger('Tracer %s' % self.id)
+
+		# Resolve Ignition scope for reference
 		self._ignition_host = ''
 		self._ignition_scope = None
 		self._ignition_client = None
 		self._ignition_project = ''
 		self._resolve_ignition_scope()
 
-		self.id = randomId(5)
-		self.logger = system.util.getLogger('Tracer %s' % self.id)
-
-		# Remote control handles
+		# Remote control via message handles
 		self._remote_request_handle = None
 		self._remote_request_thread = None
 
-		self.tag_path = ''
+		# Remote control via tag command line emulation
+		if control_tag:
+			if system.tag.exists(control_tag):
+				tag = system.tag.getTag(control_tag)
+
+				if str(tag.getType()) == 'Folder':
+					system.tag.addTag(
+						parentPath=control_tag,
+						name=self.id,
+						tagType='MEMORY',
+						dataType='String',
+						enabled=True,
+						value='Clear before first command',
+						)
+				else:
+					self.tag_path = control_tag
+			else:
+				tag_parent_path, _, tag_name = control_tag.rpartition('/')
+				system.tag.addTag(
+					parentPath=tag_parent_path,
+					name=tag_name,
+					tagType='MEMORY',
+					dataType='String',
+					enabled=True,
+					value='Clear before first command',
+					)
+				self.tag_path = control_tag	
+		else:
+			self.tag_path = ''
 		self.tag_acked = False
 
 		# Event init
@@ -501,22 +609,80 @@ class Tracer(object):
 
 		self._send_update()
 
-		#start the machinery so we can inject directly
-		#self.sys.settrace(Tracer.dispatch)
-		self.sys.settrace(NOP_TRACE)
+		# Initialize trace
+		#   Wait for traffic to clear up if other traces are in progress
+		if trace_asap:
+			self._enque_tracer(self.id)
+		self.await_right_of_way():
+			# start the machinery so we can inject directly
+			#self.sys.settrace(Tracer.dispatch)
+			self.sys.settrace(NOP_TRACE)
 		
-		
+
 	def __repr__(self):	
 		"""Custom high level glance at tracer"""
 		return '<Tracer [%s] (%s) on %r>' % (self.id, self.state, self.thread)
 
 		
 	def SCRAM(self):
+		"""SCRAM the trace and revert thread to as close to untouched as possible."""
 		# Clear out any active traces running
+		self.SCRAM_DEADMAN_SIGNAL.clear()
 		for frame in iter_frames(self.current_frame):
 			if frame.f_trace:
 				del frame.f_trace
 		self.shutdown()
+
+
+	def await_right_of_way(self):
+		"""
+		There can not be more than one _active_ trace at a time. This is part of the
+		  semaphore traffic-cop routines that allow multiple traces to _exist_ at once.
+
+		Control for this come from outside the tracer, of course. 
+
+		This function does NOT enque the tracer. That must be already set before entry.
+		  Or after from outside this thread via ExtraGlobal.
+
+		See Jython source for PythonTraceFunction for its history
+		  src/org/python/core/PythonTraceFunction.java
+		It may be possible to work around it, but then the tracer will not be able to
+		  interact with the outside world via ExtraGlobal 
+		  (or likely any extra-threaded source - if all external references are removed it'll
+		   block the trace thread on something like datetime.now() or some Java call.)
+		The line `synchronized(imp.class) { synchronized(this) {` seems to really _work_ =/
+		"""
+		self._set_failsafe_fuse()
+
+		while self.trace_lock != self.id and not self.SCRAM_DEADMAN_SIGNAL:
+
+			if self._burn_failsafe_fuse()
+				sleep(self._UPDATE_CHECK_DELAY)
+			else:
+				self.SCRAM()
+				return
+
+
+	def _set_failsafe_fuse(self):
+		"""Sets the interdiction failsafe's fuse. TIMEOUT microseconds remain until interdiction is released."""
+		if self.INTERDICTION_FAILSAFE:
+			self._FAILSAFE_TIMEOUT = datetime.now() + timedelta(microseconds=self.INTERDICTION_FAILSAFE_TIMEOUT * 1000)
+
+
+	def _burn_failsafe_fuse(self):
+		"""
+		If INTERDICTION_FAILSAFE is set then verify timeout has not occured. 
+		Returns true as long as fuse time remains.
+
+		NOTE: This is NOT a SCRAM trigger. It merely releases the interdiction interlock
+		      to return code execution flow.
+		"""
+		# Failsafe off ramp
+		if self.INTERDICTION_FAILSAFE and self._FAILSAFE_TIMEOUT < datetime.now():
+			self.interdicting = False
+			self.logger.warn('Interaction pause timed out!')
+			return False
+		return True
 
 
 	def _add_tracer(self, tracer):
@@ -1154,9 +1320,8 @@ class Tracer(object):
 		# 	raise RuntimeError("Await called from the wrong context! %r instead of %r" % (
 		# 					self.tracer_thread, self.thread,) )
 		
-		if self.INTERDICTION_FAILSAFE:
-			self._FAILSAFE_TIMEOUT = datetime.now() + timedelta(microseconds=self.INTERDICTION_FAILSAFE_TIMEOUT * 1000)
-		
+		self._set_failsafe_fuse()
+
 		while self.interdicting:
 			if not self._pending_commands:
 
@@ -1177,11 +1342,8 @@ class Tracer(object):
 
 				sleep(self._UPDATE_CHECK_DELAY)
 
-				# Failsafe off ramp
-				if self.INTERDICTION_FAILSAFE and self._FAILSAFE_TIMEOUT < datetime.now():
-					self.interdicting = False
-					self.logger.warn('Interaction pause timed out!')
-		
+				self._burn_failsafe_fuse()
+
 			while self._pending_commands and self.interdicting:
 				#self.logger.info('Command: %s' % self.command)
 				result = self.command(self._pending_commands.pop())
@@ -1803,9 +1965,16 @@ class Tracer(object):
 
 
 
-def set_trace():
+def set_trace(control_tag=None):
 	"""Crashstop execution and begin interdiction."""
-	Tracer().interdict()
+	try:
+		tracer = Tracer(control_tag=control_tag)
+		tracer.interdict()
+		return tracer
+
+	# If it fails to interdict, then fail and move on 
+	except TracerException:
+		return None
 
 
 def record():
