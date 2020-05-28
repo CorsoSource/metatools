@@ -1,3 +1,9 @@
+"""
+	Jython tracing debugger
+
+	PDB, but in Java. With Ignition.	
+"""
+
 from weakref import WeakValueDictionary
 from time import sleep
 
@@ -208,16 +214,16 @@ class MetaTracer(type):
 										   default=[])
 			if tracer_queue:
 				current_tracer = tracer_queue.pop(0)
-				ExtraGlobal.set('Active Tracer ID', 
-								scope=ExtraGlobalScopes.LOCK, 
-								current_tracer, 
-								callback=lambda tracer_id=current_tracer: tracer_id)
+				ExtraGlobal.stash(current_tracer, 
+								  'Active Tracer ID', 
+								  scope=ExtraGlobalScopes.LOCK, 
+								  callback=lambda tracer_id=current_tracer: tracer_id)
 		return current_tracer
 
 
 	def _enque_tracer(cls, tracer_id):
 		"""Add the given tracer ID to the queue for next opportunity for activation."""
-		tracer_queue = ExtraGlobal.setdefault('Pending Queue', scope=ExtraGlobalScopes.LOCK, [])
+		tracer_queue = ExtraGlobal.setdefault('Pending Queue', scope=ExtraGlobalScopes.LOCK, default=[])
 		if not tracer_id in tracer_queue:
 			tracer_queue.append(tracer_id)
 
@@ -228,7 +234,7 @@ class MetaTracer(type):
 
 		Returns the next active tracer, if applicable.
 		"""
-		tracer_queue = ExtraGlobal.setdefault('Pending Queue', scope=ExtraGlobalScopes.LOCK, [])
+		tracer_queue = ExtraGlobal.setdefault('Pending Queue', scope=ExtraGlobalScopes.LOCK, default=[])
 		if tracer_id in tracer_queue:
 			tracer_queue.remove(tracer_id)
 		current_tracer = ExtraGlobal.setdefault('Active Tracer ID', 
@@ -421,8 +427,8 @@ class Tracer(object):
 	  x is 20, _not_ 21.
 
 	NOTE: If this is activated inline with the code (same thread), it will NOT
-	      wait indefinitely. You MUST turn off the Tracer instance's INTERDICTION_FAILSAFE
-	      or it will time out quickly!
+		  wait indefinitely. You MUST turn off the Tracer instance's INTERDICTION_FAILSAFE
+		  or it will time out quickly!
 	  
 	For more information and the cool implementation that we're tweaking here,
 	  see also rpdb at https://github.com/tamentis/rpdb
@@ -448,6 +454,7 @@ class Tracer(object):
 				 'thread', 'sys', 'tracer_thread',
 				 'interdicting',
 				 '_top_frame',
+				 'waiting', # for right-of-way
 
 				 'step_speed',
 				 '_FAILSAFE_TIMEOUT', '_debug', # DeprecationWarning
@@ -468,6 +475,8 @@ class Tracer(object):
 	# Constants and references
 	#==========================================================================
 	
+	_RANDOM_ID_LENGTH = 5
+
 	SCRAM_DEADMAN_SIGNAL = SCRAM_DEADMAN_SIGNAL
 	
 	CONTEXT_BUFFER_LIMIT = 1000
@@ -512,8 +521,10 @@ class Tracer(object):
 			else:
 				self.id = tracer_id
 		else:
-			self.id = randomId(5)
+			self.id = randomId(self._RANDOM_ID_LENGTH)
 		self.logger = system.util.getLogger('Tracer %s' % self.id)
+
+		self.waiting = True
 
 		# Resolve Ignition scope for reference
 		self._ignition_host = ''
@@ -603,38 +614,57 @@ class Tracer(object):
 
 		self._FAILSAFE_TIMEOUT = datetime.now()
 
+		# Bookkeeping
 
 		self._add_tracer(self)
 		self._log_command('<INIT>', 'Done.')
 
 		self._send_update()
 
+		# START
+
 		# Initialize trace
 		#   Wait for traffic to clear up if other traces are in progress
 		if trace_asap:
 			self._enque_tracer(self.id)
-		self.await_right_of_way():
-			# start the machinery so we can inject directly
-			#self.sys.settrace(Tracer.dispatch)
-			self.sys.settrace(NOP_TRACE)
+
+		self._await_right_of_way()
+
+		# start the machinery so we can inject directly
+		#self.sys.settrace(Tracer.dispatch)
+		self.sys.settrace(NOP_TRACE)
 		
 
 	def __repr__(self):	
 		"""Custom high level glance at tracer"""
 		return '<Tracer [%s] (%s) on %r>' % (self.id, self.state, self.thread)
 
+
+	#==========================================================================
+	# Bookkeeping and traffic control (one-at-a-time management)
+	#==========================================================================
+
 		
 	def SCRAM(self):
 		"""SCRAM the trace and revert thread to as close to untouched as possible."""
 		# Clear out any active traces running
 		self.SCRAM_DEADMAN_SIGNAL.clear()
+		self.logger.warn("SCRAM intiated for tracer [%s]" % self.id)
+		# Purge current frame's trace - this is also done in shutdown, 
+		#   but should happen first
 		for frame in iter_frames(self.current_frame):
 			if frame.f_trace:
 				del frame.f_trace
+		# Clear out any object references
+		self._debug.clear()
+		self._logged_commands = None
+		self.context_buffer = None
+		self._cursor_stack = None
+		# Finish shutdown
 		self.shutdown()
 
 
-	def await_right_of_way(self):
+	def _await_right_of_way(self):
 		"""
 		There can not be more than one _active_ trace at a time. This is part of the
 		  semaphore traffic-cop routines that allow multiple traces to _exist_ at once.
@@ -652,16 +682,21 @@ class Tracer(object):
 		   block the trace thread on something like datetime.now() or some Java call.)
 		The line `synchronized(imp.class) { synchronized(this) {` seems to really _work_ =/
 		"""
-		self._set_failsafe_fuse()
+		try:
+			self.waiting = True
 
-		while self.trace_lock != self.id and not self.SCRAM_DEADMAN_SIGNAL:
+			self._set_failsafe_fuse()
 
-			if self._burn_failsafe_fuse()
-				sleep(self._UPDATE_CHECK_DELAY)
-			else:
-				self.SCRAM()
-				return
-
+			while self.trace_lock != self.id and not self.SCRAM_DEADMAN_SIGNAL:
+				if self._burn_failsafe_fuse():
+					sleep(self._UPDATE_CHECK_DELAY)
+				else:
+					self.SCRAM()
+					return
+		except:
+			pass
+		finally:
+			self.waiting = False
 
 	def _set_failsafe_fuse(self):
 		"""Sets the interdiction failsafe's fuse. TIMEOUT microseconds remain until interdiction is released."""
@@ -675,7 +710,7 @@ class Tracer(object):
 		Returns true as long as fuse time remains.
 
 		NOTE: This is NOT a SCRAM trigger. It merely releases the interdiction interlock
-		      to return code execution flow.
+			  to return code execution flow.
 		"""
 		# Failsafe off ramp
 		if self.INTERDICTION_FAILSAFE and self._FAILSAFE_TIMEOUT < datetime.now():
@@ -686,6 +721,7 @@ class Tracer(object):
 
 
 	def _add_tracer(self, tracer):
+		"""Place tracer in the global cache."""
 		ExtraGlobal.stash(tracer, 
 						  tracer.id, 
 						  scope=ExtraGlobalScopes.INSTANCES, 
@@ -768,6 +804,7 @@ class Tracer(object):
 		self._cursor_stack = tuple()
 		try:
 			self._stack_uninstall()
+			self._abdicate_tracer(self.id)
 			self.sys._restore()
 			if self._remote_request_handle:
 				self._remote_request_handle.cancel()
@@ -789,6 +826,9 @@ class Tracer(object):
 			state = 'monitoring'
 		else:
 			state = 'inactive'
+
+		if self.waiting:
+			state += ' but waiting'
 		
 		if self.thread.state == Thread.State.BLOCKED:
 			thread_info = getThreadInfo(self.thread)
@@ -797,7 +837,7 @@ class Tracer(object):
 				if blocker is self:
 					state += ", possible self-deadlock!"
 				else:
-					state += ", currently [%s] tracing" % blocker.id
+					state += ", blocked by [%s]" % blocker.id
 			except KeyError:
 				state += ", currently blocked by Thread[%s, %d]" % (thread_info.getLockOwnerName(), thread_info.getLockOwnerId())
 		return state
@@ -956,8 +996,8 @@ class Tracer(object):
 		The master dispatch called from the sys.settrace tracing functionality.
 		
 		NOTE: Due to the way Jython performs tracing, this WILL block other
-		      trace threads. This is part of the Jython implementation of 
-		      the tracing call function, where it forces a synchronized state.
+			  trace threads. This is part of the Jython implementation of 
+			  the tracing call function, where it forces a synchronized state.
 		"""		
 		if not self.SCRAM_DEADMAN_SIGNAL:
 			self.SCRAM(frame)
@@ -1228,7 +1268,7 @@ class Tracer(object):
 
 	def _payload_last_logs(self, n=5):
 		return {
- 			'stdout': self.sys.stdout.history[-n:],
+			'stdout': self.sys.stdout.history[-n:],
 			'stdin': self.sys.stdin.history[-n:],
 			'stderr': self.sys.stderr.history[-n:],
 			'commands': [ {
@@ -1241,7 +1281,7 @@ class Tracer(object):
 	@property 
 	def _payload_last_log(self, n=5):
 		return {
- 			'stdout': self.sys.stdout.history[-1:],
+			'stdout': self.sys.stdout.history[-1:],
 			'stdin': self.sys.stdin.history[-1:],
 			'stderr': self.sys.stderr.history[-1:],
 			'command': {
@@ -1901,8 +1941,18 @@ class Tracer(object):
 		Returns the new thread that is getting traced.
 		
 		WARNING: Other tracers may block until they exit!
-		"""	
-		back_reference = tracer.id
+		"""
+
+		# Check if we're forking on a scenario already. 
+		# If so, maintain source and increment.
+		# https://regex101.com/r/m6J20o/1
+		scenario_name_pattern = re.compile('^(?P<source_id>[a-z0-9-]+?)(?P<scenario>-S-(?P<scenario_number>[0-9]+))?$')
+		is_scenario = scenario_name_pattern.match().groupdict()
+		if is_scenario['scenario']:
+			back_reference = '%s-S-%d' % (is_scenario['source_id'], int(is_scenario['scenario_number'])+1)
+		else:
+			back_reference = '%s-S-1' % tracer.id
+
 		frame = self.cursor_frame
 
 		source = CodeCache.get_lines(frame, radius=0, sys_context=self.sys)
@@ -1935,7 +1985,7 @@ class Tracer(object):
 		
 		head_code = [indent + line.strip() for line in """
 			from shared.tools.debug.tracer import set_trace
-			set_trace()
+			set_trace(_trace_init_config)
 			""".splitlines() if line]
 		
 		code_block = head_code + code_block
@@ -1945,9 +1995,10 @@ class Tracer(object):
 		
 		argument_names = frame.f_code.co_varnames[:frame.f_code.co_argcount]
 		
-		scenario_locals = local_overrides
+		scenario_locals = {'_trace_init_config': {'tracer_id': back_reference}}
 		scenario_locals.update(dict((arg_name, frame.f_locals[arg_name]) 
 							   for arg_name in argument_names))
+		scenario_locals.update(local_overrides)
 		
 		scenario_globals = frame.f_globals
 		#del scenario_globals['Tracer']
@@ -1965,10 +2016,10 @@ class Tracer(object):
 
 
 
-def set_trace(control_tag=None):
+def set_trace(**tracer_init_config):
 	"""Crashstop execution and begin interdiction."""
 	try:
-		tracer = Tracer(control_tag=control_tag)
+		tracer = Tracer(**tracer_init_config)
 		tracer.interdict()
 		return tracer
 
@@ -1978,4 +2029,16 @@ def set_trace(control_tag=None):
 
 
 def record():
+	"""Monitor and log contexts."""
 	raise NotImplementedError("TODO: ADD FEATURE")
+
+
+def post_mortem():
+	"""Monitor, but do not interdict unless an exception occurs."""
+	raise NotImplementedError("TODO: ADD FEATURE")
+
+
+def pre_mortem():
+	"""Fork from the start and immediately interdict given current scope."""
+	raise NotImplementedError("TODO: ADD FEATURE")
+	
