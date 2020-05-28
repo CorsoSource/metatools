@@ -509,7 +509,7 @@ class Tracer(object):
 	#==========================================================================
 
 
-	def __init__(self, thread=None, tracer_id=None, control_tag='', trace_asap=False, *args, **kwargs):
+	def __init__(self, thread=None, tracer_id=None, control_tag='', trace_asap=False, **kwargs):
 		"""
 
 		If a tracer_id is provided, then if it's already active then it will NOT start a new one.
@@ -551,6 +551,7 @@ class Tracer(object):
 						enabled=True,
 						value='Clear before first command',
 						)
+					self.tag_path = '%s/%s' % (control_tag, self.id)
 				else:
 					self.tag_path = control_tag
 			else:
@@ -804,14 +805,13 @@ class Tracer(object):
 		self._cursor_stack = tuple()
 		try:
 			self._stack_uninstall()
-			self._abdicate_tracer(self.id)
 			self.sys._restore()
+			self._abdicate_tracer(self.id)
 			if self._remote_request_handle:
 				self._remote_request_handle.cancel()
 			self.logger.info('Tracer shutdown complete.')
 		except:
-			raise RuntimeError('Tracer shutdown gracelessly - traced thread is likely already dead and cleanup thus failed.')
-
+			raise RuntimeError('Tracer shutdown gracelessly - traced thread is likely already dead and cleanup thus failed.')		
 
 	#==========================================================================
 	# Convenience properties
@@ -2021,7 +2021,6 @@ def set_trace(**tracer_init_config):
 	try:
 		tracer = Tracer(**tracer_init_config)
 		tracer.interdict()
-		return tracer
 
 	# If it fails to interdict, then fail and move on 
 	except TracerException:
