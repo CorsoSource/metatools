@@ -29,11 +29,12 @@ try:
 
 	PYTHON_LEXER = PythonLexer(stripall=True, tabsize=4)
 
-	def syntax_highlight(code, highlight_lines=[], style='monokai'):
+	def syntax_highlight(code, highlight_lines=[], start_line=1, style='monokai'):
 		formatter = HtmlFormatter(
 			linenos='table', 
 			style=style,
 			hl_lines=highlight_lines,
+			linenostart=start_line,
 			wrapcode=True,
 			full=True,
 			lineseparator='<br>',

@@ -618,7 +618,7 @@ class Tracer(object):
 		# Bookkeeping
 
 		self._add_tracer(self)
-		self._log_command('<INIT>', 'Done')
+		self._log_command('<INIT>', 'Done.')
 
 		self._send_update()
 
@@ -1325,7 +1325,9 @@ class Tracer(object):
 	# Command controls
 	#--------------------------------------------------------------------------
 
-
+	# Some commands shouldn't sanely be logged. Especially the log/status stuff.
+	_UNLOGGED_COMMANDS = set(['status', 'state', 'log'])
+	
 	def command(self, command):
 		"""
 		Interpret commands like PDB: '!' means execute, 
@@ -1338,7 +1340,8 @@ class Tracer(object):
 		#   in the std* histories, then the timestamp should happen before it is run.
 		# So capture here, then log after.
 		timestamp = datetime.now()
-
+		
+		args = [None]
 		try:
 			if command.lstrip()[0] == '!':
 				result = self._command_statement(command)
@@ -1354,7 +1357,8 @@ class Tracer(object):
 		except Exception, error:
 			result = error
 		finally:
-			self._log_command(command, result, timestamp)
+			if not args[0] in self._UNLOGGED_COMMANDS:
+				self._log_command(command, result, timestamp)
 		return result
 
 
@@ -1404,7 +1408,7 @@ class Tracer(object):
 						elif isinstance(result, (list, tuple, dict)):
 							system.tag.write(self.tag_path, system.util.jsonEncode(result))
 						elif result is None:
-							system.tag.write(self.tag_path, 'Done')						
+							system.tag.write(self.tag_path, 'Done.')						
 						else:
 							system.tag.write(self.tag_path, str(result))
 						
@@ -1775,7 +1779,41 @@ class Tracer(object):
 	# Info commands
 	#--------------------------------------------------------------------------
 
+	def _command_status(self, command='status', format='', log_index=-1):
+		"""
+		Summarize the status of the tracer. 
+		The return format can be specified as any of the following:
+		 - None (default): Python payload
+		 - 'repr': Typical output on the interactive prompt
+		 - 'json': Encode the full state payload as a JSON string
+		 - 'command': last command and the reply
+		 - ('stdout', 'stdin', 'stderr'): last entry per each in the logs
+		A log_index value can be provided to choose a specific entry.
+		  By default, this value is the last entry.
+		NOTE: A special exception is made for this command: it will not be logged.
+		  Otherwise the log_index is an utterly confusing moving target!
+		"""
+		try:
+			if format == 'repr':
+				return self.__repr__()
+			elif format == 'json':
+				return system.util.jsonEncode(self._payload_tracer_state, 2)
+			elif format == 'stdout':
+				return self.sys.stdout.history[log_index]
+			elif format == 'stdin':
+				return self.sys.stdin.history[log_index]
+			elif format == 'stderr':
+				return self.sys.stderr.history[log_index]
+			elif format == 'command':
+				# Command 0 is always the last, working up
+				return '%s\n%s' % self._logged_commands[-(log_index+1)]
+			else:
+				return self._payload_tracer_state
+		except IndexError:
+			return 'IndexError: log depth %d is out of range for %s' % (log_index, format)
+	_command_state = _command_log = _command_status
 
+		
 	def _command_list(self, command='list', first=0, last=0):
 		"""
 		List the source code for the current file, +/- 5 lines.
