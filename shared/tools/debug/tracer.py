@@ -24,7 +24,7 @@ from ast import literal_eval
 from time import sleep
 from collections import deque 
 from datetime import datetime, timedelta
-import textwrap, math
+import textwrap, math, re
 
 from shared.tools.pretty import p,pdir
 
@@ -516,7 +516,7 @@ class Tracer(object):
 		"""
 		# Set the ID - catch the KeyError to gracefully bypass 
 		if tracer_id:
-			if tracer_id in self.tracer_ids:
+			if tracer_id in Tracer.tracer_ids:
 				raise TracerException("Tracer ID [%s] is already taken." % tracer_id)
 			else:
 				self.id = tracer_id
@@ -618,7 +618,7 @@ class Tracer(object):
 		# Bookkeeping
 
 		self._add_tracer(self)
-		self._log_command('<INIT>', 'Done.')
+		self._log_command('<INIT>', 'Done')
 
 		self._send_update()
 
@@ -800,6 +800,8 @@ class Tracer(object):
 		
 	def shutdown(self):
 		"""Stop the trace and tear down the setup."""
+		if self.tag_path:
+			system.tag.write(self.tag_path, 'Shutting down...')
 		self.interdicting = False
 		self.monitoring = False
 		self._cursor_stack = tuple()
@@ -809,9 +811,11 @@ class Tracer(object):
 			self._abdicate_tracer(self.id)
 			if self._remote_request_handle:
 				self._remote_request_handle.cancel()
+			if self.tag_path:
+				system.tag.removeTag(self.tag_path)
 			self.logger.info('Tracer shutdown complete.')
 		except:
-			raise RuntimeError('Tracer shutdown gracelessly - traced thread is likely already dead and cleanup thus failed.')		
+			raise RuntimeError('Tracer shutdown was at least partly graceless - traced thread is likely already dead and cleanup thus failed.')		
 
 	#==========================================================================
 	# Convenience properties
@@ -1335,18 +1339,22 @@ class Tracer(object):
 		# So capture here, then log after.
 		timestamp = datetime.now()
 
-		if command.lstrip()[0] == '!':
-			result = self._command_statement(command)
-		else:
-			args = []
-			for arg in command.split():
-				try:
-					args.append(literal_eval(arg))
-				except:
-					args.append(arg)
-			result = self._map_o_commands.get(args[0], self._command_default)(command, *args[1:])
-
-		self._log_command(command, result, timestamp)
+		try:
+			if command.lstrip()[0] == '!':
+				result = self._command_statement(command)
+			else:
+				args = []
+				for arg in command.split():
+					try:
+						args.append(literal_eval(arg))
+					except:
+						args.append(arg)
+				
+				result = self._map_o_commands.get(args[0], self._command_default)(command, *args[1:])
+		except Exception, error:
+			result = error
+		finally:
+			self._log_command(command, result, timestamp)
 		return result
 
 
@@ -1391,14 +1399,17 @@ class Tracer(object):
 				# Reply to the tag's command with results
 				if self.tag_path:
 					if not self.tag_acked:
-						if isinstance(result, (list, tuple, dict)):
+						if isinstance(result, Exception):
+							system.tag.write(self.tag_path, 'Exception "%r" for command "%s"' % (error, command))
+						elif isinstance(result, (list, tuple, dict)):
 							system.tag.write(self.tag_path, system.util.jsonEncode(result))
+						elif result is None:
+							system.tag.write(self.tag_path, 'Done')						
 						else:
 							system.tag.write(self.tag_path, str(result))
-	
+						
 			# Send update after all commands are run (query for logs if batch set...)
 			self._send_update()
-
 
 
 	def _log_command(self, command, result, timestamp=None):
@@ -1942,16 +1953,17 @@ class Tracer(object):
 		
 		WARNING: Other tracers may block until they exit!
 		"""
-
 		# Check if we're forking on a scenario already. 
 		# If so, maintain source and increment.
 		# https://regex101.com/r/m6J20o/1
 		scenario_name_pattern = re.compile('^(?P<source_id>[a-z0-9-]+?)(?P<scenario>-S-(?P<scenario_number>[0-9]+))?$')
-		is_scenario = scenario_name_pattern.match().groupdict()
-		if is_scenario['scenario']:
-			back_reference = '%s-S-%d' % (is_scenario['source_id'], int(is_scenario['scenario_number'])+1)
+		is_scenario = scenario_name_pattern.match(self.id)
+		if is_scenario and is_scenario.groupdict['scenario']:
+			origin = is_scenario['source_id']
+			next_refnum = int(is_scenario['scenario_number'])+1
+			back_reference = '%s-S-%d' % (origin, next_refnum)
 		else:
-			back_reference = '%s-S-1' % tracer.id
+			back_reference = '%s-S-1' % self.id
 
 		frame = self.cursor_frame
 
@@ -1985,7 +1997,7 @@ class Tracer(object):
 		
 		head_code = [indent + line.strip() for line in """
 			from shared.tools.debug.tracer import set_trace
-			set_trace(_trace_init_config)
+			set_trace(**_trace_init_config)
 			""".splitlines() if line]
 		
 		code_block = head_code + code_block
@@ -2018,9 +2030,11 @@ class Tracer(object):
 
 def set_trace(**tracer_init_config):
 	"""Crashstop execution and begin interdiction."""
+	system.util.getLogger('TRACER').info('set_trace with %r' % tracer_init_config)
 	try:
 		tracer = Tracer(**tracer_init_config)
 		tracer.interdict()
+		return tracer
 
 	# If it fails to interdict, then fail and move on 
 	except TracerException:
