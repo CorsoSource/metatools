@@ -1456,10 +1456,14 @@ class Tracer(object):
 	# Meta commands
 	#--------------------------------------------------------------------------
 
+	def help(self, context=''):
+		"""Print available commands. If given a command, print the command's docstring."""
+		return self._command_help(command='help', context=context)
+
 
 	def _command_help(self, command='help', context=''):
 		"""
-		Print available commands. If given a command print the command data.
+		Print available commands. If given a command print the command docstring.
 		"""
 		# Return the info for the specific command, if requested
 		if context:
@@ -1823,10 +1827,14 @@ class Tracer(object):
 		"""
 		frame = self.cursor_frame
 
-		code_lines = CodeCache.get_lines(frame, radius=0, sys_context=self.sys)
+		try:
+			code_lines = CodeCache.get_lines(frame, radius=0, sys_context=self.sys)
+		except:
+			code_lines = []
 
 		if not code_lines:
 			self.logger.warn('Code is empty in listing: %s %d %d' % (command, first, last))
+			return 'Source in "%s"\n%s' % (frame.f_code.co_filename, "CodeCache could not find source code!")
 			
 		if last == 0:
 			if first == 0:
@@ -1983,26 +1991,87 @@ class Tracer(object):
 	_command_shutdown = _command_die = _command_q = _command_quit
 
 
+	def _command_fork(self, raw_command='fork', *ignored_details):
+		"""
+		Create a new tracer that initializes from the start of the current cursor scope.
+		
+		Variables can be adjusted before initialization by providing them.
+		Carefully crafted Python objects can be sent in directly using
+		  fork_scenario(**kwargs). This function is a helper wrapper.
+		  
+		This commandline function accepts statements of the form "variableName=value", 
+		  where variableName is any legal Python identifier string
+		  and value is any string that evaluates (specifically, it will attempt
+		  to perform an ast.literal_eval first, then failing that eval() next.
+		  
+		For example, the following command overrides the variable 
+		"""
+		# To do this right, we need to ignore the calculated stuff 
+		#   from the command loop
+		raw_command = raw_command.strip()
+		command,_,local_override_statements = raw_command.partition(' ')
+		
+		local_overrides = {}
+		if local_override_statements:			
+			pattern = re.compile("""
+				(?:(^|\\s*))
+				(?P<variable_name>[a-z_][a-z0-9_]*)
+				\\s*
+				(?P<assignment_operator>=)
+				\\s*
+				(?P<expression>[^=]+?)
+				(?=([a-z_][a-z0-9_]*\\s*=|$))
+				""", re.X + re.I)
+			
+			statement_tokens = pattern.findall(local_override_statements) 
+			
+			for tokens in statement_tokens:
+				_,variable_name,_,expression,_ = tokens
+				
+				expression = expression.strip()
+				
+				try:
+					value = literal_eval(expression)
+				except:
+					try:
+						value = self.cursor_eval(expression)
+					except:
+						return ('An argument did not evaluate: %s' % variable_name), None
+						
+				local_overrides[variable_name] = value
+			
+		scenario_tracer_id, scenario_thread = self.fork_scenario(**local_overrides)
+		
+		return scenario_tracer_id
+		
+
 	def fork_scenario(self, **local_overrides):
 		"""
 		Fork another tracer off from the cursor frame to inspect as a new scenario. 
 		
 		Returns the new thread that is getting traced.
 		
-		WARNING: Other tracers may block until they exit!
+		WARNING: Other tracers will block until they shutdown!
 		"""
 		# Check if we're forking on a scenario already. 
 		# If so, maintain source and increment.
 		# https://regex101.com/r/m6J20o/1
 		scenario_name_pattern = re.compile('^(?P<source_id>[a-z0-9-]+?)(?P<scenario>-S-(?P<scenario_number>[0-9]+))?$')
-		is_scenario = scenario_name_pattern.match(self.id)
-		if is_scenario and is_scenario.groupdict['scenario']:
-			origin = is_scenario['source_id']
-			next_refnum = int(is_scenario['scenario_number'])+1
-			back_reference = '%s-S-%d' % (origin, next_refnum)
+		is_already_fork = scenario_name_pattern.match(self.id)
+		if is_already_fork and is_already_fork.groupdict['scenario']:
+			origin = is_already_fork['source_id']
+			next_refnum = int(is_already_fork['scenario_number'])+1
 		else:
-			back_reference = '%s-S-1' % self.id
-
+			origin = self.id
+			next_refnum = 1
+	
+		back_reference = '%s-S-%d' % (origin, next_refnum)
+		tracer_ids = Tracer.tracer_ids
+		
+		while back_reference in tracer_ids:
+			next_refnum += 1
+			back_reference = '%s-S-%d' % (origin, next_refnum)
+		
 		frame = self.cursor_frame
 
 		source = CodeCache.get_lines(frame, radius=0, sys_context=self.sys)
@@ -2059,10 +2128,9 @@ class Tracer(object):
 								scenario_locals=scenario_locals):
 			exec(code, scenario_globals, scenario_locals)
 			
-		return initialize_scenario()
-
-
-
+		scenario_thread = initialize_scenario()
+		
+		return back_reference, scenario_thread
 
 
 
