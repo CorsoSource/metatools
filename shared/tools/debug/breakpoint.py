@@ -25,7 +25,7 @@ class Breakpoint(object):
 	def __init__(self, filename=None, location=None, 
 				 temporary=False, condition=None, note=''):
 
-		self._filename = normalize_filename(filename)
+		self._filename = normalize_filename(filename or '') or None
 		try:
 			line_number = int(location)
 			self._line_number = line_number
@@ -53,6 +53,11 @@ class Breakpoint(object):
 		self.ignored = defaultdict(int)
 
 		self._add()
+
+
+	@classmethod
+	def get(cls, breakpoint_id):
+		return cls._instances[breakpoint_id]
 
 
 	# Properties that should not change once set
@@ -130,10 +135,16 @@ class Breakpoint(object):
 			if not any((self.line_number, self.filename)):
 				return True
 			else:
-				return self.line_number == frame.f_lineno
+				return (    self.line_number == frame.f_lineno 
+					    and (not self.filename 
+					    	  or self.filename == normalize_filename(frame.f_code.co_filename) ) )
 
 		# Fail if the function name's wrong
 		if self.function_name != frame.f_code.co_name:
+			return False
+
+		# Fail if we're on the right function in the wrong file
+		if self.filename and self.filename != normalize_filename(frame.f_code.co_filename):
 			return False
 
 		# Correct frame and correct function
@@ -242,6 +253,16 @@ class Breakpoint(object):
 		return relevant
 
 
+	def configuration(self, interested_party=None):
+		return {
+			'hits': self.hits,
+			'temporary': self.temporary,
+			'condition': self.condition,
+			'ignore_remaining': self.ignored[interested_party] if interested_party else self.ignored,
+			'location': '%s:%s' % (self.filename or '<ANYWHERE>', self.function_name or self.line_number)
+		}
+	
+
 	def __str__(self):
 		meta = []
 		if self.temporary:
@@ -251,9 +272,9 @@ class Breakpoint(object):
 
 		meta = (' %r' % meta) if meta else ''
 
-		func = (' for %s' % self.function_name) if self.function_name else ''
-
-		return '<Breakpoint [%d] %sin %s at %s%s>' % (self.id, func, self.filename, self.line_number, meta)
+		location = '%s:%s' % (self.filename or '<ANYWHERE>', self.function_name or self.line_number)
+		
+		return '<Breakpoint [%d] for %s%s>' % (self.id, location, meta)
 
 
 	def __repr__(self):

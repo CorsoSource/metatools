@@ -12,7 +12,7 @@ from shared.tools.global import ExtraGlobal
 from shared.tools.data import randomId, chunks
 
 from shared.tools.debug.hijack import SysHijack
-from shared.tools.debug.frame import iter_frames
+from shared.tools.debug.frame import iter_frames, normalize_filename
 from shared.tools.debug.breakpoint import Breakpoint
 
 from shared.tools.debug.codecache import CodeCache, trace_entry_line
@@ -449,6 +449,7 @@ class Tracer(object):
 				 
 				 '_alias_commands', 
 				 'traps', 'active_traps', 
+				 '_breakpoint_commands',
 				 
 				 # Tracer attributes
 				 'thread', 'sys', 'tracer_thread',
@@ -598,6 +599,7 @@ class Tracer(object):
 		self._alias_commands = {}
 		self.traps = set()
 		self.active_traps = set()
+		self._breakpoint_commands = {}
 
 		# Tracer init
 
@@ -664,6 +666,10 @@ class Tracer(object):
 		# Finish shutdown
 		self.shutdown()
 
+	def assert_right_of_way(self, with_deadly_intent=False):
+		Tracer._enque_tracer(self.id)
+		if self.trace_lock != self.id and with_deadly_intent:
+			Tracer[self.trace_lock].SCRAM()
 
 	def _await_right_of_way(self):
 		"""
@@ -807,8 +813,8 @@ class Tracer(object):
 		self._cursor_stack = tuple()
 		try:
 			self._stack_uninstall()
-			self.sys._restore()
 			self._abdicate_tracer(self.id)
+			self.sys._restore()
 			if self._remote_request_handle:
 				self._remote_request_handle.cancel()
 			if self.tag_path:
@@ -959,7 +965,15 @@ class Tracer(object):
 		if self.active_traps:
 			return True
 
-		if Breakpoint.relevant_breakpoints(frame, self):
+		breakpoints = Breakpoint.relevant_breakpoints(frame, self)
+		if breakpoints:
+			# Check if any breakpoints are set to run commands when tripped
+			for breakpoint in breakpoints:
+				commands = self._breakpoint_commands.get(breakpoint, [])
+				# ... and if there are commands, add them to the start
+				# (this should precede any interactive bits)
+				if commands:
+					self.pending_commands = commands + self.pending_commands
 			return True
 
 		return False 
@@ -1375,26 +1389,8 @@ class Tracer(object):
 		self._set_failsafe_fuse()
 
 		while self.interdicting:
-			if not self._pending_commands:
-
-				# Attempt to allow remote control of tracer (in case of gui thread blocking, for example)
-				if self.REMOTE_MESSAGING and not self._remote_request_handle:
-					self._request_command(blocking=True)
-
-				# If given a tag for input, check if it has a command ready.
-				# To prevent repeated commands, value must be cleared between commands.
-				if self.tag_path:
-					tag_command = system.tag.read(self.tag_path).value
-					if tag_command:
-						if self.tag_acked:
-							self._pending_commands.append(tag_command)
-						self.tag_acked = False
-					else:
-						self.tag_acked = True
-
-				sleep(self._UPDATE_CHECK_DELAY)
-
-				self._burn_failsafe_fuse()
+			# Pause while we wait for a command
+			self._await_command()
 
 			while self._pending_commands and self.interdicting:
 				#self.logger.info('Command: %s' % self.command)
@@ -1414,6 +1410,28 @@ class Tracer(object):
 						
 			# Send update after all commands are run (query for logs if batch set...)
 			self._send_update()
+
+	def _await_command(self):
+		if not self._pending_commands:
+
+			# Attempt to allow remote control of tracer (in case of gui thread blocking, for example)
+			if self.REMOTE_MESSAGING and not self._remote_request_handle:
+				self._request_command(blocking=True)
+
+			# If given a tag for input, check if it has a command ready.
+			# To prevent repeated commands, value must be cleared between commands.
+			if self.tag_path:
+				tag_command = system.tag.read(self.tag_path).value
+				if tag_command:
+					if self.tag_acked:
+						self._pending_commands.append(tag_command)
+					self.tag_acked = False
+				else:
+					self.tag_acked = True
+
+			sleep(self._UPDATE_CHECK_DELAY)
+
+			self._burn_failsafe_fuse()
 
 
 	def _log_command(self, command, result, timestamp=None):
@@ -1518,7 +1536,6 @@ class Tracer(object):
 			))
 
 		return '\n'.join(reversed(stack))
-
 	_command_w = _command_where 
 
 
@@ -1623,9 +1640,10 @@ class Tracer(object):
 		breakpoint.ignore(self, num_passes)
 
 
-	def _command_break(self, command='break', stop_location='', stop_condition=lambda:True):
+	def _command_break(self, command='break', stop_location='', stop_condition='', *misaligned_args):
 		"""
-		Create a breakpoint at the given location.
+		Create a breakpoint at the given location. 
+		Use the tbreak command to set the new breakpoint as temporary.
 		
 		The stop_location can be
 		 - a line in the current file
@@ -1642,28 +1660,46 @@ class Tracer(object):
 		 - conditions, if any
 		 - is temporary
 		"""
-		raise NotImplementedError
+		# For consistency, we'll reparse the command using regex 
+		#   This helps if the condition has spaces or other junk.
+		# See this for test cases https://regex101.com/r/NKiXj6/2
+		pattern = re.compile(r"""
+			^(?P<command>[a-z]+)[ ]+
+			 ((?P<filename>[a-z_/\\\-.:]+) : )?
+			 (?P<location>[a-z0-9_]+?)
+			([ ]+(?P<condition>.*))?$
+			""", re.I + re.X)
+
+		parts = pattern.match(command).groupdict()
+
+		if parts['command'] in ('tbreak', 'temporary'):
+			parts['temporary'] = True
+
+		del parts['command']
+		
+		new_breakpoint = Breakpoint(**parts)
+	_command_tbreak = _command_temporary = _command_break
 
 
-	def _command_tbreak(self, command='tbreak', stop_location='', stop_condition=lambda:True):
+	def _command_condition(self, command='condition', breakpoint_id=None, condition=None, *misaligned_args):
 		"""
-		Create a temporary breakpoint at the given location. Same usage otherwise as break.
+		Set breakpoint condition to given. Stops when breakpoint trips and condition is True.
 		"""
-		raise NotImplementedError
+		_command,_,remaining = command.partition(' ')
+		breakpoint,_,condition = remaining.strip().partition(' ')
+		condition = condition.strip()
 
-
-	def _command_condition(self, command='condition', breakpoint=None, condition=None):
-		"""
-		Stop on breakpoint if condition is True
-		"""
-		if condition is None:
+		if not condition:
 			raise RuntimeError("Condition is required for conditional breakpoints.")
-		raise NotImplementedError
-
+		
+		breakpoint = Breakpoint.get(breakpoint)
+		breakpoint.condition = condition
+		
 
 	def _command_commands(self, command='commands', breakpoint=None):
 		"""
 		Run commands when breakpoint is reached. 
+		Commands are pulled off the tracer's pending_commands;
 		Commands entered will be assigned to this breakpoint until 'end' is seen.
 
 		To clear a breakpoint's commands, enter this mode and enter 'end' immediately.
@@ -1675,7 +1711,16 @@ class Tracer(object):
 		"""
 		if breakpoint is None:
 			raise RuntimeError("In order for commands to be run on a breakpoint, a breakpoint is needed.")
-		raise NotImplementedError
+
+		if isinstance(breakpoint, (int, long)):
+			breakpoint = Breakpoint.get(breakpoint)
+
+		command_list = ['start']
+		while command_list[-1] != 'end':
+			self._await_command()
+			command_list.append[self.pending_commands.pop(0)]
+
+		self._breakpoint_commands[breakpoint] = command_list[1:-1]
 
 
 	#--------------------------------------------------------------------------
@@ -1768,14 +1813,17 @@ class Tracer(object):
 
 	def _command_jump(self, command='jump', target_line=0):
 		"""
+		WARNING: NotImplementedError - Jython execution frame's f_lineno is read-only.
+
+		Original design:
 		Set the next line to be executed. Only possible in the bottom frame.
 		
 		Use this to re-run code or skip code in the current frame.
 		NOTE: You can note jump into the middle of a for loop or out of a finally clause.
 		"""
+		raise NotImplementedError("Jython frame's f_lineno can not be adjusted like in Python.")
 		if target_line == 0:
 			raise RuntimeError('Jump lines are in the active frame only, and must be within range')
-		raise NotImplementedError
 	_command_j = _command_jump
 
 
@@ -1978,6 +2026,9 @@ class Tracer(object):
 		Warning: NotImplementedError
 
 		Restart the debugged program. This is not and will not be implemented.
+
+		Instead use the 'fork' command. It is a more generalized version of
+		  this. This is here specifically for completion's sake.
 		"""
 		raise NotImplementedError("IPDB will not implement the 'run' command.")
 	

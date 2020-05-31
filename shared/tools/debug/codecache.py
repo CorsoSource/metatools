@@ -202,7 +202,12 @@ class MetaCodeCache(type):
 
 			elif script_type == 'tagevent':
 				tag_path = find_root_object('tagPath', frame)
-				return cls._code_tag_event()
+				tag_event = 'ASDFASDF'
+				raise NotImplementedError('Tag file path needs to be final parsed for the event')
+				return cls._code_tag_event(tag_path, tag_event)
+
+			elif script_type == 'WebDev':
+				return cls._code_webdev(location)
 		
 		return None
 
@@ -279,6 +284,12 @@ class MetaCodeCache(type):
 		if isinstance(tag, (str, unicode)):
 			tag = system.tag.getTag(tag)
 		return tag.getEventScripts().get(event_name)
+
+
+	@cached
+	def _code_webdev(cls, resource_path):
+		"""Example frame.f_code.co_filename: 'WebDev: <Debugger/python:doGet>'"""
+		raise NotImplimentedError("Need to explore context more to get source.")
 
 
 
