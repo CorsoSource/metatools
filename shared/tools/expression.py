@@ -1,11 +1,21 @@
+"""
+	Convert strings safely into properly executable functions (not just compiled!)
+"""
+
 import __builtin__
 import operator as op
 import tokenize
 from ast import literal_eval
 from StringIO import StringIO
 
-
 from shared.tools.enum import MetaEnum, Enum
+
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
+
 
 TOKENS = MetaEnum(
      'TOKENS', 

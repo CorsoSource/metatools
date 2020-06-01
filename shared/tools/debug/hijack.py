@@ -1,8 +1,37 @@
-from shared.tools.thread import getThreadState, Thread
+"""
+	The SysHijack is part of the secret sauce enabling the tracer
+	  to work at all.
 
+	Long story short, Jython (rightly) makes it very hard to control 
+	  a thread from the outside. By wrapping the Python system state,
+	  we can reliably gain access to the thread's state, meaning we
+	  can affect the thread from its own context. Or, put differently,
+	  it allows us to manipulate execution from an outside perspective.
+
+	Without this, we are guaranteed to couple our thread with the inspecting
+	  thread, and then the inspecting thread utterly jams up ours
+	  while it waits for input. From us. Just bananas.
+
+	Note that the master Py object takes advantage of the Java thread
+	  state to keep the system states organized. This is a really
+	  really good idea that is awesome. Except that also means anything
+	  we do to the sys object happens _to us_, _NOT_ the target thread.
+	  And it's a slippery one, so for safety we reaquire it on the spot.
+
+	We're not going for speed here, but rather analytical power and,
+	  if possible, reliability.
+"""
+
+from shared.tools.thread import getThreadState, Thread
 from shared.tools.debug.proxy import ProxyIO
 
 from org.python.core import Py
+
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
 
 
 class DefSysHijack(object):

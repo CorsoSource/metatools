@@ -1,3 +1,24 @@
+"""
+	CodeCache replaces the builtin linecache
+
+	The linecache library doesn't seem to work well in Jython. At the least,
+	  it doesn't seem to keep a copy of the Python source while it executes.
+
+	To work around this, CodeCache references the objects and backtraces
+	  to their original source. Or at least tries (there are things like
+	  the script playground's buffer that can't obviously be retrieved).
+	  And some code could be available, but is not simply because
+	  it hasn't been extracted yet. Point at an issue and raise a request
+	  to have it added. There's a small pending list already, but it
+	  helps to know where other blind spots might be.
+
+	Also this uses pygments to generate a syntax highlighted view of the
+	  code, if possible. A backported version of Pygments is available at
+	  https://github.com/CorsoSource/jython-2.5-backports 
+    ... but if unavailable syntax_highlight will simply fail safe 
+      and give the code as-is.
+"""
+
 from __future__ import with_statement
 
 from shared.tools.meta import MetaSingleton
@@ -7,6 +28,13 @@ import system
 import sys
 
 from functools import wraps
+
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
+
 
 # Attempt to make the code syntax highlightable
 # Backported version of Pygments available at

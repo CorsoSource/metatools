@@ -1,8 +1,17 @@
+"""
+	Create traps for the tracer to monitor and trip into interdiction mode
+"""
+
 from shared.data.expression import Expression, two_argument_operators
 
 
 from functools import wraps
 
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
 
 
 def fail_false(function):

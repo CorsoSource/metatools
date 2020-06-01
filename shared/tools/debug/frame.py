@@ -3,6 +3,12 @@
 """
 
 
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
+
+
 def strip_angle_brackets(internal_name):
 	if internal_name.startswith('<') and internal_name.endswith('>'):
 		return internal_name[1:-1]

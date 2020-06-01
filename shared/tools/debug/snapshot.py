@@ -1,6 +1,23 @@
+"""
+	Snapshots keep track of the tracer as it executes.
+
+	Use the snapshot's context_buffer to look back on the history of the trace.
+	Note that it may not be a perfect image! Execution frames update while the
+	  stack frame executes, and any objects that fails the deepcopy (or if it's
+	  not actively deepcopying for speed) may mutate as execution progresses.
+	  Moreover, Java objects are not subject to deepcopy, meaning that their 
+	  references are merely passed along and saved. And so be forewarned.
+"""
+
 from copy import deepcopy
 
 from shared.tools.debug.frame import iter_frames
+
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
 
 
 class Snapshot(object):

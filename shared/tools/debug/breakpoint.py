@@ -1,7 +1,17 @@
+"""
+	Breakpoint is the PDB-based way to stop the tracer.
+"""
+
 from weakref import WeakValueDictionary
 from collections import defaultdict
 
 from shared.tools.debug.frame import normalize_filename
+
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
 
 
 class Breakpoint(object):
@@ -200,7 +210,7 @@ class Breakpoint(object):
 			          | cls._break_locations.get((None, location_by_function[1]), set())
 					  | cls._break_locations.get(location_by_line, set())
 			          | cls._break_locations.get(location_by_function, set()) )
-		
+
 		# Check candidate locations
 		for breakpoint in possible:
 

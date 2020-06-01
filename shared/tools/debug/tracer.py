@@ -1,7 +1,9 @@
 """
 	Jython tracing debugger
 
-	PDB, but in Java. With Ignition.	
+	PDB, but in Java. With Ignition.
+
+	NOTE: This requires the other Ignition Metatools. Be sure to have them installed as well.
 """
 
 from weakref import WeakValueDictionary
@@ -27,6 +29,12 @@ from datetime import datetime, timedelta
 import textwrap, math, re
 
 from shared.tools.pretty import p,pdir
+
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
 
 
 # Standardize the string keys that will be used

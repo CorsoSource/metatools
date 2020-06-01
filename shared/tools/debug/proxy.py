@@ -1,3 +1,14 @@
+"""
+	Proxy lets us inspect the standard in/out/err for a thread.
+
+	This is helpful when a thread is started in a context where it is difficult
+	  to observe the I/O. For example, an async thread spun up on the gateway
+	  will write directly to the wrapper log via print, which is extremely
+	  inconvenient.
+
+	The streams are also buffered, allowing us to review the I/O after the fact.
+"""
+
 from StringIO import StringIO
 from collections import deque
 from time import sleep
@@ -7,6 +18,12 @@ try:
 	from shared.tools.compat import next
 except ImportError:
 	pass
+
+
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
 
 
 class StreamBuffer(object):
