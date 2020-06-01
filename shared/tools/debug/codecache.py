@@ -30,6 +30,12 @@ try:
 	PYTHON_LEXER = PythonLexer(stripall=True, tabsize=4)
 
 	def syntax_highlight(code, highlight_lines=[], start_line=1, style='monokai'):
+	
+		if start_line > 1:
+			code = ('# CodeCache - note lines: %r\n' % highlight_lines) + code
+			start_line -= 1
+			highlight_lines = [line_no + 1 for line_no in highlight_lines]
+
 		formatter = HtmlFormatter(
 			linenos='table', 
 			style=style,

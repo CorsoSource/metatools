@@ -482,7 +482,7 @@ class Tracer(object):
 	
 	CONTEXT_BUFFER_LIMIT = 1000
 	COMMAND_BUFFER_LIMIT = 1000
-	_UPDATE_CHECK_DELAY = 0.200 # seconds (leave relatively high since it should be driven by human input.)
+	_UPDATE_CHECK_DELAY = 0.050 # seconds (leave relatively high since it should be driven by human input.)
 	INTERDICTION_FAILSAFE = False # True
 	INTERDICTION_FAILSAFE_TIMEOUT = 30000 # milliseconds (seconds if failsafe disabled)
 		
@@ -493,7 +493,7 @@ class Tracer(object):
 	#--------------------------------------------------------------------------
 	# Ignition Messaging
 	#--------------------------------------------------------------------------
-
+	
 	IGNITION_MESSAGE_PROJECT = 'Debugger'
 	IGNITION_MESSAGE_HANDLER = 'Remote Tracer Control'
 
@@ -550,7 +550,7 @@ class Tracer(object):
 						tagType='MEMORY',
 						dataType='String',
 						enabled=True,
-						value='Clear before first command',
+						value='',
 						)
 					self.tag_path = '%s/%s' % (control_tag, self.id)
 				else:
@@ -563,12 +563,15 @@ class Tracer(object):
 					tagType='MEMORY',
 					dataType='String',
 					enabled=True,
-					value='Clear before first command',
+					value='',
 					)
 				self.tag_path = control_tag	
+		
+			self.tag_acked = True
+			system.tag.write(self.tag_path, '')
 		else:
 			self.tag_path = ''
-		self.tag_acked = False
+			self.tag_acked = False
 
 		# Event init
 		
@@ -668,7 +671,7 @@ class Tracer(object):
 
 	def assert_right_of_way(self, with_deadly_intent=False):
 		Tracer._enque_tracer(self.id)
-		if self.trace_lock != self.id and with_deadly_intent:
+		if Tracer.trace_lock != self.id and with_deadly_intent:
 			Tracer[self.trace_lock].SCRAM()
 
 	def _await_right_of_way(self):
@@ -1314,7 +1317,12 @@ class Tracer(object):
 		frame = self.cursor_frame
 
 		radius = 10
-		source_lines, source_start = self._command_source(radius=radius)
+		src = self._command_source(radius=radius)
+		if not src:
+			source_lines = ['# CodeCache could not find source code!']
+			source_start = 0
+		else:
+			source_lines, source_start = src
 
 		return {
 			'source': source_lines,
@@ -1403,7 +1411,7 @@ class Tracer(object):
 							system.tag.write(self.tag_path, 'Exception "%r" for command "%s"' % (error, command))
 						elif isinstance(result, (list, tuple, dict)):
 							system.tag.write(self.tag_path, system.util.jsonEncode(result))
-						elif result is None:
+						elif result is None or result == '':
 							system.tag.write(self.tag_path, 'Done.')						
 						else:
 							system.tag.write(self.tag_path, str(result))
@@ -1495,7 +1503,7 @@ class Tracer(object):
 
 		# Otherwise list everything available
 		else:
-			help_columns = 5
+			help_columns = 4
 
 			command_aliases = {}
 			for alias, comfunc in self._map_o_commands.items():
@@ -1515,7 +1523,7 @@ class Tracer(object):
 
 			format_string = '%%-%ds' % width
 
-			return 'Commands available (with aliases)\n|%s| ' % '|\n| '.join(
+			return 'Commands available (with aliases)\n| %s| ' % '|\n| '.join(
 				' | '.join(
 					format_string % a for a in chunk
 				) for chunk in chunks(all_aliases, help_columns))
@@ -1670,14 +1678,23 @@ class Tracer(object):
 			([ ]+(?P<condition>.*))?$
 			""", re.I + re.X)
 
-		parts = pattern.match(command).groupdict()
+		arg_match = pattern.match(command)
+		
+		if not arg_match:
+			return 'Listing Breakpoints: \n%s' % '\n'.join('%3d   %r' % (bpid, bp) for bpid, bp in Breakpoint._instances.items())
+		
+		parts = arg_match.groupdict()
 
 		if parts['command'] in ('tbreak', 'temporary'):
 			parts['temporary'] = True
 
 		del parts['command']
 		
+		# create the breakpoint
 		new_breakpoint = Breakpoint(**parts)
+		
+		# ... and enable it for this tracer
+		new_breakpoint.enable(self)
 	_command_tbreak = _command_temporary = _command_break
 
 

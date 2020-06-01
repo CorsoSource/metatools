@@ -190,10 +190,17 @@ class Breakpoint(object):
 	def relevant_breakpoints(cls, frame, interested_party=None):
 		relevant = set()
 
-		possible = set( cls._break_locations[(None,None)]
-					  | cls._break_locations.get(cls.frame_location_by_line(frame), set())
-			          | cls._break_locations.get(cls.frame_location_by_function(frame), set()) )
+		# Possible breakpoints are not only the function or line trigger,
+		#   but also any breakpoint that can fire anywhere.
+		location_by_line = cls.frame_location_by_line(frame)
+		location_by_function = cls.frame_location_by_function(frame)
 
+		possible = set( cls._break_locations[(None,None)]
+					  | cls._break_locations.get((None, location_by_line[1]), set())
+			          | cls._break_locations.get((None, location_by_function[1]), set())
+					  | cls._break_locations.get(location_by_line, set())
+			          | cls._break_locations.get(location_by_function, set()) )
+		
 		# Check candidate locations
 		for breakpoint in possible:
 
