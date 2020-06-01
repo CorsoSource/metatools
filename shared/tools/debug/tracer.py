@@ -888,7 +888,6 @@ class Tracer(object):
 	def current_context(self):
 		return self._current_context
 
-
 	@property 
 	def cursor_frame(self):
 		# Though technically the same, 
@@ -914,13 +913,22 @@ class Tracer(object):
 
 	@property 
 	def cursor_locals(self):
-		return self.cursor_frame.f_locals
+		if self._cursor_context_index == 0:
+			return self.cursor_frame.f_locals
+		else:
+			return self.cursor_context.locals
+
 	@property
 	def cursor_globals(self):
-		return self.cursor_frame.f_globals
+		"""NOTE: globals are not tracked by the snapshot context!"""
+		if self._cursor_context_index == 0:
+			return self.cursor_frame.f_globals
+		else:
+			return self.cursor_context.frame.f_globals
+	
 	@property
 	def cursor_code(self):
-		return self.cursor_frame.f_code
+		return self.cursor_context.code
 	
 	@property
 	def context_recent_traceback(self, past=20):
@@ -1322,8 +1330,6 @@ class Tracer(object):
 	@property
 	def _payload_cursor_info(self):
 
-		frame = self.cursor_frame
-
 		radius = 10
 		src = self._command_source(radius=radius)
 		if not src:
@@ -1335,15 +1341,15 @@ class Tracer(object):
 		return {
 			'source': source_lines,
 			'source_start': source_start,
-			'locals': p(frame.f_locals, directPrint=False),
-			'globals': p(frame.f_globals, directPrint=False),
-			'code': pdir(frame.f_code, directPrint=False),
+			'locals':  p(self.cursor_locals, directPrint=False),
+			'globals': p(self.cursor_globals, directPrint=False),
+			'code': pdir(self.cursor_code, directPrint=False),
 			'index': {
-				'stack': self._cursor_index,
+				'stack':   self._cursor_index,
 				'context': self._cursor_context_index,
 			},
-			'line': frame.f_lineno,
-			'filename': frame.f_code.co_filename,
+			'line':     self.cursor_context.line,
+			'filename': self.cursor_context.filename,
 		}
 		
 

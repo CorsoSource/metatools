@@ -39,6 +39,7 @@ class Snapshot(object):
 		self._arg      = arg
 		self._frame    = frame
 
+		self._code     = frame.f_code
 		self._filename = frame.f_code.co_filename
 		self._line     = frame.f_lineno
 		self._caller   = frame.f_code.co_name
@@ -88,17 +89,26 @@ class Snapshot(object):
 	@property
 	def depth(self):
 		return self._depth
-	
+	@property
+	def code(self):
+		return self._code
 
 	@property
 	def cloned(self):
 		return self._cloned
 	@property
-	def local(self):
+	def locals(self):
 		return dict(self._locals_ref.items() + self._locals_dup.items())
 	@property
-	def local_uncloned(self):
+	def locals_uncloned(self):
 		return self._locals_err.keys()
+
+	@property
+	def globals(self):
+		raise NotImplementedError("Frame globals are not snapshot during execution.")
+	@property
+	def globals_uncloned(self):
+		raise NotImplementedError("Frame globals are not snapshot during execution.")
 
 	def back_context(self, arg=None, clone=False):
 		if self._frame.f_back:
