@@ -37,7 +37,6 @@ from shared.tools.timing import EveryFixedDelay
 from shared.tools.meta import MetaSingleton
 
 from time import time, sleep
-from weakref import WeakKeyDictionary
 from functools import wraps
 from java.lang import Thread
 
@@ -47,8 +46,18 @@ __license__ = 'Apache 2.0'
 __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
 
-__all__ = ['ExtraGlobal']
-
+#__all__ = ['ExtraGlobal']
+__all__ = [
+	'eg_stash',
+	'eg_access',
+	'eg_trash',
+	'eg_extend',
+	'eg_get',
+	'eg_setdefault',
+	'eg_keys',
+	'eg_iterkeys',
+	'eg_update',
+	]
 
 class CacheEntry(object):
 	"""Hold the relevant details for an object in the cache.
@@ -161,6 +170,12 @@ class CacheEntry(object):
 			if ret_val is not None:
 				self._obj = ret_val
 				self._last_time = time()
+
+
+	def extend(self, additional_time=0.0):
+		"""Extend the effective lifespan of the cache entry by additional_time seconds."""
+		self._last_time += additional_time
+
 	
 	@property
 	def key(self):
@@ -353,6 +368,8 @@ class MetaExtraGlobal(type):
 	_CLEANUP_MONITOR = None
 
 	_cache = {}
+
+	_scoped_labels = {}
 	
 	def __new__(cls, clsname, bases, attrs):
 		"""Run when ExtraGlobal is created. Set to run once and only once."""
@@ -366,6 +383,7 @@ class MetaExtraGlobal(type):
 	def clear(cls):
 		"""Hard reset the cache."""
 		cls._cache.clear()
+		cls._scoped_labels.clear()
 		cls._CLEANUP_MONITOR = None
 
 
@@ -400,6 +418,9 @@ class MetaExtraGlobal(type):
 
 		cache_entry = CacheEntry(obj, label, scope, lifespan, callback)
 		cls._cache[cache_entry.key] = cache_entry
+		cls._scope_track(cache_entry.label, cache_entry.scope)
+		
+		system.util.getLogger('ExtraGlobal').trace('Stashed %r from %r' % (cache_entry.key, Thread.currentThread()))
 		
 		system.util.getLogger('ExtraGlobal').trace('Stashed %r from %r' % (cache_entry.key, Thread.currentThread()))
 		
@@ -425,9 +446,37 @@ class MetaExtraGlobal(type):
 	def trash(cls, label=None, scope=None):
 		"""Remove an item from the cache directly."""
 		del cls._cache[CacheEntry.gen_key(label, scope)]
+		cls._scope_untrack(label, scope)
 		system.util.getLogger('ExtraGlobal').trace('Trashed (scope:%r, label:%r) from %r' % (scope, label, Thread.currentThread()))
 		cls.spawn_cache_monitor()
-				
+	
+
+	# Cache entry helpers
+
+	def extend(cls, label, scope=None, additional_time=0.0):
+		"""Extend the cache timeout by additional_time seconds."""
+		cache_entry = cls._cache[CacheEntry.gen_key(label, scope)]
+		cache_entry.extend(additional_time)
+
+
+	# Scope tracking for easier filtering
+
+	def _scope_track(cls, label, scope):
+		"""Add the reference label to the scope, creating the scope if needed."""
+		try:
+			cls._scoped_labels[scope].add(label)
+		except KeyError:
+			cls._scoped_labels[scope] = set([label])
+
+	def _scope_untrack(cls, label, scope):
+		"""Ensure a label is not in a scope, also purge the scope if it is empty."""
+		if not scope in cls._scoped_labels:
+			return
+		if len(cls._scoped_labels[scope]) == 1:
+			del cls._scoped_labels[scope]
+		if label in cls._scoped_labels[scope]:
+			cls._scoped_labels[scope].remove(label)
+
 
 	@classmethod
 	def resolve(cls, reference):
@@ -547,6 +596,7 @@ class MetaExtraGlobal(type):
 							cls.trash(entry.label, entry.scope)
 					except:
 						del cls._cache[key]
+						cls._scope_untrack(entry.label, entry.scope)
 						
 		cls._CLEANUP_MONITOR = monitor()
 
@@ -603,13 +653,19 @@ class MetaExtraGlobal(type):
 			return default
 
 
-	def keys(cls):
+	def keys(cls, scope=None):
 		"""Currently available keys in the cache. (Like a dict, but sorted)"""
-		return sorted(cls._cache.keys())
+		if scope:
+			try:
+				return sorted(cls._scoped_labels[scope])
+			except KeyError:
+				return []
+		else:
+			return sorted(cls._cache.keys())
 
-	def iterkeys(cls):
+	def iterkeys(cls, scope=None):
 		"""Currently available keys in the cache. (Like a dict)"""
-		return iter(cls.keys())
+		return iter(cls.keys(scope))
 
 	def __len__(cls):
 		return len(cls._cache)
@@ -690,52 +746,75 @@ class ExtraGlobal(MetaSingleton):
 	__metaclass__ = ExtraMetaExtraGlobal.GLOBAL_REFERENCE
 
 
-
-#from shared.tools.pretty import p,pdir
-#from time import sleep
+##==========================================================================
+## Global access, in case class access is undesired
+##==========================================================================
+## Disabled by default
 #
-#from shared.tools.global import ExtraGlobal, MetaExtraGlobal
+#def MEG_FACTORY():
+#
+#	class CacheAccess(MetaSingleton):
+#		"""This is a singleton implementation of the cache. It exists without instances."""
+#		__metaclass__ = ExtraMetaExtraGlobal.GLOBAL_REFERENCE
+#
+#	return CacheAccess
 #	
-#ExtraGlobal.DEFAULT_LIFESPAN = 5
-#ExtraGlobal.CHECK_PERIOD = 0.1
-#ExtraGlobal.RELEVANCE_CHECK_PERIOD = 0.05
+#	
+#def eg_stash(obj, label=None, scope=None, lifespan=None, callback=None):
+#	"""Add an object to the cache.  Label will be how it's retrieved, with an optional scope
+#	  in case multiple labels are the same in differing contexts.
+#	
+#	Object in cache for the label in that scope will be replaced if it already exists!
+#	
+#	A lifetime can be given if the object should be cleared out of the cache
+#	  at a time different from the default (DEFAULT_LIFESPAN).
+#	
+#	A callback can be provided that will be called when the object expires or when refresh is called.
+#	  The callback must take no arguments (either setting the cache value itself or is a closure.) 
+#	"""
+#	shared.tools.global.ExtraGlobal.stash(obj, label, scope, lifespan, callback)
 #
-#assert ExtraGlobal._cache == {}
+#def eg_access(label, scope=None):
+#	"""Retrieve an object from the cache, given the label and (optionally) scope.
 #
-#print "\nTesting basic timeout - wait 5s"
-#ExtraGlobal['asdf'] = 234
-#p(ExtraGlobal._cache)
-## {(None, 'asdf'): <__main__.CacheEntry object at 0x4>}
+#	Defaults to "global" scope (contextless - just the label as the key)
+#	"""
+#	shared.tools.global.ExtraGlobal.access(obj, label, scope)
 #
-#print ExtraGlobal._CLEANUP_MONITOR
-##~ Thread[Thread-16,5,main]
+#def eg_trash(label=None, scope=None):
+#	"""Remove an item from the cache directly."""
+#	shared.tools.global.ExtraGlobal.trash(label, scope)
 #
-#sleep(6)
-#assert ExtraGlobal._cache == {}
+#def eg_extend(label, scope=None, additional_time=0.0):
+#	"""Extend the cache timeout by additional_time seconds."""
+#	shared.tools.global.ExtraGlobal.extend(label, scope, additional_time)
 #
-#print "\nTesting del"
-#ExtraGlobal['asdf'] = 234
-#del ExtraGlobal['asdf']
-#assert ExtraGlobal._cache == {}
+#def eg_get(label, scope=None, default=None):
+#	"""Return a value without a KeyError if the reference is missing. (Like a dict)"""
+#	return shared.tools.global.ExtraGlobal.get(label, scope, default)
 #
-#print "\nTesting trash"
-#ExtraGlobal['asdf'] = 234
-#ExtraGlobal.trash('asdf')
-#assert ExtraGlobal._cache == {}
+#def eg_setdefault(label, scope=None, default=None, lifespan=None, callback=None):
+#	"""Return a value without a KeyError, adding default if key was missing. (Like a dict)"""
+#	return shared.tools.global.ExtraGlobal.setdefault(label, scope, default, lifespan, callback)
 #
-#print "\nTesting partial timeout - 3 checks in 3 seconds"
-#ExtraGlobal['asdf':'playground':3] = 234
-#p(ExtraGlobal._cache)
-#assert ExtraGlobal._cache[('playground', 'asdf')] == 234
-#sleep(1)
-#assert ExtraGlobal._cache[('playground', 'asdf')] == 234
-#sleep(2.5)
-#assert ExtraGlobal._cache == {}
+#def eg_keys(scope=None):
+#	"""Currently available keys in the cache. (Like a dict, but sorted)"""
+#	return shared.tools.global.ExtraGlobal.keys(scope)
 #
-#try:
-#	# raises RuntimeError
-#	class BARGLE(object):
-#		__metaclass__ = MetaExtraGlobal
-#	raise AssertionError("Failed to catch singleton definition case.")
-#except RuntimeError:
-#	pass	
+#def eg_iterkeys(scope=None):
+#	"""Currently available keys in the cache. (Like a dict)"""
+#	return shared.tools.global.ExtraGlobal.iterkeys(scope)
+#
+#def eg_update(new_values=None, **kwargs):
+#	"""Updates the cache with new_values, updating existing cache entries.
+#	
+#	Acceptable values are:
+#		new_values may be a dict, where keys are references and values are replacements.
+#		new_values may be a list of references to force the entries to update themselves.
+#		  where references will be decoded like dict[...] references.
+#		keyword arguments are all interpreted as labels and objects, with scope=None.
+#		
+#	Note that the cache entries maintain their settings, and new entries get defaults.
+#	Also note that this does _not_ fail to global scope - references must be explicit
+#	"""
+#	shared.tools.global.ExtraGlobal.update(new_values, **kwargs)

@@ -10,6 +10,12 @@ from thread import get_ident as _get_ident
 import sys, operator
 
 
+__copyright__ = """Copyright (C) 2020 Corso Systems"""
+__license__ = 'Apache 2.0'
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
+
+
 try:
     _ = property.setter
 except AttributeError:

@@ -49,6 +49,7 @@ class MetaSingleton(object):
 		raise AttributeError("%s attributes are not mutable. Use methods to manipulate them." % cls.__name__) 
 
 
+
 def sentinel(iterable, stopValue):
 	"""A helper to make it simpler to implement sentinel values more idomatically.
 	This is a good way to replace a while True loop, removing the need for a break-on-value clause.
@@ -194,9 +195,12 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 	>>> getFunctionCallSigs(getFunctionCallSigs, joinClause=' <> ')
 	"(function, joinClause=' -OR- ')"
 	"""
-	if 'im_func' in dir(function):
+	if getattr(function, 'im_func', None):
+		function = function.im_func
+
+	if 'argslist' in dir(function):
 		callMethods = []
-		for reflectedArgs in function.im_func.argslist:
+		for reflectedArgs in function.argslist:
 			if reflectedArgs is None: continue
 			if reflectedArgs:
 				callMethods += ['(%s)' % ', '.join(['<%s>' % str(arg)[7:-2] 
@@ -204,7 +208,7 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 			else:
 				callMethods += ['()']
 		return joinClause.join(callMethods)
-	elif 'func_code' in dir(function):
+	elif getattr(function, 'func_code', None):
 		nargs = function.func_code.co_argcount
 		args = function.func_code.co_varnames[:nargs]
 		defaults = function.func_defaults or []

@@ -10,7 +10,7 @@ from datetime import datetime, timedelta
 import re
 from heapq import heappush, heappop
 
-from java.lang import Thread, ThreadGroup, NullPointerException
+from java.lang import Thread, ThreadGroup
 from jarray import array, zeros
 from org.python.core import ThreadState
 
@@ -189,7 +189,6 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None):
 	
 
 
-
 def findThreads(thread_name_pattern='.*', search_group=None, recursive=False, sandbagging_percent=110):
 	"""Find a thread in reachable scope that matches the pattern provided.
 
@@ -295,3 +294,10 @@ def getFromThreadScope(target_thread, object_name):
 	# The ThreadState object contains the current Python frame under execution.
 	# Frames have all the needed context to execute, including the variable references in scope.
 	return frame.f_locals[object_name]
+
+
+def getThreadInfo(thread):
+	"""Get the thread info object from the Java ThreadMXBean. Thing."""
+	from java.lang.management import ManagementFactory
+	TMXB = ManagementFactory.getThreadMXBean()
+	return TMXB.getThreadInfo(thread.id)
