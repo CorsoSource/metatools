@@ -2,7 +2,7 @@
 	Create traps for the tracer to monitor and trip into interdiction mode
 """
 
-from shared.data.expression import Expression, two_argument_operators
+from shared.tools.expression import Expression, two_argument_operators
 
 
 from functools import wraps
