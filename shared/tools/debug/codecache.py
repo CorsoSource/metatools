@@ -58,7 +58,7 @@ try:
 	PYTHON_LEXER = PythonLexer(stripall=True, tabsize=4)
 
 	def syntax_highlight(code, highlight_lines=[], start_line=1, style='monokai'):
-	
+		"""Use Pygments to syntax highlight code."""
 		if start_line > 1:
 			code = ('# CodeCache - note lines: %r\n' % highlight_lines) + code
 			start_line -= 1
@@ -85,8 +85,22 @@ try:
 # In case Pygments is not installed, passthru
 except ImportError:
 
-	def syntax_highlight(code, *args):
-		return code
+	def syntax_highlight(code, highlight_lines=[], start_line=1, style='unavailable'):
+		"""Fallback highlighter - formats into very basic HTML"""
+
+		if start_line > 1:
+			code = ('# CodeCache - next line is %d; note lines: %r\n' % (start_line, highlight_lines)) + code
+
+		code = ('# CodeCache - unhighlighted\n') + code
+
+		html = """<html>
+		<body>
+		<pre>%s</pre>
+		</body>
+		</html>
+		""" % code
+
+		return html.strip()
 
 
 def cached(function):
