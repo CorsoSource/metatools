@@ -347,7 +347,7 @@ class MetaTracer(type):
 		# Enqueue a command sent to the hub
 		if message_type == MessageTypes.COMMAND:
 			command = payload.get('command', payload.get('commands', []))
-			system.util.getLogger('Tracer %s' % (tracer_id,)).info('Message "%s" for "%s" recieved: %r' % (message_type, tracer_id, command))
+			system.util.getLogger('Tracer %s' % (tracer_id,)).trace('Message "%s" for "%s" recieved: %r' % (message_type, tracer_id, command))
 			cls._queue_command(tracer_id, command)
 			return
 
@@ -374,7 +374,7 @@ class MetaTracer(type):
 
 			
 	def _check_heartbeat(cls, tracer_id):
-		#system.util.getLogger('Tracer %s' % (tracer_id,)).info('Heartbeat check...')
+		#system.util.getLogger('Tracer %s' % (tracer_id,)).trace('Heartbeat check...')
 
 		pending_commands = ExtraGlobal.get(label=tracer_id, 
 									   scope=ExtraGlobalScopes.REMOTE_COMMANDS, 
@@ -387,7 +387,7 @@ class MetaTracer(type):
 			if 'heartbeat' == pending_commands:
 				return
 		
-		#system.util.getLogger('Tracer %s' % (tracer_id,)).info('Heartbeat extending')
+		#system.util.getLogger('Tracer %s' % (tracer_id,)).trace('Heartbeat extending')
 
 		cls._queue_command(tracer_id, 'heartbeat')
 		ExtraGlobal.extend(label=tracer_id, 
@@ -1062,7 +1062,7 @@ class Tracer(object):
 		while len(self.context_buffer) > self.CONTEXT_BUFFER_LIMIT:
 			_ = self.context_buffer.pop()
 
-		self.logger.info('%r' % self._current_context)
+		self.logger.trace('%r' % self._current_context)
 
 		# From user code to overrides, this is the section that can go wrong.
 		# Blast shield this with a try/except
