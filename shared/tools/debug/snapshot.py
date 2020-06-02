@@ -22,7 +22,7 @@ __email__ = 'andrew.geiger@corsosystems.com'
 
 class Snapshot(object):
 	
-	__slots__ = ('_event', '_arg', '_frame',
+	__slots__ = ('_event', '_arg', '_frame', '_code',
 				 '_filename', '_line', '_caller', '_depth',
 				 '_locals_key', '_locals_dup', '_locals_ref', '_locals_err', 
 				 '_cloned', 
