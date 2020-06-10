@@ -328,7 +328,7 @@ class MetaTracer(type):
 		tracer_id = payload['id']
 		message_type = payload['message']
 
-		# system.util.getLogger('Tracer %s' % (tracer_id,)).info('Message "%s" for "%s" recieved' % (message_type, tracer_id))
+		# system.util.getLogger('Tracer %s' % (tracer_id,)).trace('Message "%s" for "%s" recieved' % (message_type, tracer_id))
 
 		# Replate with the current tracer IDs available for remote control
 		if message_type == MessageTypes.LISTING:
@@ -347,7 +347,7 @@ class MetaTracer(type):
 		# Enqueue a command sent to the hub
 		if message_type == MessageTypes.COMMAND:
 			command = payload.get('command', payload.get('commands', []))
-			system.util.getLogger('Tracer %s' % (tracer_id,)).trace('Message "%s" for "%s" recieved: %r' % (message_type, tracer_id, command))
+			system.util.getLogger('Tracer %s' % (tracer_id,)).debug('Message "%s" for "%s" recieved: %r' % (message_type, tracer_id, command))
 			cls._queue_command(tracer_id, command)
 			return
 
@@ -517,10 +517,8 @@ class Tracer(object):
 	# Tracer INIT
 	#==========================================================================
 
-
 	def __init__(self, thread=None, tracer_id=None, control_tag='', trace_asap=False, **kwargs):
 		"""
-
 		If a tracer_id is provided, then if it's already active then it will NOT start a new one.
 		"""
 		# Set the ID - catch the KeyError to gracefully bypass 
@@ -547,39 +545,7 @@ class Tracer(object):
 		self._remote_request_thread = None
 
 		# Remote control via tag command line emulation
-		if control_tag:
-			if system.tag.exists(control_tag):
-				tag = system.tag.getTag(control_tag)
-
-				if str(tag.getType()) == 'Folder':
-					system.tag.addTag(
-						parentPath=control_tag,
-						name=self.id,
-						tagType='MEMORY',
-						dataType='String',
-						enabled=True,
-						value='',
-						)
-					self.tag_path = '%s/%s' % (control_tag, self.id)
-				else:
-					self.tag_path = control_tag
-			else:
-				tag_parent_path, _, tag_name = control_tag.rpartition('/')
-				system.tag.addTag(
-					parentPath=tag_parent_path,
-					name=tag_name,
-					tagType='MEMORY',
-					dataType='String',
-					enabled=True,
-					value='',
-					)
-				self.tag_path = control_tag	
-		
-			self.tag_acked = True
-			system.tag.write(self.tag_path, '')
-		else:
-			self.tag_path = ''
-			self.tag_acked = False
+		self._init_control_tag(control_tag)
 
 		# Event init
 		
@@ -1007,7 +973,7 @@ class Tracer(object):
 		for trap in frozenset(self.traps):
 			if trap.check(self.current_context):
 				
-				#self.logger.info('TRIP: %r on %r' % (trap, self.current_context,))
+				#self.logger.debug('TRIP: %r on %r' % (trap, self.current_context,))
 				
 				if isinstance(trap, TransientTrap):
 					self.active_traps.add(trap)
@@ -1016,7 +982,7 @@ class Tracer(object):
 					self.active_traps.add(trap)
 					
 		#if not self.active_traps:
-		#	self.logger.info('No active traps on %r' % (self.current_context,))
+		#	self.logger.trace('No active traps on %r' % (self.current_context,))
 
 
 	#==========================================================================
@@ -1139,6 +1105,119 @@ class Tracer(object):
 	#==========================================================================
 	# Ignition Messages
 	#==========================================================================
+
+	def _init_control_tag(self, control_tag):
+		"""
+		If given, a tag may be used to externally control the tags.
+		
+		If the tag already exists:
+		 - If it is a folder, then a new memory tag is added with the tracer's id.
+		     Tracers have fairly unique IDs. It's _really_ unlikely this is a problem.
+		 - If it is a tag, then that is simply taken as an appropriate string tag.
+		If the tag does NOT exist:
+		 - If the control tag path ends in a slash, then it's assumed to be a folder
+		     and will ensure the folders exist as well as a tag of the tracer's id.
+		 - If the control tag includes a name, then a new tag will be created that is
+		     a string memory tag at that location.
+		     
+		The tag starts off blank and the tracer starts ready to read from it. 
+		  (If waiting in a command loop, of course.)
+		"""
+		if not control_tag:
+			self.tag_path = ''
+			self.tag_acked = False
+			return
+		
+		# If the tag already exists, us it!
+		if system.tag.exists(control_tag):
+			tag = system.tag.getTag(control_tag)
+
+			if str(tag.getType()) == 'Folder':
+				system.tag.addTag(
+					parentPath=control_tag,
+					name=self.id,
+					tagType='MEMORY',
+					dataType='String',
+					enabled=True,
+					value='',
+					)
+				self.tag_path = '%s/%s' % (control_tag, self.id)
+			else:
+				self.tag_path = control_tag
+				
+		# If the tag does not exist, divine the intention given the string provided
+		else:
+			# https://regex101.com/r/ogqErX/3
+			path_pattern = re.compile(r"""
+			^ 
+			  # If a tag provider is given, match that first
+			  (\[(?P<provider>[a-z0-9_\- ]+)\])?
+			  # Everything after the provider is a parent path
+			  # After the parent path, no forward slashes can be
+			  #   matched, so the negative lookahead assures that.
+			  ((?P<parent>.*?)[/\\])?(?![/\\])
+			  # The tag name won't have a forward slash, and if
+			  #   missing we'll check that it's a folder
+			  (?P<name>[a-z0-9_\- ]+)?
+			$
+			""", re.X + re.I)
+			
+			path_parts = path_pattern.match(control_tag).groupdict()
+		
+			tag_name = path_parts.get('name')     or self.id
+			provider = path_parts.get('provider') or 'default'
+			parent   = path_parts.get('parent')   or ''
+			base_path = '[%s]%s' % (provider, parent)
+			
+			# Use Ignition 8's fancy tag control if possible!
+			if system.tag.read('[System]Client/System/FPMIVersion').value.startswith('8.'):
+				system.tag.configure(
+					basePath=base_path, 
+					tags = [
+						{
+							'name'       : tag_name, 
+							'tagType'    : 'AtomicTag',
+							'dataType'   : 'String',
+							'valueSource': 'memory',
+							}
+						], 
+					# merge in the change, though none of the other cases apply if we reach this point
+					collisionPolicy='m' 
+				)
+			# Otherwise add the tag like normal			
+			else:
+				# Make sure the folder exists if missing
+				if parent and not system.tag.exists(base_path):
+					# If not, rebuild the base path from what is added/verified
+					remaining = parent.replace('\\', '/')
+					next_folder, _, remaining = remaining.partition('/')
+					base_path = '[%s]' % provider
+					
+					# While we're going through the parent paths, add the folders as needed
+					while next_folder:
+						next_path = '%s/%s' % (base_path, next_folder)
+						if not system.tag.exists(next_path):
+							system.tag.addTag(
+								parentPath=base_path,
+								name=next_folder,
+								tagType='Folder',
+							)
+						base_path = next_path
+						next_folder, _, remaining = remaining.partition('/')
+
+				system.tag.addTag(
+					parentPath=base_path,
+					name=tag_name,
+					tagType='MEMORY',
+					dataType='String',
+					enabled=True,
+					value='',
+					)
+			
+			self.tag_path = '%s/%s' % (base_path, tag_name)
+	
+		self.tag_acked = True
+		system.tag.write(self.tag_path, '')
 
 
 	def _resolve_ignition_scope(self):
@@ -1415,14 +1494,14 @@ class Tracer(object):
 			self._await_command()
 
 			while self._pending_commands and self.interdicting:
-				#self.logger.info('Command: %s' % self.command)
+				#self.logger.debug('Command: %s' % self.command)
 				result = self.command(self._pending_commands.pop())
 
 				# Reply to the tag's command with results
 				if self.tag_path:
 					if not self.tag_acked:
 						if isinstance(result, Exception):
-							system.tag.write(self.tag_path, 'Exception "%r" for command "%s"' % (error, command))
+							system.tag.write(self.tag_path, 'Exception "%r" for command "%s"' % (result, command))
 						elif isinstance(result, (list, tuple, dict)):
 							system.tag.write(self.tag_path, system.util.jsonEncode(result))
 						elif result is None or result == '':
