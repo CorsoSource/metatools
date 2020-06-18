@@ -37,6 +37,8 @@ __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
 
 
+IGNITION_VERSION = system.tag.read('[System]Client/System/FPMIVersion').value
+
 # Standardize the string keys that will be used
 # NOTE: Enum will break the message handlers when in payloads, apparently. 
 #   It's _literally_ a string, but the Jython reflection gets hung up on the details, it seems.
@@ -1130,9 +1132,17 @@ class Tracer(object):
 		
 		# If the tag already exists, us it!
 		if system.tag.exists(control_tag):
-			tag = system.tag.getTag(control_tag)
+			
+			if IGNITION_VERSION.startswith('8.'):
+				tag_config = system.tag.getConfiguration(control_tag)[0]
+				tag_type = tag_config['tagType']
+			else:
+				tag = system.tag.getTag(control_tag)
+				tag_type = tag.getType()
 
-			if str(tag.getType()) == 'Folder':
+			is_folder = (str(tag_type) == 'Folder')
+
+			if is_folder:
 				system.tag.addTag(
 					parentPath=control_tag,
 					name=self.id,
@@ -1170,7 +1180,7 @@ class Tracer(object):
 			base_path = '[%s]%s' % (provider, parent)
 			
 			# Use Ignition 8's fancy tag control if possible!
-			if system.tag.read('[System]Client/System/FPMIVersion').value.startswith('8.'):
+			if IGNITION_VERSION.startswith('8.'):
 				system.tag.configure(
 					basePath=base_path, 
 					tags = [
@@ -1184,7 +1194,7 @@ class Tracer(object):
 					# merge in the change, though none of the other cases apply if we reach this point
 					collisionPolicy='m' 
 				)
-			# Otherwise add the tag like normal			
+			# ... otherwise add the tag the long way			
 			else:
 				# Make sure the folder exists if missing
 				if parent and not system.tag.exists(base_path):
