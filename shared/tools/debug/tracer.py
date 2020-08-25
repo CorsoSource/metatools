@@ -787,7 +787,8 @@ class Tracer(object):
 		"""Stop the trace and tear down the setup."""
 		if self.tag_path:
 			system.tag.write(self.tag_path, 'Shutting down...')
-		self.interdicting = False
+			# disable the tag now that the tracer is irrecoverably offline
+			system.tag.write(self.tag_path + '.enabled', False)
 		self.monitoring = False
 		self._cursor_stack = tuple()
 		try:
