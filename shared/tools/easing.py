@@ -1,18 +1,43 @@
 """
-		Python port of the easings from the excellent resource https://github.com/ai/easings.net
-		URL is https://easings.net
+	Python port of the easings from the excellent resource https://github.com/ai/easings.net
+	URL: https://easings.net
 
+	Some minor additions and wrappers made for convenience.    
 """
 
 
 import math
 from itertools import permutations
+from shared.tools.enum import Enum
+  
+class DIRECTION(Enum):
+	IN = 'in'
+	OUT = 'out'
+	IN_OUT = 'in_out'
 
+class ALGORITHM(Enum):
+	
+	QUADRATIC = 'quad' # Quadratic - squared
+	CUBIC = 'cubic'    # Cubic    - x ^ third
+	QUARTIC = 'quart'  # Quartic - x to the four
+	QUINTIC = 'quint'  # Quintic - x's fifth power
 
+	LINEAR = 'linear'
+	SINE = 'sine'
+	EXPONENT = 'expo'
+	CIRCULAR = 'circ'
+	BACK = 'back'
+	ELASTIC = 'elastic'
+	
+	
 __license__ = 'GPLv3'
 
+# Modifications and additions by:
+__maintainer__ = 'Andrew Geiger'
+__email__ = 'andrew.geiger@corsosystems.com'
 
-class MetaEase(type):
+
+class MetaEaseFunctions(type):
 	
 	def __init__(cls, clsname, bases, attributes):
 		
@@ -43,18 +68,19 @@ class MetaEase(type):
 
 				setattr(cls, first.upper(), EaseChain)
 			   
-				
-		return super(MetaEase, cls).__init__(clsname, bases, attributes)
+		return super(MetaEaseFunctions, cls).__init__(clsname, bases, attributes)
 	
-class Ease(object):
+
+	
+class EaseFunctions(object):
 	"""An easing object.
 	Transliterated from 
 	https://github.com/ai/easings.net/blob/master/src/easings/easingsFunctions.ts
 	"""
-	__metaclass__ = MetaEase
+	__metaclass__ = MetaEaseFunctions
 
 	_algebraic = ('quad', 'cubic', 'quart', 'quint')
-	_algos = _algebraic + ('sine', 'expo', 'circ', 'back', 'elastic')
+	_algos = _algebraic + ('linear', 'sine', 'expo', 'circ', 'back', 'elastic')
 	_directions = ('in', 'out', 'in_out')
 
 	
@@ -63,11 +89,20 @@ class Ease(object):
 	_c3 = _c1 + 1
 	_c4 = (2 * math.pi) / 3
 	_c5 = (2 * math.pi) / 4.5
+
+
+	@classmethod
+	def in_linear(cls, x):
+		return x
 	
-	
-	def __init__(self, lowerBound=0.0, upperBound=1.0, steps=None):
-		self.bounds = slice(lowerBound, upperBound, steps)
-	
+	@classmethod
+	def out_linear(cls, x):
+		return x
+
+	@classmethod
+	def in_out_linear(cls, x):
+		return x
+
 	
 	@classmethod
 	def in_power(cls, x, power):
@@ -120,8 +155,8 @@ class Ease(object):
 			return math.pow(2, 20*x - 10)/2.0
 		else:
 			return (2 - math.pow(2, -20*x + 10))/2.0
-		
-		
+	
+	
 	@classmethod
 	def in_circ(cls, x):
 		return 1 - math.sqrt(1 - math.pow(x, 2))
@@ -215,3 +250,113 @@ class Ease(object):
 			return (1 - cls.out_bounce(1 - 2*x))/2.0
 		else:
 			return (1 + cls.out_bounce(2*x - 1))/2.0
+		
+		
+class Easing(object):
+	__slots__ = ('function', 
+				 'start', 'finish', 
+				 'time_start', 'time_end', 'steps')
+	
+	def __init__(self, 
+				 ease_type=ALGORITHM.LINEAR,
+				 direction=DIRECTION.IN,
+				 start=0.0,
+				 finish=1.0,
+				 steps=None,
+				 time_start=0.0, 
+				 time_end=1.0,
+				 ):
+		"""
+		Ease from start to finish.
+		
+		If steps are an integer, it's assumed to iterate that many times.
+		If steps are a float, it's assumed the steps run until time_end.
+		If the steps are undefined, it's assumed the param is in relation
+		  to time_start and time_end.
+		  
+		Remember the fencepost problem: steps are the fence, not the posts. 
+		  You start at the beginning - the first step is the first increment.
+		  Thus for steps=10, the iterable will yield 11 times!
+		"""
+		
+		self.function = getattr(EaseFunctions, '%s_%s' % (direction, ease_type))
+		
+		self.start = start * 1.0
+		self.finish = finish * 1.0
+
+		assert time_start < time_end, "Time must flow forward (though scale may not)"
+		self.time_start = time_start * 1.0
+		self.time_end = time_end * 1.0
+		self.steps = steps or None
+		
+	@property
+	def step_by_count(self):
+		return self.steps and isinstance(self.steps, (int, long))
+	@property
+	def step_by_increment(self):
+		return self.steps and isinstance(self.steps, (float,))
+		
+	@property
+	def span(self):
+		return self.finish - self.start
+	
+	@property
+	def time_span(self):
+		return self.time_end - self.time_start
+
+	@property
+	def time_bounds(self):
+		return slice(self.time_start, self.time_end, self.steps)
+	
+	
+	def normalize_time(self, t):
+		if self.steps:
+			if self.step_by_count:
+				if t <= 0:
+					return 0.0
+				elif t >= self.steps:
+					return 1.0
+				else:
+					return (t * 1.0) / self.steps
+			elif self.step_by_increment:
+				total_inc = (t * 1.0) * self.steps
+				if total_inc <= 0:
+					return 0.0
+				elif total_inc >= self.time_span:
+					return 1.0
+				else:
+					return (total_inc / self.time_span)
+		else:
+			if t <= self.time_start:
+				return 0.0
+			elif t >= self.time_end:
+				return 1.0
+		return (t - self.time_start) / self.time_span
+
+	def interpolate_scale(self, fraction):
+		return self.start + (fraction * (self.span))
+	
+	
+	@property
+	def scale_bounds(self):
+		return slice(self.start, self.finish)
+		
+	def __call__(self, t):
+		t_norm = self.normalize_time(t)
+		y_norm = self.function(t_norm)
+		return self.interpolate_scale(y_norm)
+	
+	def __iter__(self):
+		assert self.steps, "Cannot iterate without a steps defined."
+		if self.step_by_count:
+			for i in range(self.steps):
+				yield i, self(i)
+			else:
+				yield self.steps, self.finish
+		elif self.step_by_increment:
+			for t in range(int(self.time_span/self.steps)):
+				yield (t * self.steps) + self.time_start, self(t)
+			else:
+				if (t * self.steps) + self.time_start < self.time_end:
+					yield self.time_end, self.finish
+					
