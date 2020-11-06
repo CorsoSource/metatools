@@ -159,6 +159,13 @@ def convert_to_postfix(expression):
 		elif tokenType == TOKENS.ERRORTOKEN and token.strip() == '':
 			pass
 		
+		# ensure the word-like tokens are correctly identified
+		elif tokenType == TOKENS.NAME and token in one_argument_operators:
+			tokens.append((TOKENS.OP, token))
+		
+		elif tokenType == TOKENS.NAME and token in two_argument_operators:
+			tokens.append((TOKENS.OP, token))
+		
 		else:
 			tokens.append((tokenType, token))
 
