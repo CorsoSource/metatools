@@ -7,7 +7,12 @@
 
 
 import math
-from itertools import permutations
+
+try:
+	from itertools import permutations
+except ImportError:
+	from shared.tools.compat import permutations
+
 from shared.tools.enum import Enum
   
 class DIRECTION(Enum):
@@ -18,7 +23,7 @@ class DIRECTION(Enum):
 class ALGORITHM(Enum):
 	
 	QUADRATIC = 'quad' # Quadratic - squared
-	CUBIC = 'cubic'    # Cubic    - x ^ third
+	CUBIC = 'cubic'    # Cubic - x ^ third
 	QUARTIC = 'quart'  # Quartic - x to the four
 	QUINTIC = 'quint'  # Quintic - x's fifth power
 
@@ -264,7 +269,8 @@ class Easing(object):
 				 finish=1.0,
 				 steps=None,
 				 time_start=0.0, 
-				 time_end=1.0,
+				 time_end=None,
+				 duration=None,
 				 ):
 		"""
 		Ease from start to finish.
@@ -284,6 +290,9 @@ class Easing(object):
 		self.start = start * 1.0
 		self.finish = finish * 1.0
 
+		if duration and not time_end:
+			time_end = time_start + duration
+		
 		assert time_start < time_end, "Time must flow forward (though scale may not)"
 		self.time_start = time_start * 1.0
 		self.time_end = time_end * 1.0

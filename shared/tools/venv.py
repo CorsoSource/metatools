@@ -5,14 +5,22 @@
 
 import sys,imp
 
-from shared.tools.meta import currentStackDepth
-from shared.tools.pretty import p,pdir
-
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
 __license__ = 'Apache 2.0'
 __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
+
+
+
+#from shared.tools.meta import currentStackDepth
+def currentStackDepth():
+	frame = sys._getframe(0)
+	i = 0
+	while frame:
+		frame = frame.f_back
+		i += 1
+	return i
 
 
 class Venv(object):
