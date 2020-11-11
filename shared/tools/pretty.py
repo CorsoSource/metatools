@@ -9,8 +9,9 @@ import __builtin__
 import re, math, textwrap
 from types import *
 from array import array
-from java.util import ArrayList
+from java.util import ArrayList, HashSet, HashMap
 from java.lang import Exception as JavaException
+
 import java.lang.Class as JavaClass
 from com.inductiveautomation.ignition.common import BasicDataset
 from com.inductiveautomation.ignition.common.script.builtin.DatasetUtilities import PyDataSet
@@ -103,7 +104,6 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 	
 	attributes = sorted(attributes)
 	
-	
 	# preprocessing
 	maxAttrLen = max([len(attribute) 
 					  for attribute in attributes] + [0])	
@@ -142,7 +142,10 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 						attrReprs.append(p(attr, listLimit=10, ellipsisLimit=ellipsisLimit, nestedListLimit=4, directPrint=False))						
 					else:
 						if getattr(attr, '__call__', None):
-							attrReprs.append(repr_function(attr))
+							if (attribute.startswith('get') or attribute.startswith('to')) and shared.tools.meta.getFunctionCallSigs(attr) == '()':
+								attrReprs.append(repr(attr()))
+							else:
+								attrReprs.append(repr_function(attr))
 						else:
 							attrReprs.append(repr(attr))
 				except:
@@ -230,7 +233,11 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 			
 			attrReprSpacing = len(indent) + 3 + 3 + 3 + maxAttrLen + 2
 			attrRepr = attrReprLines.pop(0)
-					
+		
+		# This is a weird format error I don't care to figure out...
+		if attrRepr.startswith('λ('):
+			attrTypeStr = ' ' + attrTypeStr
+		
 		attrTypeStr = dotdotdot(attrTypeStr, maxReprLen)
 
 		if attrDoc and includeDocs:
@@ -319,11 +326,16 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 			out += [rowPattern % tuple([i] + list(row))]		
 		
 		
-	elif isinstance(o, (list, tuple, array, ArrayList, set, frozenset)):
+	elif isinstance(o, (list, tuple, array, ArrayList, set, frozenset, HashSet)):
 		o_name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
+		o_type = type(o)
+		
+		if isinstance(o, HashSet):
+			o = set([v for v in o])
+		
 		out += ['%s<%s> of %d elements' % (
 			('"%s" ' % o_name) if o_name else '', 
-		    '<%s> array' % o.typecode if isinstance(o,array) else str(type(o))[6:-1],
+		    '<%s> array' % o.typecode if isinstance(o,array) else str(o_type)[6:-1],
 			len(o))]
 		
 		# preprocessing
@@ -389,10 +401,17 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 				out += ['%s... %d ellided (of %s total)' % (indent, len(o)-i-1, len(o))]
 				break
 				
-				
-	elif isinstance(o, dict):
+	elif isinstance(o, (dict, HashMap)):
 		o_name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
-		out.append('%s<%s> of %d elements' % (('"%s" ' % o_name) if o_name else '', str(type(o))[6:-1],len(o)))
+		o_type = type(o)
+		
+		if isinstance(o, HashMap):
+			o = dict([
+				(str(key), o.get(key))
+				for key in sorted(o.keySet())
+				])
+		
+		out.append('%s<%s> of %d elements' % (('"%s" ' % o_name) if o_name else '', str(o_type)[6:-1],len(o)))
 		
 		# preprocessing
 		maxKeyWidth = max([len(repr(key)) for key in o.keys()] + [1])
