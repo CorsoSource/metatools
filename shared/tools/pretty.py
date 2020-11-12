@@ -142,7 +142,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 						attrReprs.append(p(attr, listLimit=10, ellipsisLimit=ellipsisLimit, nestedListLimit=4, directPrint=False))						
 					else:
 						if getattr(attr, '__call__', None):
-							if (attribute.startswith('get') or attribute.startswith('to')) and shared.tools.meta.getFunctionCallSigs(attr) == '()':
+							if re.match('(get|to|is|has)[A-Z]', attribute) and shared.tools.meta.getFunctionCallSigs(attr) == '()':
 								attrReprs.append(repr(attr()))
 							else:
 								attrReprs.append(repr_function(attr))
