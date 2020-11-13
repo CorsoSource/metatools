@@ -9,13 +9,18 @@ import __builtin__
 import re, math, textwrap
 from types import *
 from array import array
-from java.util import ArrayList, HashSet, HashMap
+from java.util import ArrayList, HashSet, HashMap, Collections
 from java.lang import Exception as JavaException
 
 import java.lang.Class as JavaClass
 from com.inductiveautomation.ignition.common import BasicDataset
 from com.inductiveautomation.ignition.common.script.builtin.DatasetUtilities import PyDataSet
 from shared.tools.meta import getObjectName, getFunctionCallSigs, sentinel, isJavaObject, getReflectedField
+
+
+class PrettyException(Exception):
+	def __repr__(self):
+		return 'PrettyPrinter failed: %r' % self.message
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -28,7 +33,11 @@ __all__ = ['p','pdir']
 
 quotePattern = re.compile("""^('.*'|".*")$""")
 
-PRETTY_PRINT_TYPES = (BasicDataset, PyDataSet, list, tuple, array, ArrayList, dict, set, frozenset, FrameType, FunctionType, LambdaType)
+PRETTY_PRINT_TYPES = (BasicDataset, PyDataSet, 
+					  list, tuple, array, ArrayList, Collections, 
+					  dict, HashMap,
+					  set, frozenset, HashSet,
+					  FrameType, FunctionType, LambdaType)
 IGNORED_NAMES = set(['o', 'obj', 'element', 'attr', 'val', 'function'])
 
 
@@ -129,9 +138,14 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 				attrReprs.append(repr(getReflectedField(o,attribute)))
 				attrDocs.append(None)
 			else:
-				attr = getattr(o,attribute)
-				attrType = type(attr)
-
+				try:
+					attr = getattr(o,attribute)
+					attrType = type(attr)
+				except:
+				
+					attr = PrettyException('could not get attribute %s' % attribute)
+					attrType = "<type '<Unknown type>'>"
+				
 				attrTypes.append(attrType)
 				typeStr = str(attrType)[7:-2]
 				typeStr = typeStr.partition('$')[0]
@@ -462,8 +476,20 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		out += [repr_function(o, estimatedDepth=1)]
 		
 	else:
-		out += [repr(o)]
-	
+		if not isinstance(o, GeneratorType):
+			try: # if it's some sort of unknown iterable
+				if directPrint:
+					p([v for v in o], indent, listLimit, ellipsisLimit, nestedListLimit, directPrint)
+					print '(Unrecognized type - iteration attempted for type <%r>)' % str(type(o))[6:-1] 
+					return
+				else:
+					output = p([v for v in o], indent, listLimit, ellipsisLimit, nestedListLimit, directPrint)
+					output += '\n(Unrecognized type - iteration attempted for type <%r>)' % str(type(o))[6:-1] 
+					return output			
+			except Exception, error:
+				out += [repr(o)]
+		else:
+			out += [repr(o)]
 	out += ['']
 	
 	output = '\n'.join(out)
