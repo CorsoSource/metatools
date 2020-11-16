@@ -2,8 +2,6 @@
 	Helper functions to make dealing with threads a bit less painful.
 """
 
-
-from __future__ import with_statement
 from functools import wraps, partial
 from time import sleep
 from datetime import datetime, timedelta
@@ -31,6 +29,7 @@ def total_seconds(some_timedelta):
 	return some_timedelta.seconds + some_timedelta.microseconds
 
 
+
 class MetaAsyncWatchdog(type):
 
 	SCRAM_THREAD_NAME = 'Async-SCRAM-Monitor'
@@ -39,9 +38,17 @@ class MetaAsyncWatchdog(type):
 
 	_thread_expirations = []
 
-	def watch(cls, thread_handle, max_allowed_runtime):
-		expected_dead_by = datetime.now() + timedelta(seconds=max_allowed_runtime)
-		heappush(cls._thread_expirations, (expected_dead_by, thread_handle))
+	def watch(cls, thread_handle, max_allowed_runtime=None, kill_switch=None):
+		
+		if max_allowed_runtime is None:
+			expected_dead_by = None
+		else:
+			expected_dead_by = datetime.now() + timedelta(seconds=max_allowed_runtime)
+		
+		if kill_switch is None:
+			kill_switch = lambda : False
+		
+		heappush(cls._thread_expirations, (thread_handle, expected_dead_by, kill_switch))
 
 		cls.spawn_watchdog_monitor()
 
@@ -61,7 +68,7 @@ class MetaAsyncWatchdog(type):
 			while cls._thread_expirations:
 
 				# Check if the next-to-die thread should be murdered
-				next_expiration, thread_handle = cls._thread_expirations[0]
+				thread_handle, next_expiration, kill_switch = cls._thread_expirations[0]
 				
 				thread_state = thread_handle.getState()
 
@@ -69,12 +76,19 @@ class MetaAsyncWatchdog(type):
 				if thread_state == Thread.State.TERMINATED:
 					_ = heappop(cls._thread_expirations)
 				# if the thread isn't dead but should be, kill it
-				elif next_expiration < datetime.now():
+				elif next_expiration and next_expiration < datetime.now():
 					thread_handle.interrupt()
 					_ = heappop(cls._thread_expirations)
-				# otherwise wait a little bit and see if that changes
+
 				else:
-					sleep(cls.SCRAM_CHECK_RATE)
+					# Check if the kill_switch is set (and wrap in a try/except in case it's malformed)
+					try:
+						assert kill_switch() is True
+						thread_handle.interrupt()
+						_ = heappop(cls._thread_expirations)
+					except:
+						# otherwise wait a little bit and see if that changes
+						sleep(cls.SCRAM_CHECK_RATE)
 
 			cls._SCRAM_MONITOR = None
 
@@ -87,7 +101,7 @@ class AsyncWatchdog(MetaSingleton):
 
 
 
-def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None):
+def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=None):
 	"""Decorate a function with this to make it run in another thread asynchronously!
 	If defined with a value, it will wait that many seconds before firing.
 	If a name is provided the thread will be named. Handy for the gateway thread status page.
@@ -130,7 +144,7 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None):
 				def full_closure(function, args=args, kwargs=kwargs):
 					try:
 						_ = function(*args,**kwargs)
-					except KeyboardInterrupt:
+					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
 						pass
 
 				# Wrap the function and delay values to prevent early GC of function and delay
@@ -168,7 +182,7 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None):
 					sleep(delaySeconds)
 					try:
 						_ = function(*args,**kwargs)
-					except KeyboardInterrupt:
+					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
 						pass
 					
 				# Wrap the function and delay values to prevent early GC of function and delay
@@ -180,13 +194,12 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None):
 				if name:
 					thread_handle.setName(name)
 				
-				if maxAllowedRuntime:
-					AsyncWatchdog.watch(thread_handle, maxAllowedRuntime)
+				if maxAllowedRuntime or killSwitch:
+					AsyncWatchdog.watch(thread_handle, maxAllowedRuntime, killSwitch)
 				
 				return thread_handle
 			return asyncWrapper
-		return asyncDecoWrapper
-	
+		return asyncDecoWrapper	
 
 
 def findThreads(thread_name_pattern='.*', search_group=None, recursive=False, sandbagging_percent=110):
