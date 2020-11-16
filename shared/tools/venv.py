@@ -102,10 +102,11 @@ class Venv(object):
 	def bootstrapModule(self):
 		modulePathParts = self.modulePath.split('.')
 		supportingPackages = ['.'.join(modulePathParts[0:i]) for i in range(1,len(modulePathParts))]
+		
 		for parentPath in supportingPackages:
 			if not parentPath in sys.modules:
-				self._initializeNewModule(parentPath)
-				sys.modules[parentPath] = imp.new_module(parentPath)
+				newModule = self._initializeNewModule(parentPath)
+				sys.modules[parentPath] = newModule
 				self._createdScope.append(parentPath)
 		
 		newModule = self._initializeNewModule(self.modulePath)
@@ -114,6 +115,23 @@ class Venv(object):
 			setattr(newModule, key, value)
 		sys.modules[self.modulePath] = newModule
 		self._createdScope.append(self.modulePath)
+		
+		# chain connections
+		if '.' in self.modulePath:
+			parentModule = sys.modules[modulePathParts[0]]
+			packageChain = supportingPackages[:]
+			packageChain.append(self.modulePath)
+			
+			parentModule = sys.modules[packageChain[0]]
+			for modulePath in packageChain[1:]:
+				childModule = sys.modules[modulePath]
+				childModuleName = modulePath.rpartition('.')[2]
+				try:
+					assert childModule == getattr(parentModule, childModuleName)
+				except AttributeError:
+					setattr(parentModule, childModuleName, childModule)
+				
+				parentModule = childModule
 
 	def _purgeScope(self):
 		scopedSys = self._getCallingFrameSys()
