@@ -9,6 +9,7 @@ import re
 from heapq import heappush, heappop
 
 from java.lang import Thread, ThreadGroup
+from java.nio.channels import ClosedByInterruptException
 from jarray import array, zeros
 from org.python.core import ThreadState
 

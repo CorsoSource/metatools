@@ -472,9 +472,9 @@ class MetaExtraGlobal(type):
 		"""Ensure a label is not in a scope, also purge the scope if it is empty."""
 		if not scope in cls._scoped_labels:
 			return
-		if len(cls._scoped_labels[scope]) == 1:
+		elif len(cls._scoped_labels[scope]) <= 1:
 			del cls._scoped_labels[scope]
-		if label in cls._scoped_labels[scope]:
+		elif label in cls._scoped_labels[scope]:
 			cls._scoped_labels[scope].remove(label)
 
 
