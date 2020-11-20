@@ -13,7 +13,7 @@ from com.inductiveautomation.ignition.gateway import SRContext
 
 GLOBAL_CACHE_TIMEOUT = 600
 WHITELIST_GLOBALS = set(['shared', 'system', 'fpmi', 're'])
-WHITELIST_LOCALS = set(['context'])
+WHITELIST_LOCALS = set([]) #'context'])
 
 
 class CrowbarREST(SimpleREST):
@@ -35,7 +35,7 @@ class CrowbarREST(SimpleREST):
 		#endpoint_url = 'https://localhost.corso.systems:8043/main/system/webdev/Debugger/context/'
 		#endpoint_url = 'https:%s' % (str(request['servletRequest'].httpURI).partition('?')[0],)
 
-		params = self.params
+		params = self.params or {}
 
 		statement = params.get('eval', '')
 
@@ -44,7 +44,7 @@ class CrowbarREST(SimpleREST):
 		session_aliases = session.setdefault('aliases', {})
 		statement_history = session.setdefault('statement_history', [])
 
-		context = session.setdefault('context', SRContext.get())
+		#context = session.setdefault('context', SRContext.get())
 
 		while statement in statement_history:
 			statement_history.remove(statement)
@@ -78,6 +78,8 @@ class CrowbarREST(SimpleREST):
 					local_scope[var_name] = locals()[var_name]
 
 			local_scope.update(session_aliases)
+			
+			local_scope['context'] = SRContext.get()
 			
 			code = compile(statement, '<pretty-eval>', 'eval')
 			result = eval( code , global_scope , local_scope )
@@ -205,3 +207,25 @@ class CrowbarREST(SimpleREST):
 		""" % locals()
 
 		self.respond_html(output)
+		
+		
+## Example tag event script
+#	if any([
+#			initialChange,
+#			missedEvents,
+#			]):
+#			return
+#	
+#		port = int(tagPath.rpartition(' ')[2])
+#	
+#		if currentValue.value:	
+#			from shared.tools.sidecar import launch_sidecar
+#			from shared.tools.crowbar import CrowbarREST
+#			
+#			server_thread = launch_sidecar(port, CrowbarREST)
+#			
+#		else:
+#			from shared.tools.sidecar import shutdown
+#			shutdown(port)
+#	#		from shared.tools.thread import dangerouslyKillThreads
+#	#		dangerouslyKillThreads('Sidecar.*', bypass_interlock = 'Yes, seriously.')

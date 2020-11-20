@@ -4,6 +4,7 @@ from shared.tools.global import ExtraGlobal
 import BaseHTTPServer
 from cgi import escape
 import urlparse
+import urllib
 
 
 class SimpleServer(BaseHTTPServer.HTTPServer):
@@ -51,7 +52,7 @@ class SimpleREST(BaseHTTPServer.BaseHTTPRequestHandler):
 		params = {}
 		for entry in query_string.split('&'):
 			key,_,value = entry.partition('=')
-			params[key]=value
+			params[urllib.unquote(key)] = urllib.unquote(value)
 		return params
 		
 		
@@ -76,7 +77,7 @@ def launch_sidecar(port, RestHandler):
 	try:
 		system.util.getLogger('Sidecar').info("Sidecar started on port %r" % (port,))
 
-		while not ExtraGlobal.get(port, 'Sidecar', {}).get('shutdown', False):
+		while not ExtraGlobal.setdefault(port, 'Sidecar', {}).get('shutdown', False):
 			httpd.handle_request()
 	except Exception, error:
 		system.util.getLogger('Sidecar').info("Exception on port %r: %r" % (port,error))
