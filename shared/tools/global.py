@@ -445,8 +445,8 @@ class MetaExtraGlobal(type):
 
 	def trash(cls, label=None, scope=None):
 		"""Remove an item from the cache directly."""
-		del cls._cache[CacheEntry.gen_key(label, scope)]
 		cls._scope_untrack(label, scope)
+		del cls._cache[CacheEntry.gen_key(label, scope)]
 		system.util.getLogger('ExtraGlobal').trace('Trashed (scope:%r, label:%r) from %r' % (scope, label, Thread.currentThread()))
 		cls.spawn_cache_monitor()
 	

@@ -7,7 +7,7 @@
 
 import __builtin__
 import re, math, textwrap
-from types import *
+from types import BuiltinFunctionType, BuiltinMethodType, CodeType, FrameType, FunctionType, GeneratorType, LambdaType, MethodType, ModuleType, UnboundMethodType, XRangeType
 from array import array
 from java.util import ArrayList, HashSet, HashMap, Collections
 from java.lang import Exception as JavaException
@@ -16,11 +16,16 @@ import java.lang.Class as JavaClass
 from com.inductiveautomation.ignition.common import BasicDataset
 from com.inductiveautomation.ignition.common.script.builtin.DatasetUtilities import PyDataSet
 from shared.tools.meta import getObjectName, getFunctionCallSigs, sentinel, isJavaObject, getReflectedField
+#from time import sleep
 
 
 class PrettyException(Exception):
 	def __repr__(self):
 		return 'PrettyPrinter failed: %r' % self.message
+
+class BannedAttributeException(PrettyException):
+	def __repr__(self):
+		return 'PrettyPrinter banned attribute: %r' % self.message
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -40,6 +45,11 @@ PRETTY_PRINT_TYPES = (BasicDataset, PyDataSet,
 					  FrameType, FunctionType, LambdaType)
 IGNORED_NAMES = set(['o', 'obj', 'element', 'attr', 'val', 'function'])
 
+BANNED_ATTRIBUTES = {
+	'com.inductiveautomation.ignition.gateway.SRContext': set([
+		'filterFactoryManager', 'getFilterFactoryManager',
+		]),
+	}
 
 def repr_function(function, estimatedDepth=1):
 	f_name = getObjectName(function,estimatedDepth=estimatedDepth, ignore_names=IGNORED_NAMES)
@@ -66,10 +76,11 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 	out = []	
 	
 	name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
+	o_type = str(type(o))[7:-2]
 	if name:
-		out += ['%sProperties of "%s" <%s>' % (indent, name, str(type(o))[6:-1])]
+		out += ['%sProperties of "%s" <%s>' % (indent, name, o_type)]
 	else:
-		out += ['%sProperties of <%s>' % (indent, str(type(o))[6:-1])]
+		out += ['%sProperties of <%s>' % (indent, o_type)]
 	out += ['%s%s' % (indent, '='*len(out[0]))]
 	
 	obj_repr = repr(o)
@@ -139,10 +150,13 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 				attrDocs.append(None)
 			else:
 				try:
-					attr = getattr(o,attribute)
-					attrType = type(attr)
+					if attribute in BANNED_ATTRIBUTES.get(o_type, set()):
+						attr =  BannedAttributeException('skipping %s' % attribute)
+						attrType = "<type '<Unknown type>'> (skipped)"
+					else:
+						attr = getattr(o,attribute)
+						attrType = type(attr)					
 				except:
-				
 					attr = PrettyException('could not get attribute %s' % attribute)
 					attrType = "<type '<Unknown type>'>"
 				
@@ -156,7 +170,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 						attrReprs.append(p(attr, listLimit=10, ellipsisLimit=ellipsisLimit, nestedListLimit=4, directPrint=False))						
 					else:
 						if getattr(attr, '__call__', None):
-							if re.match('(get|to|is|has)[A-Z]', attribute) and shared.tools.meta.getFunctionCallSigs(attr) == '()':
+							if re.match('(get|to|is|has)[A-Z]', attribute) and getFunctionCallSigs(attr) == '()':
 								attrReprs.append(repr(attr()))
 							else:
 								attrReprs.append(repr_function(attr))
@@ -194,6 +208,13 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 			attrTypeStrings.append(str(e).partition(':')[0])
 			attrReprs.append('n/a')
 			attrDocs.append(None)
+			
+#		# Gateway breaking on a call to pdir? Use this to see when it dies. (Used to make ban list)
+#		try:
+#			sleep(0.01)
+#			_ = system.net.httpGet('http://localhost:8088/main/web/')
+#		except IOError:
+#			system.util.getLogger('FailDir').info('Attribute %s failed for %s' %(attribute, name or '???'))			
 			
 	attrReprs = [ar.strip() if not '\n' in ar else ar for ar in attrReprs]
 	

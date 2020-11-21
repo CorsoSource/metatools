@@ -199,7 +199,7 @@ class CrowbarREST(SimpleREST):
 		<div style="font-family:consolas;font-size:10px; background-color:black; color:cyan;">
 		<pre>%(output_p)s</pre>
 		</div>
-		<div style="font-family:consolas;font-size:10px; background-color:black; color:lime; overflow-y: auto; height: 550px">
+		<div style="font-family:consolas;font-size:10px; background-color:black; color:lime; overflow-y: auto; height: 950px">
 		<pre>%(output_pdir)s</pre>
 		</div>
 		</body>
@@ -210,22 +210,22 @@ class CrowbarREST(SimpleREST):
 		
 		
 ## Example tag event script
-#	if any([
-#			initialChange,
-#			missedEvents,
-#			]):
-#			return
+#if any([
+#	initialChange,
+#	missedEvents,
+#	]):
+#	return
+#
+#port = int(tagPath.rpartition(' ')[2])
+#
+#if currentValue.value:	
+#	from shared.tools.sidecar import launch_sidecar
+#	from shared.tools.crowbar import CrowbarREST
 #	
-#		port = int(tagPath.rpartition(' ')[2])
+#	server_thread = launch_sidecar(port, CrowbarREST, resume_session=False)
 #	
-#		if currentValue.value:	
-#			from shared.tools.sidecar import launch_sidecar
-#			from shared.tools.crowbar import CrowbarREST
-#			
-#			server_thread = launch_sidecar(port, CrowbarREST)
-#			
-#		else:
-#			from shared.tools.sidecar import shutdown
-#			shutdown(port)
-#	#		from shared.tools.thread import dangerouslyKillThreads
-#	#		dangerouslyKillThreads('Sidecar.*', bypass_interlock = 'Yes, seriously.')
+#else:
+#	from shared.tools.sidecar import shutdown
+#	shutdown(port)
+##		from shared.tools.thread import dangerouslyKillThreads
+##		dangerouslyKillThreads('Sidecar.*', bypass_interlock = 'Yes, seriously.')
