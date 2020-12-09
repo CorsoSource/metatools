@@ -20,8 +20,8 @@ def new_module(module_path):
 	"""Create and prime a new module for horking into the `sys.modules`"""
 	mod = imp.new_module(module_path)
 	mod.__file__ = module_path
-	mod.__name__ = module_path.rpartition('.')[2] if '.' in module_path else module_path
-	mod.__package__ = '.'.join(module_path.split('.')[:1])	
+	mod.__name__ = module_path
+	mod.__package__ = module_path.rpartition('.')[0]
 	return mod
 	
 	
@@ -59,16 +59,12 @@ def ensure_import_chain(target_module_path, sys_context=None):
 	for module_path in package_chain[1:]:
 		child_module = setdefault_module(sys_context, module_path)
 		child_module_name = module_path.rpartition('.')[2]
-		try:
-			assert child_module == getattr(parent_module, child_module_name)
-		except (AttributeError, AssertionError):
-			setattr(parent_module, child_module_name, child_module)
-		
+		setattr(parent_module, child_module_name, child_module)
 		parent_module = child_module
 
 	
 
-def hotload(module_zip_binary, global_context=None, sys_context=None):
+def hotload(module_zip_binary, global_context=None, namespace='', sys_context=None, force_replace=False):
 	"""
 	Load a zip file's python code as a module at runtime.
 
@@ -111,13 +107,19 @@ def hotload(module_zip_binary, global_context=None, sys_context=None):
 		module_code[module_path] = code
 	
 	remaining = set(module_code)
+	
+	if force_replace:
+		for module_path in remaining:
+			if module_path in sys_context.modules:
+				del sys_context.modules[module_path]
+	
 	while remaining:
 	
 		for module_path in remaining:
 			try:
 				local_context = {
-					'__name__': module_path.rpartition('.')[2] if '.' in module_path else module_path,
-					'__file__': module_path,					
+					'__name__': module_path,
+					'__file__': module_path,
 					}
 				code = module_code[module_path]
 				# pass local_context as both global and local dict
@@ -146,7 +148,13 @@ def hotload(module_zip_binary, global_context=None, sys_context=None):
 		else:
 			raise ImportError("All modules could not be loaded!\nLast error in %s: %r" % (module_path, err))
 		
-
+	# clean up to ensure packages are handled
+	packages = [mp for mp in module_code if '%s.__init__' % mp in module_code]
+	for module_path in module_code:
+		if '%s.__init__' % mp in module_code:	
+			sys.modules[module_path].__path__ = module_path
+		else:
+			sys.modules[module_path].__package__ = module_path.rpartition('.')[0]
 
 
 
