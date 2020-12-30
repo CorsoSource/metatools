@@ -156,7 +156,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 					else:
 						attr = getattr(o,attribute)
 						attrType = type(attr)					
-				except:
+				except Exception, error:
 					attr = PrettyException('could not get attribute %s' % attribute)
 					attrType = "<type '<Unknown type>'>"
 				
@@ -323,7 +323,7 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 			out += ['%s<PyDataSet> of %d elements and %d columns' % (o_name, ds.getRowCount(), ds.getColumnCount())]
 		else:
 			out += ['%s<DataSet> of %d elements and %d columns' % (o_name, ds.getRowCount(), ds.getColumnCount())]
-		out += [indent + '='*len(out[0])]
+		out += [indent + '='*(len(out[0]))]
 		
 		# preprocessing
 		# Get the width of each column in the dataset
@@ -339,10 +339,10 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		colNames = [h for h in ds.getColumnNames()]
 		
 		colWidths = [max([len(repr(row)) for row in col] + [len(t)] + [len(h)] + [1]) 
-					 for h,t,col 
-					 in zip(colNames,colTypeStrs,zip(*data))]
+					 for h,t,col
+					 in zip(colNames,colTypeStrs,zip(*(data or [[0]*len(colNames)])))]
 		
-		maxRowWidth = int(math.floor(math.log10(ds.getRowCount())))
+		maxRowWidth = int(math.floor(math.log10(ds.getRowCount() + 1)))
 		
 		prefixPattern =  '%s %%%dd%s' %  (indent, maxRowWidth + 1, colSep)
 
@@ -352,7 +352,7 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 													  for colType, colWidth in zip(colTypes,colWidths))
 		hedPattern = indent + '   ' + ' '*(maxRowWidth+1) + '  ' + '  ' + colSep.join(strElePattern % colWidth
 													  for colWidth in colWidths)		
-													  
+									
 		out += [hedPattern % tuple(colNames)]
 		out += [hedPattern % tuple(colTypeStrs)]
 		out += [indent + '-'*(len(out[-1])-len(indent))]
