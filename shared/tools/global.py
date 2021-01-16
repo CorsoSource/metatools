@@ -422,8 +422,6 @@ class MetaExtraGlobal(type):
 		
 		system.util.getLogger('ExtraGlobal').trace('Stashed %r from %r' % (cache_entry.key, Thread.currentThread()))
 		
-		system.util.getLogger('ExtraGlobal').trace('Stashed %r from %r' % (cache_entry.key, Thread.currentThread()))
-		
 		cls.spawn_cache_monitor()
 		return cache_entry.key
 

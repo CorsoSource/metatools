@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import re
 from heapq import heappush, heappop
 
-from java.lang import Thread, ThreadGroup
+from java.lang import Thread, ThreadGroup, NullPointerException
 from java.nio.channels import ClosedByInterruptException
 from jarray import array, zeros
 from org.python.core import ThreadState
@@ -28,7 +28,6 @@ __all__ = ['async', 'findThreads', 'getThreadObject']
 
 def total_seconds(some_timedelta):
 	return some_timedelta.seconds + some_timedelta.microseconds
-
 
 
 class MetaAsyncWatchdog(type):
@@ -170,7 +169,7 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 
 		# Convert to check param... Clamps to millisecond multiples
 		delaySeconds = int(startDelaySeconds*1000.0)/1000.0
-		
+			
 		# Since we passed in a value, we'll need to return an actual decorator function
 		def asyncDecoWrapper(function):
 			
@@ -200,7 +199,7 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 				
 				return thread_handle
 			return asyncWrapper
-		return asyncDecoWrapper	
+		return asyncDecoWrapper
 
 
 def findThreads(thread_name_pattern='.*', search_group=None, recursive=False, sandbagging_percent=110):
@@ -305,7 +304,7 @@ def getFromThreadScope(target_thread, object_name):
 		thread_state = getThreadState(target_thread)
 		frame = thread_state.frame
 
-	# The ThreadState object contains the current Python frame under execution.
+	# The ThreadState object 	contains the current Python frame under execution.
 	# Frames have all the needed context to execute, including the variable references in scope.
 	return frame.f_locals[object_name]
 

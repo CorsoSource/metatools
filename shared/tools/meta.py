@@ -49,7 +49,6 @@ class MetaSingleton(object):
 		raise AttributeError("%s attributes are not mutable. Use methods to manipulate them." % cls.__name__) 
 
 
-
 def sentinel(iterable, stopValue):
 	"""A helper to make it simpler to implement sentinel values more idomatically.
 	This is a good way to replace a while True loop, removing the need for a break-on-value clause.
@@ -71,7 +70,6 @@ def getDesignerContext(anchor=None):
 	from com.inductiveautomation.ignition.designer import IgnitionDesigner
 
 	if anchor is None:
-		
 		try:
 			return IgnitionDesigner.getFrame().getContext()
 		except:
@@ -207,7 +205,7 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 		for reflectedArgs in function.argslist:
 			if reflectedArgs is None: continue
 			if reflectedArgs:
-				callMethods += ['(%s)' % ', '.join(['<%s>' % str(arg)[7:-2] 
+				callMethods += ['(%s)' % ', '.join(['<%s>' % repr(arg)[7:-2] 
 													for arg in reflectedArgs.args])]
 			else:
 				callMethods += ['()']

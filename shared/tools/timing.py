@@ -14,6 +14,7 @@ except ImportError:
 	now = lambda: int(round(time() * 1000))
 
 from time import sleep
+from datetime import datetime, timedelta
 
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
@@ -22,6 +23,19 @@ __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
 
 
+def waitForConditionOrTimeout(rising_edge_function, us_timeout=100000, _us_check_rate=1000, err_msg="Function check failed to be truthy in time."):
+	"""Spins the execution's wheels while we wait for a condition to become true."""
+	_us_check_rate /= 1000000.0
+	timeout = datetime.now() + timedelta(microseconds=us_timeout)
+	while not rising_edge_function() and datetime.now() < timeout:
+		sleep(_us_check_rate)
+	
+	if rising_edge_function():
+		return
+	else:
+		raise TimeoutError(err_msg)
+	
+	
 class AtLeastThisDelay(object):
 	"""Force a with statement to take a minimum amount of time before
 	returning execution to the thread.
