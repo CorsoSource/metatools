@@ -7,8 +7,10 @@ from ast import literal_eval
 from cgi import escape
 import re, sys, os
 
-
-from com.inductiveautomation.ignition.gateway import SRContext
+try:
+	from com.inductiveautomation.ignition.gateway import SRContext as GateawayContext
+except ImportError:
+	from com.inductiveautomation.ignition.gateway import IgnitionGateway as GatewayContext 
 
 
 GLOBAL_CACHE_TIMEOUT = 600
@@ -70,16 +72,22 @@ class CrowbarREST(SimpleREST):
 			global_scope = session.get('global_scope', {})
 			if not global_scope:
 				for var_name in WHITELIST_GLOBALS:
-					global_scope[var_name] = globals()[var_name]
+					try:
+						global_scope[var_name] = globals()[var_name]
+					except KeyError:
+						pass
 
 			local_scope = session.get('local_scope', {})
 			if not local_scope:
 				for var_name in WHITELIST_LOCALS:
-					local_scope[var_name] = locals()[var_name]
+					try:
+						local_scope[var_name] = locals()[var_name]
+					except KeyError:
+						pass
 
 			local_scope.update(session_aliases)
 			
-			local_scope['context'] = SRContext.get()
+			local_scope['context'] = GatewayContext.get()
 			
 			code = compile(statement, '<pretty-eval>', 'eval')
 			result = eval( code , global_scope , local_scope )
@@ -105,18 +113,20 @@ class CrowbarREST(SimpleREST):
 		if result is None:
 			result = ''
 
-		output_p = '<br>'.join(
-			escape(
-				p(result, ellipsisLimit=120, directPrint=False)
-				.decode('utf8')
-			).splitlines())
-
-		output_pdir = '<br>'.join(
-			escape(
-				pdir(result, ellipsisLimit=120, directPrint=False)
-				.decode('utf8')
-			).splitlines())
-
+		# decode fails in 2.7 it seems, but not 2.5? Weird.
+		output_p = p(result, ellipsisLimit=120, directPrint=False)
+		try:
+			output_p = output_p.decode('utf8')
+		except:
+			pass
+		output_p = '<br>'.join(escape(output_p).splitlines())
+	
+		output_pdir = pdir(result, ellipsisLimit=120, directPrint=False)
+		try:
+			output_pdir = output_pdir.decode('utf8')
+		except:
+			pass
+		output_pdir = '<br>'.join(escape(output_pdir).splitlines())
 
 		AUTO_ATTRIBUTE_PATTERN = re.compile(r'^(\W*)(\w+)(\W+.*)$', re.M)
 		IDENTIFIER_PATTERN = re.compile(r'([a-z0-9A-Z.]+)(@[a-f0-9]+)')
@@ -222,7 +232,7 @@ class CrowbarREST(SimpleREST):
 #	from shared.tools.sidecar import launch_sidecar
 #	from shared.tools.crowbar import CrowbarREST
 #	
-#	server_thread = launch_sidecar(port, CrowbarREST, resume_session=False)
+#	server_thread = launch_sidecar(port, CrowbarREST, hostname='127.0.0.1', resume_session=False)
 #	
 #else:
 #	from shared.tools.sidecar import shutdown

@@ -62,7 +62,7 @@ def shutdown(port):
 	
 
 @async(name='Sidecar-REST')
-def launch_sidecar(port, RestHandler, resume_session=True, session_timeout=600):
+def launch_sidecar(port, RestHandler, hostname='localhost', resume_session=True, session_timeout=600):
 	"""
 	This assumes that keep_running() is a function of no arguments which
 	is tested initially and after each request.  If its return value
@@ -76,7 +76,7 @@ def launch_sidecar(port, RestHandler, resume_session=True, session_timeout=600):
 		ExtraGlobal.stash({}, port, 'Sidecar', lifespan=session_timeout)
 		session = ExtraGlobal.access(port, 'Sidecar')
 		
-	server_address = ('localhost', port)
+	server_address = (hostname, port)
 	httpd = SimpleServer(server_address, RestHandler)
 	try:
 		system.util.getLogger('Sidecar').info("Sidecar started on port %r" % (port,))
@@ -84,7 +84,7 @@ def launch_sidecar(port, RestHandler, resume_session=True, session_timeout=600):
 		while not ExtraGlobal.setdefault(port, 'Sidecar', {}, lifespan=session_timeout).get('shutdown', False):
 			httpd.handle_request()
 	except Exception, error:
-		system.util.getLogger('Sidecar').info("Exception on port %r: %r" % (port,error))
+		system.util.getLogger('Sidecar').info("Exception on port %r: %s %r" % (port,type(error), error))
 
 	except:
 		pass
