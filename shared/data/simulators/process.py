@@ -1,9 +1,20 @@
+# -*- coding: utf-8 -*-
 import math, re
 from types import FunctionType
 
 from transitions import State, Machine
 
-from shared.tools.compat import property
+try:
+	_ = property.setter
+except AttributeError:
+	from shared.tools.compat import property
+
+try:
+	from yaml import load as yaml_loader, FullLoader
+except ImportError:
+	from shared.tools.yaml.core import load as yaml_loader, FullLoader
+
+
 from shared.data.simulators.mixins.support import MixinFunctionSupport
 
 
@@ -405,10 +416,9 @@ class Process(MixinFunctionSupport, Machine):
 
 
 def load_simulator(definition, mixins_package='shared.data.simulators.mixins'):
-	from shared.tools.yaml.core import load as yaml_loader, FullLoader
 		
 	configuration = yaml_loader(definition, FullLoader)
-	configuration['_raw_definition'] = definition
+	configuration['raw_definition'] = definition
 	
 	mixins = []
 	mixins += [
