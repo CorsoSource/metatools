@@ -36,7 +36,7 @@ class MetaAsyncWatchdog(type):
 	SCRAM_CHECK_RATE = 0.1 # seconds
 	_SCRAM_MONITOR = None
 
-	_thread_expirations = []
+	_thread_expirations = {}
 
 	def watch(cls, thread_handle, max_allowed_runtime=None, kill_switch=None):
 		
@@ -48,7 +48,7 @@ class MetaAsyncWatchdog(type):
 		if kill_switch is None:
 			kill_switch = lambda : False
 		
-		heappush(cls._thread_expirations, (thread_handle, expected_dead_by, kill_switch))
+		cls._thread_expirations[thread_handle] = (expected_dead_by, kill_switch)
 
 		cls.spawn_watchdog_monitor()
 
@@ -66,33 +66,51 @@ class MetaAsyncWatchdog(type):
 
 			# Once the threads are all gone, exit and die gracefully
 			while cls._thread_expirations:
-
-				# Check if the next-to-die thread should be murdered
-				thread_handle, next_expiration, kill_switch = cls._thread_expirations[0]
 				
-				thread_state = thread_handle.getState()
-
-				# If the thread is already done, then remove it
-				if thread_state == Thread.State.TERMINATED:
-					_ = heappop(cls._thread_expirations)
-				# if the thread isn't dead but should be, kill it
-				elif next_expiration and next_expiration < datetime.now():
-					thread_handle.interrupt()
-					_ = heappop(cls._thread_expirations)
-
-				else:
-					# Check if the kill_switch is set (and wrap in a try/except in case it's malformed)
+				for thread_handle in frozenset(cls._thread_expirations):
+					
 					try:
-						assert kill_switch() is True
+						next_expiration, kill_switch = cls._thread_expirations[thread_handle]
+					except KeyError:
+						continue # already culled, possibly because it finished so fast
+					
+					thread_state = thread_handle.getState()
+					
+					# If the thread is already done, then remove it
+					if thread_state == Thread.State.TERMINATED:
+						try:
+							del cls._thread_expirations[thread_handle]
+						except KeyError: # already dead or removed? Ok!
+							pass
+													
+					# if the thread isn't dead but should be, kill it
+					elif next_expiration and next_expiration < datetime.now():
 						thread_handle.interrupt()
-						_ = heappop(cls._thread_expirations)
-					except:
-						# otherwise wait a little bit and see if that changes
-						sleep(cls.SCRAM_CHECK_RATE)
+						try:
+							del cls._thread_expirations[thread_handle]
+						except KeyError: # already dead or removed? Ok!
+							pass
+
+					else:
+						# Check if the kill_switch is set (and wrap in a try/except in case it's malformed)
+						try:
+							assert kill_switch() is True
+							thread_handle.interrupt()
+							try:
+								del cls._thread_expirations[thread_handle]
+							except KeyError: # already dead or removed? Ok!
+								pass
+						except:
+							# otherwise wait a little bit and see if that changes
+							# push back onto the dictionary and check again on next loop
+							pass
+				
+				# pause the loop long enough for states to change...			
+				sleep(cls.SCRAM_CHECK_RATE)
 
 			cls._SCRAM_MONITOR = None
 
-		cls._SCRAM_MONITOR = monitor()
+		cls._SCRAM_MONITOR = monitor()	
 
 
 
