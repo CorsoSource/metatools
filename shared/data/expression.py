@@ -508,7 +508,7 @@ class Expression(object):
 
 	def __call__(self, *args, **kwargs):
 		if kwargs:
-			self._arguments[:] = [kwargs.get(field) or args[i] for i,field  in enumerate(self._fields)]
+			self._arguments[:] = [kwargs.get(field, args[i] if len(args) > i else None) for i,field  in enumerate(self._fields)]
 		else:
 			self._arguments[:] = args
 		
