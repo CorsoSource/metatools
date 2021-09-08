@@ -16,8 +16,11 @@ from org.python.core import ThreadState
 from shared.tools.meta import getReflectedField, MetaSingleton
 from shared.tools.timing import EveryFixedDelay
 
+from shared.tools.logging import Logger
+from java.lang import Exception as JavaException
 
-__copyright__ = """Copyright (C) 2020 Corso Systems"""
+
+__copyright__ = """Copyright (C) 2021 Corso Systems"""
 __license__ = 'Apache 2.0'
 __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
@@ -119,7 +122,7 @@ class AsyncWatchdog(MetaSingleton):
 
 
 
-def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=None):
+def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=None, ensureOnlyOne=False):
 	"""Decorate a function with this to make it run in another thread asynchronously!
 	If defined with a value, it will wait that many seconds before firing.
 	If a name is provided the thread will be named. Handy for the gateway thread status page.
@@ -159,14 +162,17 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 			@wraps(function)
 			def asyncWrapper(*args, **kwargs):
 				# Create the closure to carry the scope into another thread
-				def full_closure(function, args=args, kwargs=kwargs):
+				def async_closure(function, args=args, kwargs=kwargs):
 					try:
 						_ = function(*args,**kwargs)
 					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
 						pass
+					except (Exception, JavaException), error:
+						Logger(prefix='(Async) ').error(repr(error))
+						return
 
 				# Wrap the function and delay values to prevent early GC of function and delay
-				closure = partial(full_closure, function)
+				closure = partial(async_closure, function)
 				
 				# Async calls should return the thread handle. 
 				# They will _not_ return whatever the function returned. That gets dumped to _.
@@ -195,19 +201,25 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 			def asyncWrapper(*args, **kwargs):
 		
 				# Create the closure to carry the scope into another thread
-				def full_closure(function, delaySeconds, args=args, kwargs=kwargs):
+				def async_closure(function, delaySeconds, args=args, kwargs=kwargs):
 					#print 'delaying %0.3f' % delaySeconds
 					sleep(delaySeconds)
 					try:
 						_ = function(*args,**kwargs)
 					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
 						pass
+					except (Exception, JavaException), error:
+						Logger(prefix='(Async) ').error(repr(error))
+						return
 					
 				# Wrap the function and delay values to prevent early GC of function and delay
-				closure = partial(full_closure, function, delaySeconds)
+				closure = partial(async_closure, function, delaySeconds)
 				
 				# Async calls should return the thread handle. 
 				# They will _not_ return whatever the function returned. That gets dumped to _.
+				if name and ensureOnlyOne and findThreads(name):
+					return # do nothing
+
 				thread_handle = system.util.invokeAsynchronous(closure)
 				if name:
 					thread_handle.setName(name)
