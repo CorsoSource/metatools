@@ -12,6 +12,11 @@ except ImportError:
 import sys, re
 from shared.tools.meta import currentStackDepth, getObjectByName, GLOBAL_MESSAGE_PROJECT_NAME
 
+from exceptions import BaseException
+import java.lang.Class as JavaClass
+import java.lang.Object as JavaObject
+from java.lang import Exception as JavaException
+
 
 __copyright__ = """Copyright (C) 2020 Corso Systems"""
 __license__ = 'Apache 2.0'
@@ -56,13 +61,13 @@ class BaseLogger(object):
 		Note that this is dead reckoning
 		>>> def foo(x):
 		...   y = 4
-		...   BaseLogger().log('asdf %(y)s %(x)r %(foo)r')	
+		...   BaseLogger().log('asdf %(y)s %(x)r %(foo)r')  
 		>>> foo(11)
 		asdf 4 11 <function foo at ...>
 		"""
 		## Add positional arguments to the interpolation
 		#for i,arg in enumerate(args):
-		#	kwargs[str(i)] = arg
+		#   kwargs[str(i)] = arg
 		frame = sys._getframe(self._stackDepth)
 		varScope = dict(frame.f_globals.items() + frame.f_locals.items() + kwargs.items())
 		
@@ -96,7 +101,7 @@ class BaseLogger(object):
 class ConsoleLogger(BaseLogger):
 	"""A basic logger that prints log messages.
 	This exposes the more sophisticated message formatting utilities.
-	"""	
+	""" 
 	def _log(self, level, *args, **kwargs):
 		message = self._generateMessage(*args, **kwargs)
 		print '[%s] %s' % (level, message)
@@ -125,97 +130,115 @@ class PrintLogger(object):
 	@staticmethod
 	def trace(message):
 		print '[%s] %s' % ('trace', message)
-	@staticmethod	
+	@staticmethod   
 	def debug(message):
 		print '[%s] %s' % ('debug', message)
-	@staticmethod	
+	@staticmethod   
 	def info(message):
 		print '[%s] %s' % ('info', message)
-	@staticmethod	
+	@staticmethod   
 	def warn(message):
 		print '[%s] %s' % ('warn', message)
-	@staticmethod	
+	@staticmethod   
 	def error(message):
-		print '[%s] %s' % ('error', message)	
+		print '[%s] %s' % ('error', message)    
 
 
 class Logger(BaseLogger):
 	"""Autoconfiguring logger. This detects its calling environment and tries to set itself up.
-	"""		
-	def __init__(self, loggerName=None, prefix=None, suffix=None, relay=False):
-		#raise NotImplementedError('This is under development and is not fully functional yet.')
-		
+	"""     
+	def __init__(self, loggerName=None, prefix=None, suffix=None, relay=False, target_context=None):
+		#raise NotImplementedError('This is under development and is not fully functional yet.')        
 		self.relay = relay
 		
-		self._autoConfigure(loggerName)
+		self._autoConfigure(loggerName, target_context)
 		
 		if prefix is not None: self.prefix = '%s%s' % (prefix, self.prefix)
 		if suffix is not None: self.suffix = '%s%s' % (self.suffix, suffix)
-				
-				
-	def _getScope(self):
+		
+		
+	def _getScope(self, context=None):
+		if context is None:
+			frame = sys._getframe(self._stackDepth - 1) 
+			return frame.f_code.co_filename
+		elif isinstance(context, BaseException):
+			err_type, err_value, err_traceback = sys.exc_info()
+			calling_scope = '<%s.%s>' % (err_traceback.tb_next.tb_frame.f_code.co_filename[1:-1], 
+									     err_traceback.tb_next.tb_frame.f_code.co_name)
+			# zoom in on exception
+			while err_traceback.tb_next:
+				err_traceback = err_traceback.tb_next
+			self.prefix = ' [%s: %d] ' % (err_traceback.tb_frame.f_code.co_filename[1:-1], err_traceback.tb_lineno)
+			return calling_scope
+		elif isinstance(context, object):
+			try:
+				return context.__init__.im_func.func_code.co_filename
+			except:
+				return context.func_code.co_filename
+		if isinstance(context, (JavaClass, JavaObject)):
+			type_path = repr(context)
+			if type_path.startswith('<type '):
+				return '<%s>' % repr(JavaClass)[6:-1]
+			else:
+				return type_path
 		frame = sys._getframe(self._stackDepth - 1) 
 		return frame.f_code.co_filename
-	
-	
+			
 	def _generatePerspectiveComponentPath(self, scope, component=None):
 		# parsed as example in 'function: onActionPerformed' or 'custom-method someFunction'
 		functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
-		
-		try:
-			if not component:
-				component = getObjectByName('self', startRecent=False)
-			assert 'com.inductiveautomation.perspective' in str(type(component)), 'Incorrectly detected Perspective context'
-			session = component.session
-			page = component.page
-			view = component.view
-			componentPath = []
-			while component:
-				componentPath.append(component.name)
-				component = component.parent
-				
-			return '[%s - %s.%s] ' % (view.id, '/'.join(reversed(componentPath)), functionName)
-		except AssertionError:
-			return '[%s] ' % scope
+
+		if not component:
+			component = getObjectByName('self', startRecent=False)
+		assert 'com.inductiveautomation.perspective' in str(type(component)), 'Incorrectly detected Perspective context'
+		session = component.session
+		page = component.page
+		view = component.view
+		componentPath = []
+		while component:
+			componentPath.append(component.name)
+			component = component.parent
 			
+		return '[%s - %s.%s] ' % (view.id, '/'.join(reversed(componentPath)), functionName)
+	
 	
 	def _generateVisionComponentPath(self, scope, event=None, component=None):
-		
-		try:
-			functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
-			
-			if not event:
-				event = getObjectByName('event', startRecent=False)
-				window = system.gui.getParentWindow(event)
-			if not component:
-				component = event.source
-	
-			componentPath = []
-			while not isinstance(component, FPMIWindow):
-				label = component.name
-				if isinstance(component, TemplateHolder):
-					label = '<%s>' % component.templatePath
-				componentPath.append(label)
-				component = component.parent
-						
-			return '[%s: %s.%s] ' % (window.path, '/'.join(reversed(componentPath[:-3])), functionName)
-	
-		except AttributeError:
-			return '[%s] ' % scope
+		functionName = scope.partition(':')[2] if ':' in scope else scope.partition(' ')[2]
 
+		if not event:
+			event = getObjectByName('event', startRecent=False)
+			
+		if not component:
+			if event is None:
+				return ''
+			component = event.source
+
+		componentPath = []
+		while not isinstance(component, FPMIWindow):
+			label = component.name
+			if isinstance(component, TemplateHolder):
+				label = '<%s>' % component.templatePath
+			componentPath.append(label)
+			component = component.parent
+			
+		window_path = component.path
+		
+		return '[%s: %s.%s] ' % (window_path, '/'.join(reversed(componentPath[:-3])), functionName)
 				
-	def _autoConfigure(self, loggerName=None):
+				
+	def _autoConfigure(self, loggerName=None, context=None):
 		"""The master configuration routine. This will branch down and check if a known state is set.
 		If so, it will try to name itself something appropriate, with a focus on making gateway logs
 		  easier to filter for the specific situation getting logged.
 		Additional information may be bolted on via the prefix/suffix to provide context.
-		"""
-		scope = self._getScope()[1:-1] # remove the angle brackets
+		""" 
 		self.prefix = ''
 		self.suffix = ''
-		
+
+		scope = self._getScope(context)[1:-1] # remove the angle brackets
+
 		# Playground!
-		if scope == 'buffer':
+		if scope in ('buffer', 'input'):
 			self.loggerName = loggerName or 'Script Console'
 			self.logger = PrintLogger()
 		# Scripts!
@@ -223,32 +246,35 @@ class Logger(BaseLogger):
 			self.loggerName = loggerName or scope[7:]
 			self.logger = system.util.getLogger(self.loggerName)
 			if self._isVisionDesigner() or self._isVisionClient():
-				self._configureVisionClientRelay()			
-				self.prefix = self._generateVisionComponentPath(scope)
-				self.suffix = ' [Vision %s]' % self._getVisionClientID()
+				self._configureVisionClientRelay()
+				try:
+					self.prefix += self._generateVisionComponentPath(scope)
+					self.suffix += ' [Vision %s]' % self._getVisionClientID()
+				except (Exception, JavaException):
+					pass
 			elif self._isPerspective():
-				self.prefix = self._generatePerspectiveComponentPath(scope)
-				self.suffix = ' [%s]' % self._getPerspectiveClientID()
+				self.prefix += self._generatePerspectiveComponentPath(scope)
+				self.suffix += ' [%s]' % self._getPerspectiveClientID()
 		# Tags!
 		elif scope.startswith('tagevent:'):
 			tagPath = getObjectByName('tagPath')
 			provider,_,tagPath = tagPath[1:].partition(']')
 			self.loggerName = loggerName or '[%s] Tag %s Event' % (provider, scope[9:])
-			self.prefix = '{%s} ' % tagPath
+			self.prefix += '{%s} ' % tagPath
 			self.logger = system.util.getLogger(self.loggerName)
 			if provider == 'client':
-				self._configureVisionClientRelay()			
+				self._configureVisionClientRelay()          
 		# Perspective!
 		elif self._isPerspective():
 			self.loggerName = self._getPerspectiveClientID()
 			self.logger = system.util.getLogger(self.loggerName)
 			
-			self.prefix = self._generatePerspectiveComponentPath(scope)
+			self.prefix += self._generatePerspectiveComponentPath(scope)
 			self.relay = False # NotImplementedError
 			# if self.relay:
-			# 	self.relayScope = {'scope': 'C', 'hostName': session.props.host}
-			# 	self.relayHandler = PERSPECTIVE_SESSION_MESSAGE_HANDLER
-			# 	self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
+			#   self.relayScope = {'scope': 'C', 'hostName': session.props.host}
+			#   self.relayHandler = PERSPECTIVE_SESSION_MESSAGE_HANDLER
+			#   self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
 		# Clients!
 		elif self._isVisionScope(): 
 			self.loggerName = self._getVisionClientID()
@@ -261,7 +287,7 @@ class Logger(BaseLogger):
 			self.loggerName = loggerName or '[%s] WebDev' % system.util.getProjectName()
 			self.logger = system.util.getLogger(self.loggerName)
 			endpoint,_,eventName = scope.rpartition(':')
-			self.prefix = '[%s %s] ' % (eventName[2:].upper(), '/'.join(endpoint.split('/')[1:]))
+			self.prefix += '[%s %s] ' % (eventName[2:].upper(), '/'.join(endpoint.split('/')[1:]))
 		else:
 			self.loggerName = loggerName or 'Logger'
 			self.logger = system.util.getLogger(self.loggerName)
@@ -375,7 +401,7 @@ class Logger(BaseLogger):
 		"""This is the relay handler. Note that by this should be placed in a message handler
 		  that matches whatever is in self.relayHandler (typically VISION_CLIENT_MESSAGE_HANDLER). 
 
-		Copy and paste the following directly into a gateway message event script:	
+		Copy and paste the following directly into a gateway message event script:  
 		
 		from shared.tools.logging import Logger
 		Logger.messageHandler(payload)

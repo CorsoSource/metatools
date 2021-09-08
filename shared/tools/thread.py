@@ -7,6 +7,7 @@ from time import sleep
 from datetime import datetime, timedelta
 import re
 from heapq import heappush, heappop
+import sys
 
 from java.lang import Thread, ThreadGroup, NullPointerException
 from java.nio.channels import ClosedByInterruptException
@@ -168,7 +169,7 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
 						pass
 					except (Exception, JavaException), error:
-						Logger(prefix='(Async) ').error(repr(error))
+						Logger(prefix='(Async)', target_context=error).error(repr(error))
 						return
 
 				# Wrap the function and delay values to prevent early GC of function and delay
@@ -188,6 +189,10 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 
 	# ... otherwise apply the configuration provided
 	else:
+		if isinstance(startDelaySeconds, (str, unicode)):
+			name = startDelaySeconds
+			startDelaySeconds = None
+			
 		if startDelaySeconds is None:
 			startDelaySeconds = 0.0
 
@@ -209,8 +214,7 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
 						pass
 					except (Exception, JavaException), error:
-						Logger(prefix='(Async) ').error(repr(error))
-						return
+						Logger(prefix='(Async)', target_context=error).error(repr(error))
 					
 				# Wrap the function and delay values to prevent early GC of function and delay
 				closure = partial(async_closure, function, delaySeconds)
