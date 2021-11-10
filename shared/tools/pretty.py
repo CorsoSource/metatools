@@ -2,6 +2,8 @@
 	A handy set of pretty printers for dumping info in Ignition.
 
 	These are meant to be used with a console.
+
+	from shared.tools.pretty import *; pinstall()
 """
 
 
@@ -33,7 +35,7 @@ __license__ = 'Apache 2.0'
 __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
 
-__all__ = ['p','pdir']
+__all__ = ['p','pdir', 'grep', 'dirgrep', 'pinstall', 'puninstall']
 
 
 quotePattern = re.compile("""^('.*'|".*")$""")
@@ -590,12 +592,125 @@ def install(sys_scope=None):
 	if sys_scope is None:
 		import sys as sys_scope
 	sys_scope.displayhook = displayhook
+
 	
 def uninstall(sys_scope=None):
 	"""Revert the interactive printing to the default builtin displayhook."""
 	if sys_scope is None:
 		import sys as sys_scope
 	sys_scope.displayhook = sys_scope.__displayhook__
+
+pinstall = install
+puninstall = uninstall
+
+
+class BaseGrep(object):
+	"""Pipe text into a pattern matcher. Handy for filtering giant blocks of code.
+
+	'asdf qwer\nqwer\nzxcv\nlkjhsdfuu' | grep('df')
+	grep | dirgrep('str', skipPrivate=False)
+	'a b c d e f g'.split() | grep('[ace]')
+	"""
+	MATCH_METHOD = 'find'
+	PREPROCESS_INPUT = lambda self, x: str(x)
+
+	def __init__(self, regex, flags = 0):
+		self.flags = flags
+		self.regex = regex
+		
+		# if no anchor specified, then match anywhere in line	
+		self.pattern = re.compile(self.regex, self.flags)
+						
+	def __ror__(self, something):	
+		something = self.PREPROCESS_INPUT(something)
+		
+		if self.flags & re.M:
+			if self.check(something):
+				self.out(something)
+		else:
+			lines = something.splitlines()
+			if len(lines) == 1:
+				if self.check(something):
+					self.out(something)
+			else:
+				for i, line in enumerate(lines):
+					if self.check(line):
+						self.out(line, i+1)
+		print ''
+
+	def check(self, something):
+		method = {
+			'find': self.pattern.findall,
+			'match': self.pattern.match,		
+		}.get(self.MATCH_METHOD.lower(), 
+			  self.pattern.findall)
+			  
+		self.last_check = method(something)
+		return self.last_check
+
+	def out(self, line, line_number=None):
+		if line in (None, ''):
+			return
+		if line_number:
+			print '%5d | %s' % (line_number, line)
+		else:
+			print line
+
+
+class dirgrep(BaseGrep):
+	def __init__(self, regex, flags=0, **p_kwargs):
+		super(dirgrep, self).__init__(regex, flags)
+		
+		# default pdir config
+		config = {
+			'ellipsisLimit': 1000,
+			'skipPrivate': True,
+		}
+		config.update(p_kwargs)
+		self.p_config = config
+
+	def PREPROCESS_INPUT(self, something, directPrint=True):
+		results = pdir(something, directPrint=False, **self.p_config).splitlines()
+		
+		if directPrint:
+			print '\n'.join('      | %s' % line for line in results[:3])
+		else:
+			return '\n'.join(results[3:])
+
+
+class grep(BaseGrep):
+	def __init__(self, regex, flags=0, **p_kwargs):
+		super(grep, self).__init__(regex, flags)
+		
+		# default pdir config
+		config = {
+			'ellipsisLimit': 1000,
+			'nestedListLimit': 1000,
+			'listLimit': 1000,
+		}
+		config.update(p_kwargs)
+		self.p_config = config
+
+	def PREPROCESS_INPUT(self, something, directPrint=True):
+		if isinstance(something, str):
+			return something
+			
+		results = p(something, directPrint=False, **self.p_config).splitlines()
+		
+		if directPrint:
+			print '\n'.join('      | %s' % line for line in results[:1])
+		else:
+			return '\n'.join(results[1:])
+		
+
+
+
+# 'asdf qwer\nqwer\nzxcv\nlkjhsdfuu' | grep('df')
+# grep | dirgrep('str', skipPrivate=False)
+# 'a b c d e f g'.split() | grep('[ace]')
+
+
+
 
 
 # l = [1,2,3,'wer',6]

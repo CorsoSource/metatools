@@ -61,13 +61,13 @@ class BaseLogger(object):
 		Note that this is dead reckoning
 		>>> def foo(x):
 		...   y = 4
-		...   BaseLogger().log('asdf %(y)s %(x)r %(foo)r')  
+		...   BaseLogger().log('asdf %(y)s %(x)r %(foo)r')	
 		>>> foo(11)
 		asdf 4 11 <function foo at ...>
 		"""
 		## Add positional arguments to the interpolation
 		#for i,arg in enumerate(args):
-		#   kwargs[str(i)] = arg
+		#	kwargs[str(i)] = arg
 		frame = sys._getframe(self._stackDepth)
 		varScope = dict(frame.f_globals.items() + frame.f_locals.items() + kwargs.items())
 		
@@ -101,7 +101,7 @@ class BaseLogger(object):
 class ConsoleLogger(BaseLogger):
 	"""A basic logger that prints log messages.
 	This exposes the more sophisticated message formatting utilities.
-	""" 
+	"""	
 	def _log(self, level, *args, **kwargs):
 		message = self._generateMessage(*args, **kwargs)
 		print '[%s] %s' % (level, message)
@@ -130,25 +130,25 @@ class PrintLogger(object):
 	@staticmethod
 	def trace(message):
 		print '[%s] %s' % ('trace', message)
-	@staticmethod   
+	@staticmethod	
 	def debug(message):
 		print '[%s] %s' % ('debug', message)
-	@staticmethod   
+	@staticmethod	
 	def info(message):
 		print '[%s] %s' % ('info', message)
-	@staticmethod   
+	@staticmethod	
 	def warn(message):
 		print '[%s] %s' % ('warn', message)
-	@staticmethod   
+	@staticmethod	
 	def error(message):
-		print '[%s] %s' % ('error', message)    
+		print '[%s] %s' % ('error', message)	
 
 
 class Logger(BaseLogger):
 	"""Autoconfiguring logger. This detects its calling environment and tries to set itself up.
-	"""     
+	"""		
 	def __init__(self, loggerName=None, prefix=None, suffix=None, relay=False, target_context=None):
-		#raise NotImplementedError('This is under development and is not fully functional yet.')        
+		#raise NotImplementedError('This is under development and is not fully functional yet.')		
 		self.relay = relay
 		
 		self._autoConfigure(loggerName, target_context)
@@ -163,13 +163,12 @@ class Logger(BaseLogger):
 			return frame.f_code.co_filename
 		elif isinstance(context, BaseException):
 			err_type, err_value, err_traceback = sys.exc_info()
-			calling_scope = '<%s.%s>' % (err_traceback.tb_next.tb_frame.f_code.co_filename[1:-1], 
-									     err_traceback.tb_next.tb_frame.f_code.co_name)
 			# zoom in on exception
 			while err_traceback.tb_next:
 				err_traceback = err_traceback.tb_next
-			self.prefix = ' [%s: %d] ' % (err_traceback.tb_frame.f_code.co_filename[1:-1], err_traceback.tb_lineno)
-			return calling_scope
+			
+			self.prefix = ' [line %d] ' % err_traceback.tb_lineno
+			return err_traceback.tb_frame.f_code.co_filename
 		elif isinstance(context, object):
 			try:
 				return context.__init__.im_func.func_code.co_filename
@@ -231,9 +230,9 @@ class Logger(BaseLogger):
 		If so, it will try to name itself something appropriate, with a focus on making gateway logs
 		  easier to filter for the specific situation getting logged.
 		Additional information may be bolted on via the prefix/suffix to provide context.
-		""" 
+		"""	
 		self.prefix = ''
-		self.suffix = ''
+		self.suffix	= ''
 
 		scope = self._getScope(context)[1:-1] # remove the angle brackets
 
@@ -253,8 +252,11 @@ class Logger(BaseLogger):
 				except (Exception, JavaException):
 					pass
 			elif self._isPerspective():
-				self.prefix += self._generatePerspectiveComponentPath(scope)
-				self.suffix += ' [%s]' % self._getPerspectiveClientID()
+				try:
+					self.prefix += self._generatePerspectiveComponentPath(scope)
+					self.suffix += ' [%s]' % self._getPerspectiveClientID()
+				except (Exception, JavaException):
+					pass
 		# Tags!
 		elif scope.startswith('tagevent:'):
 			tagPath = getObjectByName('tagPath')
@@ -263,24 +265,28 @@ class Logger(BaseLogger):
 			self.prefix += '{%s} ' % tagPath
 			self.logger = system.util.getLogger(self.loggerName)
 			if provider == 'client':
-				self._configureVisionClientRelay()          
+				self._configureVisionClientRelay()			
 		# Perspective!
 		elif self._isPerspective():
 			self.loggerName = self._getPerspectiveClientID()
 			self.logger = system.util.getLogger(self.loggerName)
-			
-			self.prefix += self._generatePerspectiveComponentPath(scope)
+			try:
+				self.prefix += self._generatePerspectiveComponentPath(scope)
+			except (Exception, JavaException):
+				pass
 			self.relay = False # NotImplementedError
 			# if self.relay:
-			#   self.relayScope = {'scope': 'C', 'hostName': session.props.host}
-			#   self.relayHandler = PERSPECTIVE_SESSION_MESSAGE_HANDLER
-			#   self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
+			# 	self.relayScope = {'scope': 'C', 'hostName': session.props.host}
+			# 	self.relayHandler = PERSPECTIVE_SESSION_MESSAGE_HANDLER
+			# 	self.relayProject = GLOBAL_MESSAGE_PROJECT_NAME or system.util.getProjectName()
 		# Clients!
 		elif self._isVisionScope(): 
 			self.loggerName = self._getVisionClientID()
 			self.logger = system.util.getLogger(self.loggerName)
-			
-			self.prefix = self._generateVisionComponentPath(scope)
+			try:
+				self.prefix = self._generateVisionComponentPath(scope)
+			except (Exception, JavaException):
+				pass			
 			self._configureVisionClientRelay()
 		# WebDev endpoint!
 		elif self._isWebDev():
@@ -401,7 +407,7 @@ class Logger(BaseLogger):
 		"""This is the relay handler. Note that by this should be placed in a message handler
 		  that matches whatever is in self.relayHandler (typically VISION_CLIENT_MESSAGE_HANDLER). 
 
-		Copy and paste the following directly into a gateway message event script:  
+		Copy and paste the following directly into a gateway message event script:	
 		
 		from shared.tools.logging import Logger
 		Logger.messageHandler(payload)
