@@ -3,6 +3,8 @@ from shared.tools.meta import getFunctionCallSigs
 from shared.tools.sidecar import SimpleREST
 from shared.tools.global import ExtraGlobal
 
+from shared.tools.logging import Logger
+
 from ast import literal_eval
 from cgi import escape
 import re, sys, os
@@ -11,6 +13,8 @@ try:
 	from com.inductiveautomation.ignition.gateway import SRContext as GateawayContext
 except ImportError:
 	from com.inductiveautomation.ignition.gateway import IgnitionGateway as GatewayContext 
+
+from java.lang import Exception as JavaException
 
 
 GLOBAL_CACHE_TIMEOUT = 600
@@ -27,7 +31,6 @@ class CrowbarREST(SimpleREST):
 		except Exception, error:
 			system.util.getLogger('Crowbar').error(repr(error))
 			
-			
 	def _do_GET(self):
 		debug = ''
 
@@ -40,7 +43,7 @@ class CrowbarREST(SimpleREST):
 		params = self.params or {}
 
 		statement = params.get('eval', '')
-
+		
 		session = ExtraGlobal.setdefault(port, 'Sidecar', {}, lifespan=GLOBAL_CACHE_TIMEOUT)
 
 		session_aliases = session.setdefault('aliases', {})
@@ -89,7 +92,6 @@ class CrowbarREST(SimpleREST):
 			
 			local_scope['context'] = GatewayContext.get()
 			
-			# Make calculations stick around by seeing what's changed.
 			local_things_before = local_scope.keys()
 			
 			try:
@@ -101,12 +103,12 @@ class CrowbarREST(SimpleREST):
 			
 			for new_thing in (set(local_scope.keys()) - set(local_things_before)):
 				session_aliases[new_thing] = local_scope[new_thing]
-
+				
 			error = ''
 			if 'alias' in params:
 				session_aliases[params['alias']] = result
 				
-		except Exception, error:
+		except (Exception, JavaException), error:
 			# https://stackoverflow.com/a/1278740/11902188
 			exc_type, exc_value, exc_traceback = sys.exc_info()
 			traceback_details = {
