@@ -89,8 +89,19 @@ class CrowbarREST(SimpleREST):
 			
 			local_scope['context'] = GatewayContext.get()
 			
-			code = compile(statement, '<pretty-eval>', 'eval')
-			result = eval( code , global_scope , local_scope )
+			# Make calculations stick around by seeing what's changed.
+			local_things_before = local_scope.keys()
+			
+			try:
+				code = compile(statement, '<pretty-eval>', 'eval')
+				result = eval( code , global_scope , local_scope )
+			except SyntaxError:
+				code = compile(statement, '<pretty-eval>', 'exec')
+				result = eval( code , global_scope , local_scope )
+			
+			for new_thing in (set(local_scope.keys()) - set(local_things_before)):
+				session_aliases[new_thing] = local_scope[new_thing]
+
 			error = ''
 			if 'alias' in params:
 				session_aliases[params['alias']] = result
