@@ -49,11 +49,20 @@ class SimpleREST(BaseHTTPServer.BaseHTTPRequestHandler):
 	@property
 	def params(self):
 		query_string = urlparse.urlsplit(self.path)[3]
-		params = {}
-		for entry in query_string.split('&'):
-			key,_,value = entry.partition('=')
-			params[urllib.unquote(key)] = urllib.unquote(value)
-		return params
+		try:
+			paramdict = urlparse.parse_qs(query_string)
+			return dict( ( key, 
+				       value[0] if isinstance(value, list) and len(value) == 1 else value
+				     ) 
+						 for key, value 
+						 in paramdict.items())
+
+		except:
+			params = {}
+			for entry in query_string.split('&'):
+				key,_,value = entry.partition('=')
+				params[urllib.unquote(key)] = urllib.unquote(value)
+			return params
 		
 		
 def shutdown(port):
