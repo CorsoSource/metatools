@@ -502,13 +502,19 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		if not isinstance(o, GeneratorType):
 			try: # if it's some sort of unknown iterable
 				if directPrint:
-					p([v for v in o], indent, listLimit, ellipsisLimit, nestedListLimit, directPrint)
 					print '(Unrecognized type - iteration attempted for type <%r>)' % str(type(o))[6:-1] 
+					try:
+						p(dict((k, o.get(k)) for k in o), indent, listLimit, ellipsisLimit, nestedListLimit, directPrint)
+					except:
+						p([v for v in o], indent, listLimit, ellipsisLimit, nestedListLimit, directPrint)
 					return
 				else:
-					output = p([v for v in o], indent, listLimit, ellipsisLimit, nestedListLimit, directPrint)
-					output += '\n(Unrecognized type - iteration attempted for type <%r>)' % str(type(o))[6:-1] 
-					return output			
+					output = '\n(Unrecognized type - iteration attempted for type <%r>)' % str(type(o))[6:-1] 
+					try:
+						output += p(dict((k, o.get(k)) for k in o), indent, listLimit, ellipsisLimit, nestedListLimit, directPrint)
+					except:
+						output += p([v for v in o], indent, listLimit, ellipsisLimit, nestedListLimit, directPrint)
+					return output
 			except Exception, error:
 				out += [repr(o)]
 		else:
