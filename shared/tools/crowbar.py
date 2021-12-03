@@ -101,6 +101,10 @@ class CrowbarREST(SimpleREST):
 				code = compile(statement, '<pretty-eval>', 'exec')
 				result = eval( code , global_scope , local_scope )
 			
+			for aliased_value in session_aliases:
+				if aliased_value in local_scope:
+					session_aliases[aliased_value] = local_scope[aliased_value]
+					
 			for new_thing in (set(local_scope.keys()) - set(local_things_before)):
 				session_aliases[new_thing] = local_scope[new_thing]
 				
