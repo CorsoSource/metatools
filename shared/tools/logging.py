@@ -173,7 +173,10 @@ class Logger(BaseLogger):
 			try:
 				return context.__init__.im_func.func_code.co_filename
 			except:
-				return context.func_code.co_filename
+				try:
+					return context.func_code.co_filename
+				except:
+					return repr(context)
 		if isinstance(context, (JavaClass, JavaObject)):
 			type_path = repr(context)
 			if type_path.startswith('<type '):
