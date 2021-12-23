@@ -94,13 +94,13 @@ def memoize_for_call_stack(function):
         
         # failsafe or cache the result if needed...
         if key_state == 0:
-            print ' failsafe!'
+            #print ' failsafe!'
             return function(*args, **kwargs)
         elif key_state == 1:
-            print ' caching', memo_key
+            #print ' caching', memo_key
             memoized_call.cache[context][memo_key] = function(*args, **kwargs)
         # ... and return the result
-        print ' returning cached result'
+        #print ' returning cached result'
         return memoized_call.cache[context][memo_key]
     
     memoized_call.cache = {}
