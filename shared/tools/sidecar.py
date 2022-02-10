@@ -88,7 +88,7 @@ def launch_sidecar(port, RestHandler, hostname='localhost', resume_session=True,
 	server_address = (hostname, port)
 	httpd = SimpleServer(server_address, RestHandler)
 	try:
-		system.util.getLogger('Sidecar').info("Sidecar started on port %r" % (port,))
+		system.util.getLogger('Sidecar').info('Sidecar started at http://%s:%r' % (hostname, port,))
 
 		while not ExtraGlobal.setdefault(port, 'Sidecar', {}, lifespan=session_timeout).get('shutdown', False):
 			httpd.handle_request()
