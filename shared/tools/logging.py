@@ -260,6 +260,12 @@ class Logger(BaseLogger):
 					self.suffix += ' [%s]' % self._getPerspectiveClientID()
 				except (Exception, JavaException):
 					pass
+		# WebDev endpoint!
+		elif self._isWebDev():
+			self.loggerName = loggerName or '[%s] WebDev' % system.util.getProjectName()
+			self.logger = system.util.getLogger(self.loggerName)
+			endpoint,_,eventName = scope.rpartition(':')
+			self.prefix += '[%s %s] ' % (eventName[2:].upper(), '/'.join(endpoint.split('/')[1:]))
 		# Tags!
 		elif scope.startswith('tagevent:'):
 			tagPath = getObjectByName('tagPath')
@@ -291,12 +297,6 @@ class Logger(BaseLogger):
 			except (Exception, JavaException):
 				pass			
 			self._configureVisionClientRelay()
-		# WebDev endpoint!
-		elif self._isWebDev():
-			self.loggerName = loggerName or '[%s] WebDev' % system.util.getProjectName()
-			self.logger = system.util.getLogger(self.loggerName)
-			endpoint,_,eventName = scope.rpartition(':')
-			self.prefix += '[%s %s] ' % (eventName[2:].upper(), '/'.join(endpoint.split('/')[1:]))
 		else:
 			self.loggerName = loggerName or 'Logger'
 			self.logger = system.util.getLogger(self.loggerName)
