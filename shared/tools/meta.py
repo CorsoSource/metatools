@@ -61,6 +61,12 @@ def sentinel(iterable, stopValue):
 	return iter((x for x in iterable).next, stopValue)
 
 
+def getGatewayContext():
+	"""Attempts to get the gateway context."""
+	from com.inductiveautomation.ignition.gateway import IgnitionGateway
+	return IgnitionGateway.get()
+	
+
 def getDesignerContext(anchor=None):
 	"""Attempts to grab the Ignition designer context.
 	This is most easily done with a Vision object, like a window.
