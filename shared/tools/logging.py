@@ -245,7 +245,8 @@ class Logger(BaseLogger):
 			self.logger = PrintLogger()
 		# Scripts!
 		elif scope.startswith('module:'):
-			self.loggerName = loggerName or scope[7:]
+			project_name = system.util.getProjectName()
+			self.loggerName = loggerName or ('%s.%s' % (project_name, scope[7:]) if project_name else scope[7:]) 
 			self.logger = system.util.getLogger(self.loggerName)
 			if self._isVisionDesigner() or self._isVisionClient():
 				self._configureVisionClientRelay()
