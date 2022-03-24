@@ -392,6 +392,10 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 			
 		# element printing
 		for i,element in enumerate(o):
+			if listLimit and i >= listLimit:
+				out += ['%s... %d ellided (of %s total)' % (indent, len(o)-i, len(o))]
+				break
+
 			ixPattern = '%%%dd'
 			if isinstance(element, (dict, set,frozenset)):
 				ixPattern = '{%s}' % ixPattern
@@ -433,11 +437,7 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 				else:
 					rowPattern += '  ' + numElePattern % colEleWidths[0]
 				out += [rowPattern % (i, rElement)]
-			
-			if listLimit and i >= listLimit-1:
-				out += ['%s... %d ellided (of %s total)' % (indent, len(o)-i-1, len(o))]
-				break
-				
+							
 	elif isinstance(o, (dict, HashMap)):
 		o_name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
 		o_type = type(o)
@@ -461,6 +461,11 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		
 		# element printing
 		for i,key in enumerate(sorted(o.keys())):
+			if listLimit and i >= listLimit:
+				out += ['%s... %d ellided (of %s total)' % (indent, len(o)-i, len(o))]
+				break
+
+		
 			element = o[key]
 			
 			if isinstance(element, PRETTY_PRINT_TYPES) and element is not o: #don't recurse here!
@@ -482,10 +487,6 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 					rElement = '%s...' % rElement[:ellipsisLimit-3]
 
 			out += [elementPattern % (key,rElement)]
-						
-			if listLimit and i >= listLimit-1:
-				out += ['%s... %d ellided (of %s total)' % (indent, len(o)-i-1, len(o))]
-				break
 		
 	elif isinstance(o, FrameType):
 		out += ['<frame in "%s" of "%s" on line %d%s>' % (
