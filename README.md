@@ -288,6 +288,11 @@ The `Logger` class will look back into its calling scope to figure out context. 
  * `Logger().debug('The variable x is currently %(ecks)d', ecks=x)`
  * `Logger().debug('The variable x is currently %(x)d')`
 
+> Note: consider placing this at the top of code modules so that the logger can be immediately switched on the gateway status page without waiting for a failure to trip it:
+> ```python
+> from shared.tools.logging import Logger; Logger().trace('Compiling module')
+> ```
+
 ### meta
 
 These are functions that dig into the Python and Ignition context. Most have trivial defaults and are easy to use. Just be careful when using them - they are meant for ad hoc introspection and _not_ constant use under production. They are not _efficient_ but rather _handy_.
