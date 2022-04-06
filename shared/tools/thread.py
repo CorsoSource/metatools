@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import re
 from heapq import heappush, heappop
 import sys
+from uuid import uuid4
 
 from java.lang import Thread, ThreadGroup, NullPointerException
 from java.nio.channels import ClosedByInterruptException
@@ -348,3 +349,105 @@ def getThreadInfo(thread):
 	from java.lang.management import ManagementFactory
 	TMXB = ManagementFactory.getThreadMXBean()
 	return TMXB.getThreadInfo(thread.id)
+
+
+SEMAPHORE_WAIT_JITTER_MILLISECONDS = 5
+SEMAPHORE_WAIT_MILLISECONDS = 1
+
+
+def semaphore(*arguments):
+	"""Block execution until any previously running functions 
+	with the same values for the given arguments finish.
+	
+	Place the semaphore decorator as close to the function as possible,
+	under other decorators (since they'll goober up the argument checks)
+	
+	Usage:
+		@async
+		@semaphore('z', 'y')
+		# @semaphore
+		def bar(x, y, z=5):
+			sleep(0.5 + random())
+			print x,y,z
+			
+		for i in range(5):
+			bar(i, 99)
+	
+	This blocks all bar threads with (z=5, y=99) until each finish.
+	
+	NOTE: This does NOT guarantee they finish in order, 
+	      only that they are done one at a time!
+	      
+	For full JVM-level blocking (in case of sharded Python contexts),
+	use ExtraGlobal as the dictionary, as commented out in the code.
+	"""
+	# special case: no arguments, just decorator
+	# in this case the function acts as a global singleton
+	# and only lets one version at a time work. Ever.
+	if (len(arguments) == 1 and not isinstance(arguments[0], str) and getattr(arguments[0], '__call__', None)):
+		return semaphore()(arguments[0])
+
+	# make sure the function can always reference itself,
+	# that way even if there's no arguments given, it can
+	# still block
+	arguments += ('<function>',)
+	
+	def tuned_decorator(function, arguments=arguments):
+		"""Main function bits cribbed from shared.tools.meta.getFunctionCallSigs"""
+		assert function is not None
+		
+		# resolve the argument lookup
+		if getattr(function, 'func_code', None):
+			nargs = function.func_code.co_argcount
+			tablecode = function.func_code
+			defaults = function.func_defaults
+		else:
+			nargs = function.__code__.co_argcount
+			tablecode = function.__code__
+			defaults = function.__defaults__
+			
+		nnondefault = nargs - len(defaults)
+		
+		arg_lookup     = dict((arg, ix) for ix,arg in enumerate(tablecode.co_varnames[:nargs]))
+		default_lookup = dict((tablecode.co_varnames[nnondefault+dix],val) for dix,val in enumerate(defaults))
+		
+		arg_lookup['<function>'] = -1
+		default_lookup['<function>'] = function
+		
+		call_queue_lookup = {}
+		
+		# if no arguments are given, the block on any function with the same inputs
+		if len(arguments) == 0:
+			arguments = tuple(tablecode.co_varnames[:nargs])
+		
+		
+		@wraps(function)
+		def decorated(*args, **kwargs):
+		
+			block_key = tuple(
+					kwargs[key]           if key in kwargs else (
+					args[arg_lookup[key]] if 0 <= arg_lookup[key] < len(args) else 
+					default_lookup.get(key, None)
+					)
+					for key in arguments
+				)
+						
+#			call_queue = EG.setdefault(block_key, scope=(function, semaphore), default=[])
+			call_queue = call_queue_lookup.setdefault(block_key, [])
+			call_id = uuid4()
+			call_queue.append(call_id)
+			
+			# wait until our number comes up
+			while not call_queue[0] == call_id:
+				Thread.sleep(SEMAPHORE_WAIT_MILLISECONDS + int(SEMAPHORE_WAIT_JITTER_MILLISECONDS*random())) # wait at least a millisecond, with jitter
+				
+			results = function(*args, **kwargs)
+			
+			assert call_queue[0] == call_id, 'Semaphore queue out of order?! %r with %r:%r' % (
+												function, arguments, block_key,)
+			call_queue.pop(0)
+			return results
+			
+		return decorated
+
+	return tuned_decorator
