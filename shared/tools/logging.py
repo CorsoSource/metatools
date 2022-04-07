@@ -147,9 +147,10 @@ class PrintLogger(object):
 class Logger(BaseLogger):
 	"""Autoconfiguring logger. This detects its calling environment and tries to set itself up.
 	"""		
-	def __init__(self, loggerName=None, prefix=None, suffix=None, relay=False, target_context=None):
+	def __init__(self, loggerName=None, prefix=None, suffix=None, relay=False, target_context=None, logging_level=None):
 		#raise NotImplementedError('This is under development and is not fully functional yet.')		
 		self.relay = relay
+		self._logging_level = logging_level # allow for deeper logging levels for log4j
 		
 		self._autoConfigure(loggerName, target_context)
 		
@@ -247,7 +248,7 @@ class Logger(BaseLogger):
 		elif scope.startswith('module:'):
 			project_name = system.util.getProjectName()
 			self.loggerName = loggerName or ('%s.%s' % (project_name, scope[7:]) if project_name else scope[7:]) 
-			self.logger = system.util.getLogger(self.loggerName)
+			self._set_ignition_logger()
 			if self._isVisionDesigner() or self._isVisionClient():
 				self._configureVisionClientRelay()
 				try:
@@ -264,7 +265,7 @@ class Logger(BaseLogger):
 		# WebDev endpoint!
 		elif self._isWebDev():
 			self.loggerName = loggerName or '[%s] WebDev' % system.util.getProjectName()
-			self.logger = system.util.getLogger(self.loggerName)
+			self._set_ignition_logger()
 			endpoint,_,eventName = scope.rpartition(':')
 			self.prefix += '[%s %s] ' % (eventName[2:].upper(), '/'.join(endpoint.split('/')[1:]))
 		# Tags!
@@ -273,13 +274,13 @@ class Logger(BaseLogger):
 			provider,_,tagPath = tagPath[1:].partition(']')
 			self.loggerName = loggerName or '[%s] Tag %s Event' % (provider, scope[9:])
 			self.prefix += '{%s} ' % tagPath
-			self.logger = system.util.getLogger(self.loggerName)
+			self._set_ignition_logger()
 			if provider == 'client':
 				self._configureVisionClientRelay()			
 		# Perspective!
 		elif self._isPerspective():
 			self.loggerName = self._getPerspectiveClientID()
-			self.logger = system.util.getLogger(self.loggerName)
+			self._set_ignition_logger()
 			try:
 				self.prefix += self._generatePerspectiveComponentPath(scope)
 			except (Exception, JavaException):
@@ -292,7 +293,7 @@ class Logger(BaseLogger):
 		# Clients!
 		elif self._isVisionScope(): 
 			self.loggerName = self._getVisionClientID()
-			self.logger = system.util.getLogger(self.loggerName)
+			self._set_ignition_logger()
 			try:
 				self.prefix = self._generateVisionComponentPath(scope)
 			except (Exception, JavaException):
@@ -300,7 +301,13 @@ class Logger(BaseLogger):
 			self._configureVisionClientRelay()
 		else:
 			self.loggerName = loggerName or 'Logger'
-			self.logger = system.util.getLogger(self.loggerName)
+			self._set_ignition_logger()
+
+
+	def _set_ignition_logger(self):
+		self.logger = system.util.getLogger(self.loggerName)
+		if self._logging_level in self._ignition_logLevels:
+			system.util.setLoggingLevel(self.loggerName, self._logging_level)
 
 			
 	@staticmethod
@@ -381,6 +388,7 @@ class Logger(BaseLogger):
 
 	_messagePayloadKeys = set(['message', 'level', 'loggerName'])
 	_logLevels = ['trace', 'debug', 'info', 'warn', 'error', 'log']
+	_ignition_logLevels = ["trace", "debug", "info", "warn", "error"]
 
 	@classmethod
 	def _validatePayload(cls, payload):
