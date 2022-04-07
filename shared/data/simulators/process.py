@@ -12,7 +12,7 @@ except AttributeError:
 try:
 	from yaml import load as yaml_loader, FullLoader
 except ImportError:
-	from shared.tools.yaml.core import load as yaml_loader, FullLoader
+	from shared.data.yaml.core import load as yaml_loader, FullLoader
 
 
 from shared.data.simulators.mixins.support import MixinFunctionSupport

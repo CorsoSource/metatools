@@ -14,9 +14,9 @@ __email__ = 'andrew.geiger@corsosystems.com'
 __all__ = ['BaseRepresenter', 'SafeRepresenter', 'Representer',
 	'RepresenterError']
 
-from shared.tools.yaml.error import *
+from shared.data.yaml.error import *
 
-from shared.tools.yaml.nodes import *
+from shared.data.yaml.nodes import *
 
 import datetime
 

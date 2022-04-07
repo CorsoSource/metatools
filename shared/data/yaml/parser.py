@@ -73,10 +73,10 @@ __email__ = 'andrew.geiger@corsosystems.com'
 
 __all__ = ['Parser', 'ParserError']
 
-from shared.tools.yaml.error import MarkedYAMLError
-from shared.tools.yaml.tokens import *
-from shared.tools.yaml.events import *
-from shared.tools.yaml.scanner import *
+from shared.data.yaml.error import MarkedYAMLError
+from shared.data.yaml.tokens import *
+from shared.data.yaml.events import *
+from shared.data.yaml.scanner import *
 
 class ParserError(MarkedYAMLError):
 	pass

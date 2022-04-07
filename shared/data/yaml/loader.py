@@ -13,12 +13,12 @@ __email__ = 'andrew.geiger@corsosystems.com'
 
 __all__ = ['BaseLoader', 'FullLoader', 'SafeLoader', 'Loader', 'UnsafeLoader']
 
-from shared.tools.yaml.reader import *
-from shared.tools.yaml.scanner import *
-from shared.tools.yaml.parser import *
-from shared.tools.yaml.composer import *
-from shared.tools.yaml.constructor import *
-from shared.tools.yaml.resolver import *
+from shared.data.yaml.reader import *
+from shared.data.yaml.scanner import *
+from shared.data.yaml.parser import *
+from shared.data.yaml.composer import *
+from shared.data.yaml.constructor import *
+from shared.data.yaml.resolver import *
 
 class BaseLoader(Reader, Scanner, Parser, Composer, BaseConstructor, BaseResolver):
 

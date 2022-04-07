@@ -13,10 +13,10 @@ __email__ = 'andrew.geiger@corsosystems.com'
 
 __all__ = ['BaseDumper', 'SafeDumper', 'Dumper']
 
-from shared.tools.yaml.emitter import *
-from shared.tools.yaml.serializer import *
-from shared.tools.yaml.representer import *
-from shared.tools.yaml.resolver import *
+from shared.data.yaml.emitter import *
+from shared.data.yaml.serializer import *
+from shared.data.yaml.representer import *
+from shared.data.yaml.resolver import *
 
 class BaseDumper(Emitter, Serializer, BaseRepresenter, BaseResolver):
 

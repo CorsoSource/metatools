@@ -30,7 +30,7 @@ __email__ = 'andrew.geiger@corsosystems.com'
 
 __all__ = ['Reader', 'ReaderError']
 
-from shared.tools.yaml.error import YAMLError, Mark
+from shared.data.yaml.error import YAMLError, Mark
 
 import codecs, re, sys
 

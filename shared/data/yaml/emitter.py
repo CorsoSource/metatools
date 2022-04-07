@@ -21,8 +21,8 @@ __all__ = ['Emitter', 'EmitterError']
 
 import sys
 
-from shared.tools.yaml.error import YAMLError
-from shared.tools.yaml.events import *
+from shared.data.yaml.error import YAMLError
+from shared.data.yaml.events import *
 
 has_ucs4 = sys.maxunicode > 0xffff
 

@@ -38,8 +38,8 @@ __email__ = 'andrew.geiger@corsosystems.com'
 
 __all__ = ['Scanner', 'ScannerError']
 
-from shared.tools.yaml.error import MarkedYAMLError
-from shared.tools.yaml.tokens import *
+from shared.data.yaml.error import MarkedYAMLError
+from shared.data.yaml.tokens import *
 
 class ScannerError(MarkedYAMLError):
 	pass

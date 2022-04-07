@@ -13,9 +13,9 @@ __email__ = 'andrew.geiger@corsosystems.com'
 
 __all__ = ['Serializer', 'SerializerError']
 
-from shared.tools.yaml.error import YAMLError
-from shared.tools.yaml.events import *
-from shared.tools.yaml.nodes import *
+from shared.data.yaml.error import YAMLError
+from shared.data.yaml.events import *
+from shared.data.yaml.nodes import *
 
 class SerializerError(YAMLError):
 	pass

@@ -9,7 +9,7 @@
 	  Have friends/coworkers/peers who missed an indent? This will prevent
 	  a diff utility from tripping up on that.
 """
-from shared.tools.yaml.core import dump 
+from shared.data.yaml.core import dump 
 
 from java.util import Date
 

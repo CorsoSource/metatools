@@ -13,8 +13,8 @@ __email__ = 'andrew.geiger@corsosystems.com'
 
 __all__ = ['BaseResolver', 'Resolver']
 
-from shared.tools.yaml.error import *
-from shared.tools.yaml.nodes import *
+from shared.data.yaml.error import *
+from shared.data.yaml.nodes import *
 
 import re
 
