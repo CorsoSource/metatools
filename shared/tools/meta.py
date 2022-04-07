@@ -61,6 +61,12 @@ def sentinel(iterable, stopValue):
 	return iter((x for x in iterable).next, stopValue)
 
 
+def getGatewayContext():
+	"""Attempts to get the gateway context."""
+	from com.inductiveautomation.ignition.gateway import IgnitionGateway
+	return IgnitionGateway.get()
+	
+
 def getDesignerContext(anchor=None):
 	"""Attempts to grab the Ignition designer context.
 	This is most easily done with a Vision object, like a window.
@@ -197,6 +203,11 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 	>>> getFunctionCallSigs(getFunctionCallSigs, joinClause=' <> ')
 	"(function, joinClause=' -OR- ')"
 	"""
+	# https://stackoverflow.com/a/33686315/13229100
+	# weirdly hard to actually find these - dis in Jython does *not* have these
+	VARARGS = 4
+	VARKEYWORDS = 8
+	
 	if getattr(function, 'im_func', None):
 		function = function.im_func
 
@@ -214,11 +225,15 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 		nargs = function.func_code.co_argcount
 		args = function.func_code.co_varnames[:nargs]
 		defaults = function.func_defaults or []
+		has_varargs = bool(function.func_code.co_flags & VARARGS)
+		has_varkwargs = bool(function.func_code.co_flags & VARKEYWORDS)
 	else:
 		nargs = function.__code__.co_argcount
 		args = function.__code__.co_varnames[:nargs]
 		defaults = function.__defaults__ or []
-	
+		has_varargs = bool(function.__code__.co_flags & VARARGS)
+		has_varkwargs = bool(function.__code__.co_flags & VARKEYWORDS)
+
 	nnondefault = nargs - len(defaults)
 		
 	out = []
@@ -226,6 +241,15 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 		out += [args[i]]
 	for i in range(len(defaults)):
 		out += ['%s=%r' % (args[nnondefault + i],defaults[i])]
+
+	if has_varargs:
+		if has_varkwargs:
+			out += ['*%s' % function.func_code.co_varnames[nargs],
+					'**%s' % function.func_code.co_varnames[nargs+1],]
+		else:
+			out += ['*%s' % function.func_code.co_varnames[nargs]]
+	elif has_varkwargs:
+		out += ['**%s' % function.func_code.co_varnames[nargs]]
 
 	return '(%s)' % ', '.join(out)
 
