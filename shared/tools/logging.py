@@ -28,6 +28,9 @@ VISION_CLIENT_MESSAGE_HANDLER = 'Vision Client Log'
 PERSPECTIVE_SESSION_MESSAGE_HANDLER = 'Perspective Log Relay'
 
 
+BAD_FORMAT_GUESS_PATTERN = re.compile(r'unsupported format character .* at index (\d+)', re.I)
+
+
 def autoRepr(obj):
 	"""Cleans up repr() calls, since the string representation add quotes."""
 	return obj if isinstance(obj, (str,unicode)) else repr(obj)
@@ -71,7 +74,22 @@ class BaseLogger(object):
 		frame = sys._getframe(self._stackDepth)
 		varScope = dict(frame.f_globals.items() + frame.f_locals.items() + kwargs.items())
 		
-		return message % varScope
+		# it's possible that the interpolator will get confused if there's
+		# a naturally occuring formatter - it's rare, but %b shows up sometimes!
+		for i in range(20): # don't even chance infinite loops here...
+			try:
+				formatted_message = message % varScope
+				break
+				
+			except ValueError as error:
+				match = BAD_FORMAT_GUESS_PATTERN.match(str(error))
+				if match:
+					ix = int(match.groups()[0])
+					message = message[:ix] + '%' + message[ix:]
+				else:
+					raise error
+		
+		return formatted_message
 	
 	def _generateMessage(self, *args, **kwargs):
 		"""Given arguments and some specific values generate the message.
