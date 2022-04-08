@@ -76,21 +76,20 @@ class BaseLogger(object):
 		
 		# it's possible that the interpolator will get confused if there's
 		# a naturally occuring formatter - it's rare, but %b shows up sometimes!
+		formatted_message = message
 		for i in range(20): # don't even chance infinite loops here...
 			try:
 				formatted_message = message % varScope
 				break
-				
 			except ValueError as error:
 				match = BAD_FORMAT_GUESS_PATTERN.match(str(error))
 				if match:
 					ix = int(match.groups()[0])
 					message = message[:ix] + '%' + message[ix:]
-				else:
-					raise error
-		
+			except Exception: # all other errors are irrecoverable
+				break
 		return formatted_message
-	
+			
 	def _generateMessage(self, *args, **kwargs):
 		"""Given arguments and some specific values generate the message.
 		
