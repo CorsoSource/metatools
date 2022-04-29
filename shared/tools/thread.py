@@ -440,12 +440,16 @@ def semaphore(*arguments):
 			# wait until our number comes up
 			while not call_queue[0] == call_id:
 				Thread.sleep(SEMAPHORE_WAIT_MILLISECONDS + int(SEMAPHORE_WAIT_JITTER_MILLISECONDS*random())) # wait at least a millisecond, with jitter
-				
-			results = function(*args, **kwargs)
-			
-			assert call_queue[0] == call_id, 'Semaphore queue out of order?! %r with %r:%r' % (
-												function, arguments, block_key,)
-			call_queue.pop(0)
+
+			try:
+				results = function(*args, **kwargs)
+			except Exception as error:
+				raise error
+			finally:
+				assert call_queue[0] == call_id, 'Semaphore queue out of order?! %r with %r:%r' % (
+											function, arguments, block_key,)
+				_ = call_queue.pop(0)
+
 			return results
 			
 		return decorated
