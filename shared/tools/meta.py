@@ -195,6 +195,51 @@ def getObjectByName(objName, estimatedDepth=None, startRecent=True):
 		return None
 
 
+class PythonFunctionArguments(object):
+	"""Function introspection simplified."""
+	_VARARGS = 4
+	_VARKEYWORDS = 8
+
+	def __init__(self, function):
+		if getattr(function, 'im_func', None):
+			function = function.im_func
+		self.function = function
+		
+		if getattr(function, 'func_code', None):
+			self.tablecode = function.func_code
+			self.defaults = tuple(function.func_defaults or [])
+		else:
+			self.tablecode = function.__code__
+			self.defaults = tuple(function.__defaults__ or [])
+			
+	def tuple(self):
+		return self.function, self.nargs, self.args, self.defaults
+
+	@property
+	def name(self):
+		return self.tablecode.co_name
+	
+	@property
+	def nargs(self):
+		return self.tablecode.co_argcount
+	
+	@property
+	def num_nondefault(self):
+		return self.nargs - len(self.defaults)
+	
+	@property
+	def args(self):
+		return tuple(self.tablecode.co_varnames[:self.nargs])
+		
+	@property
+	def has_varargs(self):
+		return bool(self.tablecode.co_flags & self._VARARGS)
+	
+	@property
+	def has_varkwargs(self):
+		return bool(self.tablecode.co_flags & self._VARKEYWORDS)
+		
+
 def getFunctionCallSigs(function, joinClause=' -OR- '):
 	"""Explains what you can use when calling a function.
 	The join clause doesn't make as much sense for Python functions,
@@ -203,11 +248,6 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 	>>> getFunctionCallSigs(getFunctionCallSigs, joinClause=' <> ')
 	"(function, joinClause=' -OR- ')"
 	"""
-	# https://stackoverflow.com/a/33686315/13229100
-	# weirdly hard to actually find these - dis in Jython does *not* have these
-	VARARGS = 4
-	VARKEYWORDS = 8
-	
 	if getattr(function, 'im_func', None):
 		function = function.im_func
 
@@ -221,19 +261,9 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 			else:
 				callMethods += ['()']
 		return joinClause.join(callMethods)
-	elif getattr(function, 'func_code', None):
-		nargs = function.func_code.co_argcount
-		args = function.func_code.co_varnames[:nargs]
-		defaults = function.func_defaults or []
-		has_varargs = bool(function.func_code.co_flags & VARARGS)
-		has_varkwargs = bool(function.func_code.co_flags & VARKEYWORDS)
-	else:
-		nargs = function.__code__.co_argcount
-		args = function.__code__.co_varnames[:nargs]
-		defaults = function.__defaults__ or []
-		has_varargs = bool(function.__code__.co_flags & VARARGS)
-		has_varkwargs = bool(function.__code__.co_flags & VARKEYWORDS)
 
+	_, nargs, args, defaults = PythonFunctionArguments(function).tuple()
+	
 	nnondefault = nargs - len(defaults)
 		
 	out = []
