@@ -62,9 +62,9 @@ def sentinel(iterable, stopValue):
 
 
 def getGatewayContext():
-		"""Attempts to get the gateway context."""
-		from com.inductiveautomation.ignition.gateway import IgnitionGateway
-		return IgnitionGateway.get()
+	"""Attempts to get the gateway context."""
+	from com.inductiveautomation.ignition.gateway import IgnitionGateway
+	return IgnitionGateway.get()
 		
 
 def getDesignerContext(anchor=None):
