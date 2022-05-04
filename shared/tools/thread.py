@@ -474,7 +474,14 @@ def semaphore(*arguments, **options):
 					)
 					for key in arguments
 				)
-						
+
+			block_key = tuple((tuple(entry) if isinstance(entry, list) else (
+							   frozenset(entry) if isinstance(entry, set) else (
+							   frozenset(entry.items()) if isinstance(entry, dict) else (
+							   entry
+							   ))))
+							  for entry in block_key)
+
 			# Get/create the call queueueue
 			# NOTE: yes, the "queue" here is a dict - in Java maps are thread safe
 			#       and it is _critical_ that nothing break simply adding/removing entries
@@ -496,7 +503,7 @@ def semaphore(*arguments, **options):
 			
 			# new call_ids are monotonically increasing, so either we're re-entering or we have
 			# just gotten a stale id from the earlier thread_id_lookup.setdefault(...)
-			if call_id < min(call_queue):
+			if call_queue and call_id < min(call_queue):
 				raise SemaphoreError('Semaphore seems to have a reused thread ID with an invalid identifier')
 				# we could clean it up automatically by doing the following:
 				thread_id_lookup[my_thread_id] = call_id = uuid1(node=None, clock_seq = hash(function))
@@ -566,5 +573,3 @@ def semaphore(*arguments, **options):
 		return decorated
 
 	return tuned_decorator
-	
-	
