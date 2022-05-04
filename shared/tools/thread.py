@@ -372,6 +372,11 @@ def semaphore(*arguments, **options):
 	Place the semaphore decorator as close to the function as possible,
 	under other decorators (since they'll goober up the argument checks)
 	
+	To block other threads from using a function while in use by another thread
+	(even if the other thread only uses it periodically), 
+	use `None` for arguments and clue with `<thread>`:
+		@semaphore(None, '<thread>')
+	
 	Special argument flags:
 	 - <function>: always included (almost by definition)
 	 - <thread>: block by thread (async first come, first serve)
