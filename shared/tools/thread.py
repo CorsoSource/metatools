@@ -8,19 +8,18 @@ from datetime import datetime, timedelta
 import re
 from heapq import heappush, heappop
 import sys
-from uuid import uuid1 # sequential
-from random import random
+from uuid import uuid4
 
 from java.lang import Thread, ThreadGroup, NullPointerException
 from java.nio.channels import ClosedByInterruptException
 from jarray import array, zeros
 from org.python.core import ThreadState
 
-from shared.tools.meta import getReflectedField, MetaSingleton, PythonFunctionArguments
+from shared.tools.meta import getReflectedField, MetaSingleton
 from shared.tools.timing import EveryFixedDelay
 
 from shared.tools.logging import Logger
-from java.lang import Exception as JavaException, Thread
+from java.lang import Exception as JavaException
 
 
 __copyright__ = """Copyright (C) 2021 Corso Systems"""
@@ -209,10 +208,8 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 		
 				# Create the closure to carry the scope into another thread
 				def async_closure(function, delaySeconds, args=args, kwargs=kwargs):
-					
-					if delaySeconds:
-						sleep(delaySeconds)
-						
+					#print 'delaying %0.3f' % delaySeconds
+					sleep(delaySeconds)
 					try:
 						_ = function(*args,**kwargs)
 					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
@@ -354,30 +351,16 @@ def getThreadInfo(thread):
 	return TMXB.getThreadInfo(thread.id)
 
 
-SEMAPHORE_WAIT_JITTER_MILLISECONDS = 1.000
-SEMAPHORE_WAIT_MILLISECONDS = 2.500
-
-assert SEMAPHORE_WAIT_JITTER_MILLISECONDS < SEMAPHORE_WAIT_MILLISECONDS, 'Jitter should be less than amount that can be taken from...'
-
-# no more than this many calls may be backstuffed in a queue
-SEMAPHORE_MAX_QUEUE = 20
-
-class SemaphoreError(RuntimeError): """Errors thrown specifically in the service of the semaphore decorator"""
+SEMAPHORE_WAIT_JITTER_MILLISECONDS = 5
+SEMAPHORE_WAIT_MILLISECONDS = 1
 
 
-def semaphore(*arguments, **options):
+def semaphore(*arguments):
 	"""Block execution until any previously running functions 
 	with the same values for the given arguments finish.
 	
 	Place the semaphore decorator as close to the function as possible,
 	under other decorators (since they'll goober up the argument checks)
-	
-	Special flags:
-	 - <function>: always included (almost by definition)
-	 - <thread>: block by thread (async first come, first serve)
-	
-	Options:
-	 max_queue: maximum number of blocks per key
 	
 	Usage:
 		@async
@@ -399,49 +382,48 @@ def semaphore(*arguments, **options):
 	use ExtraGlobal as the dictionary, as commented out in the code.
 	"""
 	# special case: no arguments, just decorator
-	# in this case the function blocks if any arguments have the same value
+	# in this case the function acts as a global singleton
+	# and only lets one version at a time work. Ever.
 	if (len(arguments) == 1 and not isinstance(arguments[0], str) and getattr(arguments[0], '__call__', None)):
-		return semaphore()(arguments[0])	
-		
-	thread_block = '<thread>' in arguments
+		return semaphore()(arguments[0])
+
+	# make sure the function can always reference itself,
+	# that way even if there's no arguments given, it can
+	# still block
+	arguments += ('<function>',)
 	
-	if thread_block:
-		arguments = tuple(arg for arg in arguments if not arg == '<thread>')
-		
-	if 'max_queue' in options:
-		max_queue = options['max_queue']
-	else:
-		max_queue = SEMAPHORE_MAX_QUEUE
-	
-		
 	def tuned_decorator(function, arguments=arguments):
 		"""Main function bits cribbed from shared.tools.meta.getFunctionCallSigs"""
 		assert function is not None
 		
-		pfa = PythonFunctionArguments(function)
+		# resolve the argument lookup
+		if getattr(function, 'func_code', None):
+			nargs = function.func_code.co_argcount
+			tablecode = function.func_code
+			defaults = function.func_defaults
+		else:
+			nargs = function.__code__.co_argcount
+			tablecode = function.__code__
+			defaults = function.__defaults__
+			
+		nnondefault = nargs - len(defaults)
+		
+		arg_lookup     = dict((arg, ix) for ix,arg in enumerate(tablecode.co_varnames[:nargs]))
+		default_lookup = dict((tablecode.co_varnames[nnondefault+dix],val) for dix,val in enumerate(defaults))
+		
+		arg_lookup['<function>'] = -1
+		default_lookup['<function>'] = function
+		
+		call_queue_lookup = {}
 		
 		# if no arguments are given, the block on any function with the same inputs
 		if len(arguments) == 0:
-			arguments = pfa.args
-
-		# make sure the function can always reference itself,
-		# that way even if there's no arguments given, it can
-		# still block
-		arguments += ('<function>',)
-				
-		arg_lookup     = dict((arg, ix) for ix,arg in enumerate(pfa.args))
-		default_lookup = pfa.defaults
+			arguments = tuple(tablecode.co_varnames[:nargs])
 		
-		arg_lookup['<function>'] = -1 # out of bounds to force default 
-		default_lookup['<function>'] = function
-		
-		# closure variable
-		call_queue_lookup = {}	
 		
 		@wraps(function)
 		def decorated(*args, **kwargs):
-			call_id = uuid1(node=None, clock_seq = hash(function))
-	
+		
 			block_key = tuple(
 					kwargs[key]           if key in kwargs else (
 					args[arg_lookup[key]] if 0 <= arg_lookup[key] < len(args) else 
@@ -450,76 +432,26 @@ def semaphore(*arguments, **options):
 					for key in arguments
 				)
 						
-			# Get/create the call queueueue
-			# NOTE: yes, the "queue" here is a dict - in Java maps are thread safe
-			#       and it is _critical_ that nothing break simply adding/removing entries
-			# To get the head of the queue, we use min(...) which seems to be fairly safe
-			# It's also reasonably fast, and the semaphore is NOT meant to be used for traffic
-			#   control - it's to prevent small-ish numbers of threads from tromping on each other!
+#			call_queue = EG.setdefault(block_key, scope=(function, semaphore), default=[])
+			call_queue = call_queue_lookup.setdefault(block_key, [])
+			call_id = uuid4()
+			call_queue.append(call_id)
 			
-			try:
-				call_queue = call_queue_lookup.setdefault(block_key, {})
-				# call_queue = EG.setdefault(block_key, scope=(function, semaphore), default={})
-			except TypeError as error:
-				if 'unhashable' in error.message:
-					raise SemaphoreError('An argument in %r could not be hashed: arguments were %r with an attempted key %r' % (function, arguments, block_key))
-				else:
-					raise error
-			
-			assert len(call_queue) <= max_queue, 'Semaphore for %r blocking more than %d (max) waiting calls! Blocking key: %r' % (function, max_queue, block_key)
-			
-			my_thread = Thread.currentThread()
-			
-			call_queue[call_id] = my_thread
-			
-			my_thread.sleep(0, 1000) # wait a microsecond in case there's a starting race...
-			
-			# IMPORTANT: There are two semantics at play here.
-			#  - Remove semaphore block when finished - normal blocking monitor
-			#  - Cull dead threads (whose handles are left after they finish)			
-					
 			# wait until our number comes up
-			# (min is probably safe here, or at least it won't throw an error for 
-			#  the dict changing sizes during the check
-			#  See https://gist.github.com/null-directory/273498601dfe55b2130234b8d5cc8cd7 )			
-			while not min(call_queue) == call_id:
-				# wait, with jitter
-				wait = SEMAPHORE_WAIT_MILLISECONDS + (SEMAPHORE_WAIT_JITTER_MILLISECONDS * random())
-				wait_ms, wait_ns = divmod(wait, 1.0)
-				# (by splitting up, we can get faster loops, if desired...
-				#  just be warned that lots of threads can lead to a lot of wheel spinning)
-				Thread.sleep(int(wait_ms), int(wait_ns*1000000))
-				
-				# attempt to clear a dead head off queue, if needed
-				# (subsequent iterations will *eventually* drain the queue if many die,
-				#  and the larger the queue the faster it drains... -ish.)
-				head = min(call_queue)
-				try:
-					head_thread = call_queue[head]
-					if head_thread.getState() == Thread.State.TERMINATED:
-						del call_queue[head]
-				except:
-					pass
-							
+			while not call_queue[0] == call_id:
+				Thread.sleep(SEMAPHORE_WAIT_MILLISECONDS + int(SEMAPHORE_WAIT_JITTER_MILLISECONDS*random())) # wait at least a millisecond, with jitter
+
 			try:
 				results = function(*args, **kwargs)
 			except Exception as error:
 				raise error
 			finally:
-				# clear the block if we don't need to wait for other work
-				if thread_block:
-					pass
-				else: # hold the door open, wait for cleanup in wait loop
-					try:
-						del call_queue[call_id]
-					except KeyError:
-						pass # job already done
-					pass 
+				assert call_queue[0] == call_id, 'Semaphore queue out of order?! %r with %r:%r' % (
+											function, arguments, block_key,)
+				_ = call_queue.pop(0)
 
 			return results
 			
 		return decorated
 
 	return tuned_decorator
-	
-	
