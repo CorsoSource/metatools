@@ -8,9 +8,8 @@ from datetime import datetime, timedelta
 import re
 from heapq import heappush, heappop
 import sys
-from uuid import uuid1 # sequential
+from uuid import uuid1 # sequential when seeded
 from random import random
-from weakref import WeakKeyDictionary
 
 from java.lang import Thread, ThreadGroup, NullPointerException
 from java.nio.channels import ClosedByInterruptException
@@ -373,9 +372,10 @@ def semaphore(*arguments, **options):
 	Place the semaphore decorator as close to the function as possible,
 	under other decorators (since they'll goober up the argument checks)
 	
-	Special flags:
+	Special argument flags:
 	 - <function>: always included (almost by definition)
 	 - <thread>: block by thread (async first come, first serve)
+	 - None: don't use arguments to block, just the function (and thread, if flagged)
 	
 	Options:
 	 max_queue: maximum number of blocks per key
@@ -426,6 +426,8 @@ def semaphore(*arguments, **options):
 		# if no arguments are given, the block on any function with the same inputs
 		if len(arguments) == 0:
 			arguments = pfa.args
+		elif arguments == (None,):
+			arguments = tuple()
 			
 		assert all(arg in pfa.args or (arg in SEMAPHORE_SPECIAL_ARGUMENTS) 
 				   for arg in arguments), (
@@ -436,7 +438,7 @@ def semaphore(*arguments, **options):
 		# that way even if there's no arguments given, it can
 		# still block
 		arguments += ('<function>',)
-		
+				
 		arg_lookup     = dict((arg, ix) for ix,arg in enumerate(pfa.args))
 		default_lookup = pfa.defaults
 		
@@ -445,16 +447,19 @@ def semaphore(*arguments, **options):
 		
 		# closure variable
 		call_queue_lookup = {}
-		thread_id_lookup = WeakKeyDictionary()
-		
+		thread_id_lookup = {}
+				
 		@wraps(function)
 		def decorated(*args, **kwargs):
 		
 			my_thread = Thread.currentThread()
-				
+							
 			# keep track of this thread's id in case we try to come back later
 			# so that we don't block ourselves (or grab it if it's already been generated)
-			call_id = thread_id_lookup.setdefault(my_thread, uuid1(node=None, clock_seq = hash(function)))
+			# NOTE: we're using Thread.getId() here so that we can be sure we're getting a consistent hash
+			#       this wasn't working, and so this annoying indirection was needed since Thread.currentThread()
+			#       wasn't returning the actual object 
+			call_id = thread_id_lookup.setdefault(my_thread.getId(), uuid1(node=None, clock_seq = hash(function)))
 	
 			block_key = tuple(
 					kwargs[key]           if key in kwargs else (
@@ -489,9 +494,9 @@ def semaphore(*arguments, **options):
 			my_thread.sleep(0, 1000) # wait a microsecond in case there's a starting race...
 			
 			# IMPORTANT: There are two semantics at play here.
-			#  - Remove semaphore block when finished - normal blocking monitor
-			#  - Cull dead threads (whose handles are left after they finish)			
-					
+			#  - Remove semaphore block when finished - normal blocking monitor (at end)
+			#  - Cull dead threads (whose handles are left after they finish) (up next below)
+								
 			# wait until our number comes up
 			# (min is probably safe here, or at least it won't throw an error for 
 			#  the dict changing sizes during the check
@@ -516,7 +521,7 @@ def semaphore(*arguments, **options):
 						except KeyError: 
 							pass
 						try:
-							del thread_id_lookup[head_thread]
+							del thread_id_lookup[head_thread.getId()]
 						except KeyError:
 							pass						
 				except:
@@ -534,7 +539,7 @@ def semaphore(*arguments, **options):
 				else:
 					try:
 						try: # remove the thread reference, if possible
-							del thread_id_lookup[call_queue[call_id]]
+							del thread_id_lookup[call_queue[call_id].getId()]
 						except KeyError:
 							pass						
 						del call_queue[call_id]
