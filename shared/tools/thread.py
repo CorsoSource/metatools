@@ -453,13 +453,14 @@ def semaphore(*arguments, **options):
 		def decorated(*args, **kwargs):
 		
 			my_thread = Thread.currentThread()
+			my_thread_id = my_thread.getId()
 							
 			# keep track of this thread's id in case we try to come back later
 			# so that we don't block ourselves (or grab it if it's already been generated)
 			# NOTE: we're using Thread.getId() here so that we can be sure we're getting a consistent hash
 			#       this wasn't working, and so this annoying indirection was needed since Thread.currentThread()
 			#       wasn't returning the actual object 
-			call_id = thread_id_lookup.setdefault(my_thread.getId(), uuid1(node=None, clock_seq = hash(function)))
+			call_id = thread_id_lookup.setdefault(my_thread_id, uuid1(node=None, clock_seq = hash(function)))
 	
 			block_key = tuple(
 					kwargs[key]           if key in kwargs else (
@@ -516,14 +517,14 @@ def semaphore(*arguments, **options):
 				try:
 					head_thread = call_queue[head]
 					if head_thread.getState() == Thread.State.TERMINATED:
-						try:
-							del call_queue[head]
-						except KeyError: 
-							pass
-						try:
+						try: # attempt to purge thread ref first
 							del thread_id_lookup[head_thread.getId()]
 						except KeyError:
 							pass						
+						try: # release lock
+							del call_queue[head]
+						except KeyError: 
+							pass
 				except:
 					pass
 							
@@ -537,11 +538,11 @@ def semaphore(*arguments, **options):
 					pass
 				# clear the block if we don't need to wait for other work
 				else:
-					try:
-						try: # remove the thread reference, if possible
-							del thread_id_lookup[call_queue[call_id].getId()]
-						except KeyError:
-							pass						
+					try: # attempt to purge thread ref first
+						del thread_id_lookup[my_thread_id]
+					except KeyError:
+						pass
+					try: # release lock
 						del call_queue[call_id]
 					except KeyError:
 						pass # job already done
