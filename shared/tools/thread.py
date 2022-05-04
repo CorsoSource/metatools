@@ -488,6 +488,14 @@ def semaphore(*arguments, **options):
 			
 			if len(call_queue) > max_queue:
 				raise SemaphoreError('Semaphore for %r blocking more than %d (max) waiting calls! Blocking key: %r' % (function, max_queue, block_key))
+			
+			# new call_ids are monotonically increasing, so either we're re-entering or we have
+			# just gotten a stale id from the earlier thread_id_lookup.setdefault(...)
+			if min(call_queue) <= call_id
+				raise SemaphoreError('Semaphore seems to have a reused thread ID with an invalid identifier')
+				# we could clean it up automatically by doing the following:
+				thread_id_lookup[my_thread_id] = call_id = uuid1(node=None, clock_seq = hash(function))
+				# but this isn't tested yet...
 						
 			if not call_id in call_queue:
 				call_queue[call_id] = my_thread
