@@ -10,6 +10,7 @@ from heapq import heappush, heappop
 import sys
 from uuid import uuid1 # sequential
 from random import random
+from weakref import WeakKeyDictionary
 
 from java.lang import Thread, ThreadGroup, NullPointerException
 from java.nio.channels import ClosedByInterruptException
@@ -398,6 +399,8 @@ def semaphore(*arguments, **options):
 	For full JVM-level blocking (in case of sharded Python contexts),
 	use ExtraGlobal as the dictionary, as commented out in the code.
 	"""
+	SEMAPHORE_SPECIAL_ARGUMENTS = set(['<thread>', '<function>'])
+	
 	# special case: no arguments, just decorator
 	# in this case the function blocks if any arguments have the same value
 	if (len(arguments) == 1 and not isinstance(arguments[0], str) and getattr(arguments[0], '__call__', None)):
@@ -423,12 +426,17 @@ def semaphore(*arguments, **options):
 		# if no arguments are given, the block on any function with the same inputs
 		if len(arguments) == 0:
 			arguments = pfa.args
+			
+		assert all(arg in pfa.args or (arg in SEMAPHORE_SPECIAL_ARGUMENTS) 
+				   for arg in arguments), (
+				   "Arguments given to semaphore (%r) must be in decorated function (%r) or be special (%r)" % (
+				   arguments, function, SEMAPHORE_SPECIAL_ARGUMENTS,) )		
 
 		# make sure the function can always reference itself,
 		# that way even if there's no arguments given, it can
 		# still block
 		arguments += ('<function>',)
-				
+		
 		arg_lookup     = dict((arg, ix) for ix,arg in enumerate(pfa.args))
 		default_lookup = pfa.defaults
 		
@@ -436,11 +444,17 @@ def semaphore(*arguments, **options):
 		default_lookup['<function>'] = function
 		
 		# closure variable
-		call_queue_lookup = {}	
+		call_queue_lookup = {}
+		thread_id_lookup = WeakKeyDictionary()
 		
 		@wraps(function)
 		def decorated(*args, **kwargs):
-			call_id = uuid1(node=None, clock_seq = hash(function))
+		
+			my_thread = Thread.currentThread()
+				
+			# keep track of this thread's id in case we try to come back later
+			# so that we don't block ourselves (or grab it if it's already been generated)
+			call_id = thread_id_lookup.setdefault(my_thread, uuid1(node=None, clock_seq = hash(function)))
 	
 			block_key = tuple(
 					kwargs[key]           if key in kwargs else (
@@ -466,12 +480,12 @@ def semaphore(*arguments, **options):
 				else:
 					raise error
 			
-			assert len(call_queue) <= max_queue, 'Semaphore for %r blocking more than %d (max) waiting calls! Blocking key: %r' % (function, max_queue, block_key)
-			
-			my_thread = Thread.currentThread()
-			
-			call_queue[call_id] = my_thread
-			
+			if len(call_queue) > max_queue:
+				raise SemaphoreError('Semaphore for %r blocking more than %d (max) waiting calls! Blocking key: %r' % (function, max_queue, block_key))
+						
+			if not call_id in call_queue:
+				call_queue[call_id] = my_thread
+						
 			my_thread.sleep(0, 1000) # wait a microsecond in case there's a starting race...
 			
 			# IMPORTANT: There are two semantics at play here.
@@ -497,7 +511,14 @@ def semaphore(*arguments, **options):
 				try:
 					head_thread = call_queue[head]
 					if head_thread.getState() == Thread.State.TERMINATED:
-						del call_queue[head]
+						try:
+							del call_queue[head]
+						except KeyError: 
+							pass
+						try:
+							del thread_id_lookup[head_thread]
+						except KeyError:
+							pass						
 				except:
 					pass
 							
@@ -506,11 +527,16 @@ def semaphore(*arguments, **options):
 			except Exception as error:
 				raise error
 			finally:
-				# clear the block if we don't need to wait for other work
+				# hold the door open if blocking by thread (wait for cleanup in wait loop)
 				if thread_block:
 					pass
-				else: # hold the door open, wait for cleanup in wait loop
+				# clear the block if we don't need to wait for other work
+				else:
 					try:
+						try: # remove the thread reference, if possible
+							del thread_id_lookup[call_queue[call_id]]
+						except KeyError:
+							pass						
 						del call_queue[call_id]
 					except KeyError:
 						pass # job already done
