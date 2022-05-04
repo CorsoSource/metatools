@@ -62,10 +62,10 @@ def sentinel(iterable, stopValue):
 
 
 def getGatewayContext():
-	"""Attempts to get the gateway context."""
-	from com.inductiveautomation.ignition.gateway import IgnitionGateway
-	return IgnitionGateway.get()
-	
+		"""Attempts to get the gateway context."""
+		from com.inductiveautomation.ignition.gateway import IgnitionGateway
+		return IgnitionGateway.get()
+		
 
 def getDesignerContext(anchor=None):
 	"""Attempts to grab the Ignition designer context.
@@ -207,37 +207,61 @@ class PythonFunctionArguments(object):
 		
 		if getattr(function, 'func_code', None):
 			self.tablecode = function.func_code
-			self.defaults = tuple(function.func_defaults or [])
+			self._default_values = tuple(function.func_defaults or [])
 		else:
 			self.tablecode = function.__code__
-			self.defaults = tuple(function.__defaults__ or [])
+			self._default_values = tuple(function.__defaults__ or [])
 			
 	def tuple(self):
-		return self.function, self.nargs, self.args, self.defaults
+		# just the core facts
+		return self.function, self.nargs, self.args, self._default_values
 
 	@property
 	def name(self):
 		return self.tablecode.co_name
-	
+			
 	@property
-	def nargs(self):
+	def num_args(self):
 		return self.tablecode.co_argcount
+	
+	nargs = num_args
 	
 	@property
 	def num_nondefault(self):
-		return self.nargs - len(self.defaults)
+		return self.nargs - len(self._default_values)
+		
+	nnondefault = num_nondefault
 	
 	@property
 	def args(self):
 		return tuple(self.tablecode.co_varnames[:self.nargs])
-		
+
+	@property
+	def defaults(self):
+		return dict((self.tablecode.co_varnames[self.num_nondefault+dix],val) 
+					for dix,val in enumerate(self._default_values))
+	
 	@property
 	def has_varargs(self):
 		return bool(self.tablecode.co_flags & self._VARARGS)
+		
+	@property
+	def varargs(self):
+		if self.has_varargs:
+			return self.tablecode.co_varnames[self.nargs]
+		else:
+			return None
 	
 	@property
 	def has_varkwargs(self):
 		return bool(self.tablecode.co_flags & self._VARKEYWORDS)
+
+	@property
+	def varkwargs(self):
+		if self.has_varkwargs:
+			return self.tablecode.co_varnames[self.nargs + self.has_varargs]
+		else:
+			return None
 		
 
 def getFunctionCallSigs(function, joinClause=' -OR- '):
@@ -262,24 +286,18 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 				callMethods += ['()']
 		return joinClause.join(callMethods)
 
-	_, nargs, args, defaults = PythonFunctionArguments(function).tuple()
-	
-	nnondefault = nargs - len(defaults)
+	pfa = PythonFunctionArguments(function)
 		
 	out = []
-	for i in range(nnondefault):
-		out += [args[i]]
-	for i in range(len(defaults)):
-		out += ['%s=%r' % (args[nnondefault + i],defaults[i])]
+	for i in range(pfa.num_nondefault):
+		out += [pfa.args[i]]
+	for i in range(len(pfa.defaults)):
+		out += ['%s=%r' % (pfa.args[pfa.nnondefault + i], pfa._default_values[i])]
 
-	if has_varargs:
-		if has_varkwargs:
-			out += ['*%s' % function.func_code.co_varnames[nargs],
-					'**%s' % function.func_code.co_varnames[nargs+1],]
-		else:
-			out += ['*%s' % function.func_code.co_varnames[nargs]]
-	elif has_varkwargs:
-		out += ['**%s' % function.func_code.co_varnames[nargs]]
+	if pfa.has_varargs:
+		out += ['*%s' % pfa.varargs]
+	if pfa.has_varkwargs:
+		out += ['**%s' % pfa.varkwargs]
 
 	return '(%s)' % ', '.join(out)
 
