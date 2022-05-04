@@ -29,10 +29,10 @@ class MetaSingleton(object):
 	"""Use this as a base class for a metaclass. It will exist without instances.
 
 	We'll almost never _actually_ want a singleton in Python, but we have a weird situation
-	  in Jython. In our case, we occasionally want to make some truly single objects, 
+	  in Jython. In our case, we occasionally want to make some truly single objects,
 	  since a number of guarantees from the global interpreter lock (GIL) just don't exist
 	  here. Worse, if something is going to be a _true_ singleton, we'll want the control
-	  a metaclass provides. This leads to the likely scenario we don't want _anything_ 
+	  a metaclass provides. This leads to the likely scenario we don't want _anything_
 	  to be generated and just use it as a fake module (which again, isn't _quite_ possible
 	  in our environment otherwise).
 
@@ -40,19 +40,19 @@ class MetaSingleton(object):
 	"""
 
 	def __new__(cls):
-		raise NotImplementedError("%s does not support instantiation." % cls.__name__) 
-	
+		raise NotImplementedError("%s does not support instantiation." % cls.__name__)
+
 	def __init__(cls):
-		raise NotImplementedError("%s does not support instantiation." % cls.__name__) 
+		raise NotImplementedError("%s does not support instantiation." % cls.__name__)
 
 	def __setattr__(cls, key, value):
-		raise AttributeError("%s attributes are not mutable. Use methods to manipulate them." % cls.__name__) 
+		raise AttributeError("%s attributes are not mutable. Use methods to manipulate them." % cls.__name__)
 
 
 def sentinel(iterable, stopValue):
 	"""A helper to make it simpler to implement sentinel values more idomatically.
 	This is a good way to replace a while True loop, removing the need for a break-on-value clause.
-	
+
 	>>> [i for i in iter((x for x in range(5)).next, 3)]
 	[0, 1, 2]
 	>>> [i for i in sentinel(range(5), 3)]
@@ -65,12 +65,12 @@ def getGatewayContext():
 	"""Attempts to get the gateway context."""
 	from com.inductiveautomation.ignition.gateway import IgnitionGateway
 	return IgnitionGateway.get()
-		
+
 
 def getDesignerContext(anchor=None):
 	"""Attempts to grab the Ignition designer context.
 	This is most easily done with a Vision object, like a window.
-	If no object is provided as a starting point, it will attempt to 
+	If no object is provided as a starting point, it will attempt to
 	  get one from the designer context.
 	"""
 	from com.inductiveautomation.ignition.designer import IgnitionDesigner
@@ -87,24 +87,24 @@ def getDesignerContext(anchor=None):
 					pass
 			else:
 				raise LookupError("No open windows were found, so no context was derived by default.")
-			
+
 	try:
 		anchor = anchor.source
 	except AttributeError:
 		pass
 		# Just making sure we've a live object in the tree, not just an event object
-		
+
 	for i in range(50):
-		if anchor.parent is None: 
+		if anchor.parent is None:
 			break
 		else:
 			anchor = anchor.parent
-			
+
 		if isinstance(anchor,IgnitionDesigner):
 			break
 	else:
 		raise RuntimeError("No Designer Context found in this object's heirarchy")
-		
+
 	context = anchor.getContext()
 	return context
 
@@ -115,9 +115,9 @@ def currentStackDepth(maxDepth=100):
 	  until the function declares the end of it by ValueError.
 	Remember: 0 is THIS frame, 1 is the previous calling frame,
 	  and there's no globally available stack depth value or length.
-	
+
 	For safety's sake, this will stop at maxDepth.
-	
+
 	From https://stackoverflow.com/a/47956089
 	"""
 	for size in range(2,maxDepth):
@@ -133,24 +133,24 @@ def currentStackDepth(maxDepth=100):
 def isJavaObject(o):
 	"""Walk up the object inheritance heirarchy to determine if the object is Java-based"""
 	cutoff = 10
-	
+
 	while cutoff:
 		cutoff -= 1
 		oType = type(o)
 
 		if oType is JavaClass:
 			return True
-		
+
 		if oType is type:
 			return False
-	
+
 	raise RuntimeError('Checking object type of "%s" exceeded recursion depth' % repr(o)[:40])
-		
-		
+
+
 def isPythonObject(o):
 	"""Walk up the object inheritance heirarchy to determine if the object is Python-based"""
 	return not isJavaObject(o)
-	
+
 
 def getObjectName(o, estimatedDepth=None, startRecent=True, ignore_names=set()):
 	"""Get an item's name by finding its first reference in the stack.
@@ -162,7 +162,7 @@ def getObjectName(o, estimatedDepth=None, startRecent=True, ignore_names=set()):
 	"""
 	# if no shortcut is provided, start at the furthest point
 	if estimatedDepth is None:
-		estimatedDepth = 1 if startRecent else currentStackDepth()-1 
+		estimatedDepth = 1 if startRecent else currentStackDepth()-1
 	try:
 		while True:
 			frame = sys._getframe(estimatedDepth)
@@ -204,14 +204,14 @@ class PythonFunctionArguments(object):
 		if getattr(function, 'im_func', None):
 			function = function.im_func
 		self.function = function
-		
+
 		if getattr(function, 'func_code', None):
 			self.tablecode = function.func_code
 			self._default_values = tuple(function.func_defaults or [])
 		else:
 			self.tablecode = function.__code__
 			self._default_values = tuple(function.__defaults__ or [])
-			
+
 	def tuple(self):
 		# just the core facts
 		return self.function, self.nargs, self.args, self._default_values
@@ -219,39 +219,39 @@ class PythonFunctionArguments(object):
 	@property
 	def name(self):
 		return self.tablecode.co_name
-			
+
 	@property
 	def num_args(self):
 		return self.tablecode.co_argcount
-	
+
 	nargs = num_args
-	
+
 	@property
 	def num_nondefault(self):
 		return self.nargs - len(self._default_values)
-		
+
 	nnondefault = num_nondefault
-	
+
 	@property
 	def args(self):
 		return tuple(self.tablecode.co_varnames[:self.nargs])
 
 	@property
 	def defaults(self):
-		return dict((self.tablecode.co_varnames[self.num_nondefault+dix],val) 
+		return dict((self.tablecode.co_varnames[self.num_nondefault+dix],val)
 					for dix,val in enumerate(self._default_values))
-	
+
 	@property
 	def has_varargs(self):
 		return bool(self.tablecode.co_flags & self._VARARGS)
-		
+
 	@property
 	def varargs(self):
 		if self.has_varargs:
 			return self.tablecode.co_varnames[self.nargs]
 		else:
 			return None
-	
+
 	@property
 	def has_varkwargs(self):
 		return bool(self.tablecode.co_flags & self._VARKEYWORDS)
@@ -262,7 +262,7 @@ class PythonFunctionArguments(object):
 			return self.tablecode.co_varnames[self.nargs + self.has_varargs]
 		else:
 			return None
-		
+
 
 def getFunctionCallSigs(function, joinClause=' -OR- '):
 	"""Explains what you can use when calling a function.
@@ -280,14 +280,14 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 		for reflectedArgs in function.argslist:
 			if reflectedArgs is None: continue
 			if reflectedArgs:
-				callMethods += ['(%s)' % ', '.join(['<%s>' % repr(arg)[7:-2] 
+				callMethods += ['(%s)' % ', '.join(['<%s>' % repr(arg)[7:-2]
 													for arg in reflectedArgs.args])]
 			else:
 				callMethods += ['()']
 		return joinClause.join(callMethods)
 
 	pfa = PythonFunctionArguments(function)
-		
+
 	out = []
 	for i in range(pfa.num_nondefault):
 		out += [pfa.args[i]]
@@ -304,7 +304,7 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 
 def getReflectedField(self, field_name, method_class=None):
 	"""Using reflection, we may need to tell the JVM to allow us to see the object."""
-	
+
 	# Typically, we will pull the field off the given object instance
 	#   (traditionally named 'self' in Python)
 	if method_class is None:
@@ -314,14 +314,14 @@ def getReflectedField(self, field_name, method_class=None):
 			field = self.getDeclaredField(field_name)
 	else:
 		# But we may have situations where it is more straight-forward
-		#   to get the method first, then pass self in 
+		#   to get the method first, then pass self in
 		#   (as all class methods are declared in Python)
 		# If this the case, check if the class is just the name.
 		#   (Java lets us get a class by its unique name reference)
 		if isinstance(method_class, (unicode, str)):
 			method_class = JavaClass.forName(method_class)
 		field = method_class.getDeclaredField(field_name)
-	
+
 	# Java reflection respects class privacy by default.
 	# But to be useful it needs to be able to inspect regardless.
 	# Also, this code is in Python, so we already don't have a problem
@@ -335,5 +335,5 @@ def getReflectedField(self, field_name, method_class=None):
 	finally:
 		# ... That all said, we'll still put this back out of politeness.
 		field.setAccessible(original_accesibility)
-	
+
 	return attribute

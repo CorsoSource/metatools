@@ -1,11 +1,11 @@
 """
-	Monitor running code and catch events. 
+	Monitor running code and catch events.
 
 	Useful for monitoring for an event and then dropping into the debugger.
 
-	NOTE: This has not been extensively used in Jython! 
+	NOTE: This has not been extensively used in Jython!
 		  It may not work, it may clobber the stack.
-		  USE ONLY IN SAFELY BACKED UP DEVELOPMENT ENVIRONMENTS 
+		  USE ONLY IN SAFELY BACKED UP DEVELOPMENT ENVIRONMENTS
 
 """
 
@@ -50,13 +50,13 @@ __status__ = "Prototype"
 
 
 class Context(object):
-	
-	__slots__ = ('_locals', '_event', '_arg', 
+
+	__slots__ = ('_locals', '_event', '_arg',
 				 '_caller', '_filename', '_line',
 				 '_local_unsafe')
-	
+
 	def __init__(self, frame, event, arg):
-		
+
 		local_copy = {}
 		local_unsafe = {}
 		for key,value in frame.f_locals.items():
@@ -66,7 +66,7 @@ class Context(object):
 			except:
 				local_copy[key] = NotImplemented
 				local_unsafe[key] = value
-				
+
 		self._locals   = local_copy
 		self._event    = event
 		self._arg      = arg
@@ -78,7 +78,7 @@ class Context(object):
 	@property
 	def local(self):
 		return self._locals
-	
+
 	@property
 	def event(self):
 		return self._event
@@ -98,7 +98,7 @@ class Context(object):
 	@property
 	def unsafe(self):
 		return self._local_unsafe
-	
+
 	@property
 	def unsafe_locals(self):
 		local = {}
@@ -136,19 +136,19 @@ class Trap(Overwatch):
 
 	_cached_traps = {}
 
-	_previous_callback = None    
+	_previous_callback = None
 	_default_break_point = BreakpointFunction
-	
+
 	_default_frame_cache_pattern = re.compile('<.*>', re.I)
-	
+
 	def __init__(self, max_frames = 10, break_point=None, frame_pattern='', verbose=False):
 		self._cached_traps[id(self)] = self
-		
+
 		self.verbose = verbose
 
 		if break_point is None:
 			self.break_point = self._default_break_point
-		else:    
+		else:
 			self.break_point = break_point
 
 		if frame_pattern:
@@ -159,7 +159,7 @@ class Trap(Overwatch):
 		self.max_buffered_frames = max_frames
 
 		self.clear()
-		
+
 		# remove the leading underscore and map it to the event
 		self._callbacks = dict((event[1:],getattr(self,event))
 							   for event in self._configured_events)
@@ -178,9 +178,9 @@ class Trap(Overwatch):
 		cls._cached_traps = {}
 		if self.verbose:
 			print 'XXX History contexts have been purged!'
-		
+
 	# CONTEXT MANAGER
-	
+
 	def start(self):
 		self._callback_function(self.dispatch)
 		if self.verbose:
@@ -200,14 +200,14 @@ class Trap(Overwatch):
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		self.end()
-	
+
 	# DISPATCH
 
 	def check_frame(self, context):
 		signature = '<%(event)s> %(caller)s on %(line)s of %(filename)s' % context.as_dict()
 		return frame_cache_pattern.match()
 
-	
+
 	def dispatch(self, frame, event, arg):
 		if self.disarmed:
 			if self.verbose:
@@ -219,7 +219,7 @@ class Trap(Overwatch):
 		context = Context(frame, event, arg)
 		if self.frame_cache_pattern.match(context.filename):
 			self._push_frame(context)
-			
+
 		# Captute the call, if anything (and ignore it)
 		self._cb_retval = self._callbacks.get(event,lambda f,a: None)(context)
 
@@ -236,14 +236,14 @@ class Trap(Overwatch):
 				print '.    Disarmed - stopping...'
 			self._callback_function(None)
 			return None
-		
+
 
 		# continue the stream
 		return self.dispatch
-	
-   
+
+
 	# TRACE CALLBACKS
-	
+
 	def _exception(self, context):
 		exception, value, stacktrace = context.arg
 		if self.verbose:
@@ -255,8 +255,8 @@ class Trap(Overwatch):
 			print '---  Traceback  ---------------------------------------------------------------'
 			traceback.print_tb(stacktrace)
 		raise exception
-	
-   
+
+
 	def _return(self, context):
 		return_value = context.arg
 		if self.frame_cache_pattern.match(context.filename):
@@ -264,22 +264,22 @@ class Trap(Overwatch):
 				print '|>-- return   %s in %s  with %r' % (context.caller, context.filename, return_value)
 		self.check_traps(context)
 
-		
+
 	def _call(self, context):
 		if self.frame_cache_pattern.match(context.filename):
 			if self.verbose:
 				print '|>-- call   %s in %s' % (context.caller, context.filename)
 		self.check_traps(context)
 
-	
+
 	def _line(self, context):
 		# if self.verbose:
 		#     print '| -- line    %d @ %s in %s' % (frame.f_lineno, frame.f_code.co_name, frame.f_code.co_filename)
 		self.check_traps(context)
 
-		
+
 	# TRAP SPRINGS
-		
+
 	def check_traps(self, context):
 		if self.traps:
 			if self.trip_triggers(context):
@@ -287,7 +287,7 @@ class Trap(Overwatch):
 					print '+--! Tripping! Pausing execution for debugger...'
 				self.disarmed = True
 				self.tripped = True
-				
+
 	def trip_triggers(self, context):
 		for function,expectation in self.traps.items():
 			try:
@@ -299,27 +299,27 @@ class Trap(Overwatch):
 					function_code = function.im_code.func_code
 
 			kwargs = set(function_code.co_varnames)
-			
+
 			if kwargs <= (set(context.local)|set(['context'])):
 
 				arg_scope = dict((v,context.local[v] if v is not 'context' else context) for v in kwargs)
-	
+
 				try:
 					if expectation == function(**arg_scope):
 						return True
 				except:
 					pass # fail by default
-				
+
 		return False
-	
+
 	# SETUP
-	
+
 	def add_trigger(self, function, expected_result=True):
 		if self.verbose:
 			print '+    adding trap: %r against %r' % (function, expected_result)
 		self.traps[function] = expected_result
-	
-	
+
+
 	# CONTEXT
 	def _push_frame(self, context):
 		self.history.append(context)
@@ -330,7 +330,7 @@ class Trap(Overwatch):
 	def history(self):
 		return self._prev_frames
 
-	def summarize(self, limit=0):        
+	def summarize(self, limit=0):
 		limit = limit or self.max_buffered_frames
 		for ix, context in enumerate(reversed(self.history)):
 			print '[%3d]>  %-7s   ----------------------------------------------------------------' % (ix, context.event,)

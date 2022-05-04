@@ -1,32 +1,32 @@
 """
 	PyYAML port for Ignition
 
-	This is a port of the PyYAML library, meant to be as close to the Python 2.7 
+	This is a port of the PyYAML library, meant to be as close to the Python 2.7
 	  version as possible. The goal is to make this an intuitive alternative to
 	  JSON output, since it can have multiline strings encoded and an easier to
 	  vgrep format.
-	  
+
 	  It is also easier to diff than JSON and XML, which is the real incentive.
-	
+
 	PyYAML source is hosted at Github and packaged on the CheeseShop.
 	  https://github.com/yaml/pyyaml
 	  https://pypi.org/project/PyYAML/
-	  
+
 	PyYAML is licensed under MIT included in full here:
-	
+
 	Copyright (c) 2017-2020 Ingy döt Net
 	Copyright (c) 2006-2016 Kirill Simonov
-	
+
 	Permission is hereby granted, free of charge, to any person obtaining a copy of
 	this software and associated documentation files (the "Software"), to deal in
 	the Software without restriction, including without limitation the rights to
 	use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
 	of the Software, and to permit persons to whom the Software is furnished to do
 	so, subject to the following conditions:
-	
+
 	The above copyright notice and this permission notice shall be included in all
 	copies or substantial portions of the Software.
-	
+
 	THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 	IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 	FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
@@ -341,7 +341,7 @@ def dump(data, stream=None, Dumper=Dumper, **kwds):
 	"""
 	Serialize a Python object into a YAML stream.
 	If stream is None, return the produced string instead.
-	"""    
+	"""
 	return dump_all([data], stream, Dumper=Dumper, **kwds)
 
 def safe_dump_all(documents, stream=None, **kwds):

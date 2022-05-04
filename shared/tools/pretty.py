@@ -40,8 +40,8 @@ __all__ = ['p','pdir', 'grep', 'dirgrep', 'pinstall', 'puninstall']
 
 quotePattern = re.compile("""^('.*'|".*")$""")
 
-PRETTY_PRINT_TYPES = (BasicDataset, PyDataSet, 
-					  list, tuple, array, ArrayList, Collections, 
+PRETTY_PRINT_TYPES = (BasicDataset, PyDataSet,
+					  list, tuple, array, ArrayList, Collections,
 					  dict, HashMap,
 					  set, frozenset, HashSet,
 					  FrameType, FunctionType, LambdaType)
@@ -59,7 +59,7 @@ def repr_function(function, estimatedDepth=1):
 
 
 def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True, recurseSkips=set(), recursePrettily=False, directPrint=True):
-	"""Pretty print the dir() function for Ignition things. This is designed to be used in the 
+	"""Pretty print the dir() function for Ignition things. This is designed to be used in the
 	  script console. Use it to explore objects and functions.
 
 	Functions will show their call methods, with Python functions returning their defaults, if any.
@@ -72,11 +72,11 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 	"""
 	# skipTypes = set(['builtin_function_or_method', 'instancemethod', 'java.lang.Class'])
 	skipTypes = set(['builtin_function_or_method', 'java.lang.Class'])
-		
+
 	dotdotdot = lambda s,ellipsisLimit=ellipsisLimit: s if not ellipsisLimit or len(s)<=ellipsisLimit else '%s...' % s[:ellipsisLimit-3]
-	
-	out = []	
-	
+
+	out = []
+
 	name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
 	o_type = str(type(o))[7:-2]
 	if name:
@@ -84,11 +84,11 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 	else:
 		out += ['%sProperties of <%s>' % (indent, o_type)]
 	out += ['%s%s' % (indent, '='*len(out[0]))]
-	
+
 	obj_repr = repr(o)
 	if obj_repr:
 		obj_repr = obj_repr.splitlines() if '\n' in obj_repr else [obj_repr]
-		
+
 		for line in obj_repr:
 			out += ['%s%s' % (indent, dotdotdot(line))]
 		out += ['%s%s' % (indent, '-'*len(out[0]))]
@@ -100,7 +100,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 		out += ['%s%s' % (indent, '-'*max([len(line) for line in callExample.split(joinClause)] + [1]))]
 	except:
 		pass
-	
+
 	if getattr(o, '__doc__', ''):
 		docstringLines = o.__doc__.strip().splitlines()
 		if len(docstringLines) > 1:
@@ -113,41 +113,41 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 			out += ['']
 
 	attrDir = set(dir(o))
-	
+
 	try:
 		if isJavaObject(o) and not skipPrivate:
 			attributes = set(attr.name for attr in o.getDeclaredFields())
 			attributes |= attrDir
 		else:
-			raise StopIteration("Default to the normal dir command...")		
+			raise StopIteration("Default to the normal dir command...")
 	except:
 		attributes = [attribute for attribute in attrDir
 					  if not (attribute.startswith('_') and skipPrivate)]
-	
+
 	attributes = sorted(attributes)
-	
+
 	# preprocessing
-	maxAttrLen = max([len(attribute) 
-					  for attribute in attributes] + [0])	
-	
+	maxAttrLen = max([len(attribute)
+					  for attribute in attributes] + [0])
+
 	attrTypes = []
 	attrTypeStrings = []
 	attrReprs = []
 	attrPrivates = []
 	attrDocs = []
 	for attribute in sorted(attributes):
-	
+
 		try:
 			attrPrivates.append((not attribute in attrDir) or attribute.startswith('_'))
-			
+
 			if not attribute in attrDir:
 				attrType = o.getDeclaredField(attribute).type
-				
+
 				attrTypes.append(attrType)
 				typeStr = str(attrType)[7:-2]
 				typeStr = typeStr.partition('$')[0]
 				attrTypeStrings.append(typeStr)
-				
+
 				attrReprs.append(repr(getReflectedField(o,attribute)))
 				attrDocs.append(None)
 			else:
@@ -157,11 +157,11 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 						attrType = "<type '<Unknown type>'> (skipped)"
 					else:
 						attr = getattr(o,attribute)
-						attrType = type(attr)					
+						attrType = type(attr)
 				except Exception, error:
 					attr = PrettyException('could not get attribute %s' % attribute)
 					attrType = "<type '<Unknown type>'>"
-				
+
 				attrTypes.append(attrType)
 				typeStr = str(attrType)[7:-2]
 				typeStr = typeStr.partition('$')[0]
@@ -169,7 +169,7 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 
 				try:
 					if recursePrettily and isinstance(attr, PRETTY_PRINT_TYPES) and not attribute in recurseSkips:
-						attrReprs.append(p(attr, listLimit=10, ellipsisLimit=ellipsisLimit, nestedListLimit=4, directPrint=False))						
+						attrReprs.append(p(attr, listLimit=10, ellipsisLimit=ellipsisLimit, nestedListLimit=4, directPrint=False))
 					else:
 						if getattr(attr, '__call__', None):
 							if re.match('(get|to|is|has)[A-Z]', attribute) and getFunctionCallSigs(attr) == '()':
@@ -183,12 +183,12 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 						attrReprs.append(str(attr))
 					except:
 						attrReprs.append('< ? >')
-				
+
 				try:
-					attrDocs.append(' '.join(attr.__doc__.strip().splitlines()))	
+					attrDocs.append(' '.join(attr.__doc__.strip().splitlines()))
 				except:
 					attrDocs.append(None)
-					
+
 		except AttributeError, e:
 			try:
 				attr = getattr(o,attribute)
@@ -210,38 +210,38 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 			attrTypeStrings.append(str(e).partition(':')[0])
 			attrReprs.append('n/a')
 			attrDocs.append(None)
-			
+
 #		# Gateway breaking on a call to pdir? Use this to see when it dies. (Used to make ban list)
 #		try:
 #			sleep(0.01)
 #			_ = system.net.httpGet('http://localhost:8088/main/web/')
 #		except IOError:
-#			system.util.getLogger('FailDir').info('Attribute %s failed for %s' %(attribute, name or '???'))			
-			
+#			system.util.getLogger('FailDir').info('Attribute %s failed for %s' %(attribute, name or '???'))
+
 	attrReprs = [ar.strip() if not '\n' in ar else ar for ar in attrReprs]
-	
-	maxTypeLen = 2 + max([len(attrTypeStr) 
+
+	maxTypeLen = 2 + max([len(attrTypeStr)
 						  for attrTypeStr in attrTypeStrings
 						  if not attrTypeStr in skipTypes] + [0])
-						  
+
 	maxReprLen = max([len(attrRepr.rstrip())+2 if not '\n' in attrRepr else max(len(line.rstrip()) for line in attrRepr.splitlines())
 						  for attrTypeStr,attrRepr in zip(attrTypeStrings,attrReprs)
 						  if not attrTypeStr in skipTypes] + [0])
-						  
+
 	if ellipsisLimit and maxReprLen > ellipsisLimit:
 		maxReprLen = ellipsisLimit
-						  
+
 	attrPattern    = '%s%%-%ds   %%3s   %%-%ds   %%-%ds'       % (indent, maxAttrLen+3, maxReprLen+3, maxTypeLen+3)
 	attrDocPattern = attrPattern + ('   %%-%ds' % ellipsisLimit)
 
 	out += [attrPattern % ('Attribute', '(P)', 'Repr', r'<Type>')]
 	out += [attrPattern % ('-'*maxAttrLen, '---', '-'*maxReprLen, '-'*maxTypeLen)]
-	
+
 	# calculating
 	for attrType,attrPriv,attrTypeStr,attribute,attrRepr,attrDoc in zip(attrTypes,attrPrivates,attrTypeStrings,attributes,attrReprs,attrDocs):
-		
+
 		attrPriv = ' * ' if attrPriv else '   '
-		
+
 		if attrTypeStr in skipTypes:
 			attrTypeStr = ''
 			attrRepr = ''
@@ -250,13 +250,13 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 
 		attribute = attribute.strip()
 		attrTypeStr =  attrTypeStr.strip()
-				
+
 		if not '\n' in attrRepr and not (attrType in (str, unicode) and r'\n' in attrRepr):
 			attrRepr = attrRepr.strip()
 			attrReprLines = []
-			
+
 			attrRepr = dotdotdot(attrRepr, maxReprLen)
-				
+
 		else: # this is a multiline string repr
 			attrTypeStr = ''
 			attrDoc = ''
@@ -264,34 +264,34 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 				# get the original string back...
 				attrRepr = getattr(o, attribute)
 				attrRepr = textwrap.dedent(attrRepr)
-				attrReprLines = attrRepr.splitlines()		
+				attrReprLines = attrRepr.splitlines()
 			else:
 				attrReprLines = attrRepr.splitlines()
-			
+
 			attrReprSpacing = len(indent) + 3 + 3 + 3 + maxAttrLen + 2
 			attrRepr = attrReprLines.pop(0)
-		
+
 		# This is a weird format error I don't care to figure out...
 		if attrRepr.startswith('λ('):
 			attrTypeStr = ' ' + attrTypeStr
-		
+
 		attrTypeStr = dotdotdot(attrTypeStr, maxReprLen)
 
 		if attrDoc and includeDocs:
 			outStr = attrDocPattern % (attribute, attrPriv, attrRepr, attrTypeStr, attrDoc)
 		else:
 			outStr = attrPattern % (attribute, attrPriv, attrRepr, attrTypeStr)
-		
+
 		# the repr for the attribute took more than one line, format that in
 		if len(attrReprLines) > 0:
 			out += [outStr]
-			
+
 			for reprLine in attrReprLines:
 				out += [' '*attrReprSpacing + dotdotdot(reprLine.rstrip(),maxReprLen)]
 		else:
 			outStr = ' -- '.join(outStr.splitlines())
 			out += [outStr]
-	
+
 	out += ['']
 
 	output = '\n'.join(out)
@@ -308,16 +308,16 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 	# Pass-thru for strings
 	if isinstance(o, (str, unicode)):
 		return o
-	
+
 	out = []
-	
+
 	strElePattern = '%%-%ds'
-	numElePattern = '%%%ds'	
+	numElePattern = '%%%ds'
 	colSep = ' |  '
-	
+
 	if isinstance(o, (BasicDataset,PyDataSet)):
 		ds = o
-		
+
 		o_name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
 		o_name = ('"%s" ' % o_name) if o_name else ''
 		if isinstance(ds, PyDataSet):
@@ -326,7 +326,7 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		else:
 			out += ['%s<DataSet> of %d elements and %d columns' % (o_name, ds.getRowCount(), ds.getColumnCount())]
 		out += [indent + '='*(len(out[0]))]
-		
+
 		# preprocessing
 		# Get the width of each column in the dataset
 		try:
@@ -339,57 +339,57 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		colTypes = [repr(t) for t in ds.getColumnTypes()]
 		colTypeStrs = [' <%s> ' % ct[7:-2] for ct in colTypes]
 		colNames = [h for h in ds.getColumnNames()]
-		
-		colWidths = [max([len(repr(row)) for row in col] + [len(t)] + [len(h)] + [1]) 
+
+		colWidths = [max([len(repr(row)) for row in col] + [len(t)] + [len(h)] + [1])
 					 for h,t,col
 					 in zip(colNames,colTypeStrs,zip(*(data or [[0]*len(colNames)])))]
-		
+
 		maxRowWidth = int(math.floor(math.log10(ds.getRowCount() + 1)))
-		
+
 		prefixPattern =  '%s %%%dd%s' %  (indent, maxRowWidth + 1, colSep)
 
-		rowPattern = prefixPattern + '  ' + colSep.join(strElePattern % colWidth 
-													  if colType in ("<type 'java.lang.String'>",repr(str), repr(unicode)) 
+		rowPattern = prefixPattern + '  ' + colSep.join(strElePattern % colWidth
+													  if colType in ("<type 'java.lang.String'>",repr(str), repr(unicode))
 													  else numElePattern % colWidth
 													  for colType, colWidth in zip(colTypes,colWidths))
 		hedPattern = indent + '   ' + ' '*(maxRowWidth+1) + '  ' + '  ' + colSep.join(strElePattern % colWidth
-													  for colWidth in colWidths)		
-									
+													  for colWidth in colWidths)
+
 		out += [hedPattern % tuple(colNames)]
 		out += [hedPattern % tuple(colTypeStrs)]
 		out += [indent + '-'*(len(out[-1])-len(indent))]
-		
+
 		for i, row in enumerate(data):
-			out += [rowPattern % tuple([i] + list(row))]		
-		
-		
+			out += [rowPattern % tuple([i] + list(row))]
+
+
 	elif isinstance(o, (list, tuple, array, ArrayList, set, frozenset, HashSet)):
 		o_name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
 		o_type = type(o)
-		
+
 		if isinstance(o, HashSet):
 			o = set([v for v in o])
-		
+
 		out += ['%s<%s> of %d elements' % (
-			('"%s" ' % o_name) if o_name else '', 
-		    '<%s> array' % o.typecode if isinstance(o,array) else str(o_type)[6:-1],
+			('"%s" ' % o_name) if o_name else '',
+			'<%s> array' % o.typecode if isinstance(o,array) else str(o_type)[6:-1],
 			len(o))]
-		
+
 		# preprocessing
 		maxRowWidth = int(math.floor(math.log10(len(o) + 1)))
-		
+
 		# column alignment, if any
 		try:
 			colEleWidths = [max([len(repr(r)) for r in row] + [1]) for row in zip(*o)]
 		except:
 			colEleWidths = []
-		
+
 		if not colEleWidths:
-			colEleWidths = [max([len(repr(element) 
-									 if not isinstance(element, PRETTY_PRINT_TYPES) 
+			colEleWidths = [max([len(repr(element)
+									 if not isinstance(element, PRETTY_PRINT_TYPES)
 									 else '1')
 								 for element in o] + [1])]
-			
+
 		# element printing
 		for i,element in enumerate(o):
 			if listLimit and i >= listLimit:
@@ -407,22 +407,22 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 				ixPattern = ' %s?' % ixPattern
 			else:
 				ixPattern = ' %s ' % ixPattern
-	
+
 			prefixPattern =  '%s' + ixPattern + ' %s'
 			prefixPattern %= (indent, maxRowWidth + 1, colSep)
 
-			if isinstance(element, PRETTY_PRINT_TYPES):			
+			if isinstance(element, PRETTY_PRINT_TYPES):
 				nestedPattern = '%s' + ixPattern + ' %s%%s'
 				nestedPattern %= (indent, maxRowWidth + 1, colSep)
 				out += [nestedPattern % (i, p(element,
-											  indent+' '*(maxRowWidth+1+2+2+len(colSep)), 
+											  indent+' '*(maxRowWidth+1+2+2+len(colSep)),
 											  listLimit=nestedListLimit,
 											  ellipsisLimit=ellipsisLimit,
 											  nestedListLimit=nestedListLimit,
 											  directPrint=False))]
 				out[-1] = out[-1][:-1]
 				continue
-			
+
 			else:
 				rElement = repr(element)
 				if ellipsisLimit and len(rElement) > ellipsisLimit:
@@ -430,55 +430,55 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 						rElement = '%s...%s' % (rElement[:ellipsisLimit-4], rElement[0])
 					else:
 						rElement = '%s...' % rElement[:ellipsisLimit-3]
-				
+
 				rowPattern = prefixPattern
 				if isinstance(element, (str, unicode)):
 					rowPattern += '  ' + strElePattern % colEleWidths[0]
 				else:
 					rowPattern += '  ' + numElePattern % colEleWidths[0]
 				out += [rowPattern % (i, rElement)]
-							
+
 	elif isinstance(o, (dict, HashMap)):
 		o_name = getObjectName(o,estimatedDepth=2, ignore_names=IGNORED_NAMES)
 		o_type = type(o)
-		
+
 		if isinstance(o, HashMap):
 			o = dict([
 				(str(key), o.get(key))
 				for key in sorted(o.keySet())
 				])
-		
+
 		out.append('%s<%s> of %d elements' % (('"%s" ' % o_name) if o_name else '', str(o_type)[6:-1],len(o)))
-		
+
 		# preprocessing
 		maxKeyWidth = max([len(repr(key)) for key in o.keys()] + [1])
 		maxValWidth = max([len(repr(val)
-		                       if not isinstance(val, PRETTY_PRINT_TYPES) 
-		                       else '1')
-		                   for val in o.values()] + [1])
-		
+							   if not isinstance(val, PRETTY_PRINT_TYPES)
+							   else '1')
+						   for val in o.values()] + [1])
+
 		elementPattern = '%s%%%ds : %%-%ds' % (indent, maxKeyWidth, maxValWidth)
-		
+
 		# element printing
 		for i,key in enumerate(sorted(o.keys())):
 			if listLimit and i >= listLimit:
 				out += ['%s... %d ellided (of %s total)' % (indent, len(o)-i, len(o))]
 				break
 
-		
+
 			element = o[key]
-			
+
 			if isinstance(element, PRETTY_PRINT_TYPES) and element is not o: #don't recurse here!
 				nestedPattern = '%s%%%ds : %%s' % (indent, maxKeyWidth)
-				out += [nestedPattern % (key, p(element, 
-											    indent+' '*(maxKeyWidth+3),
-											    listLimit=nestedListLimit, 
-											    ellipsisLimit=ellipsisLimit,
-											    nestedListLimit=nestedListLimit, 
-											    directPrint=False).lstrip())]
+				out += [nestedPattern % (key, p(element,
+												indent+' '*(maxKeyWidth+3),
+												listLimit=nestedListLimit,
+												ellipsisLimit=ellipsisLimit,
+												nestedListLimit=nestedListLimit,
+												directPrint=False).lstrip())]
 				out[-1] = out[-1][:-1]
 				continue
-			
+
 			rElement = repr(element)
 			if ellipsisLimit and len(rElement) > ellipsisLimit:
 				if quotePattern.match(rElement):
@@ -487,7 +487,7 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 					rElement = '%s...' % rElement[:ellipsisLimit-3]
 
 			out += [elementPattern % (key,rElement)]
-		
+
 	elif isinstance(o, FrameType):
 		out += ['<frame in "%s" of "%s" on line %d%s>' % (
 						o.f_code.co_filename,
@@ -495,22 +495,22 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 						o.f_lineno,
 						('(tracing with %s)' % o.f_trace) if o.f_trace else ''
 					)]
-					
+
 	elif isinstance(o, (FunctionType,LambdaType)):
 		out += [repr_function(o, estimatedDepth=1)]
-		
+
 	else:
 		if not isinstance(o, GeneratorType):
 			try: # if it's some sort of unknown iterable
 				if directPrint:
-					print '(Unrecognized type - iteration attempted for type <%r>)' % str(type(o))[6:-1] 
+					print '(Unrecognized type - iteration attempted for type <%r>)' % str(type(o))[6:-1]
 					try:
 						p(dict((k, o.get(k)) for k in o), indent, listLimit, ellipsisLimit, nestedListLimit, directPrint)
 					except:
 						p([v for v in o], indent, listLimit, ellipsisLimit, nestedListLimit, directPrint)
 					return
 				else:
-					output = '\n(Unrecognized type - iteration attempted for type <%r>)' % str(type(o))[6:-1] 
+					output = '\n(Unrecognized type - iteration attempted for type <%r>)' % str(type(o))[6:-1]
 					try:
 						output += p(dict((k, o.get(k)) for k in o), indent, listLimit, ellipsisLimit, nestedListLimit, directPrint)
 					except:
@@ -521,7 +521,7 @@ def p(o, indent='  ', listLimit=42, ellipsisLimit=80, nestedListLimit=10, direct
 		else:
 			out += [repr(o)]
 	out += ['']
-	
+
 	output = '\n'.join(out)
 	if directPrint:
 		print output
@@ -555,13 +555,13 @@ def displayhook(obj):
 		# classes / types should be dir'd (throws errors on instances)
 		elif issubclass(obj, (type, object, JavaClass)):
 			pdir(obj)
-	# everything else gets a normal repr treatment. 
+	# everything else gets a normal repr treatment.
 	except:
-		print repr(obj)			
-	
+		print repr(obj)
+
 	# Save to _ in builtin, per docs
 	__builtin__._ = obj
-	
+
 
 def prettify(obj):
 	"""Figure out how to show a thing"""
@@ -589,10 +589,10 @@ def prettify(obj):
 		# classes / types should be dir'd (throws errors on instances)
 		elif issubclass(obj, (type, object, JavaClass)):
 			return pdir(obj, directPrint=False)
-	# everything else gets a normal repr treatment. 
+	# everything else gets a normal repr treatment.
 	except:
-		return repr(obj)			
-		
+		return repr(obj)
+
 
 def install(sys_scope=None):
 	"""Inject pretty printing into the interactive system scope."""
@@ -600,7 +600,7 @@ def install(sys_scope=None):
 		import sys as sys_scope
 	sys_scope.displayhook = displayhook
 
-	
+
 def uninstall(sys_scope=None):
 	"""Revert the interactive printing to the default builtin displayhook."""
 	if sys_scope is None:
@@ -624,13 +624,13 @@ class BaseGrep(object):
 	def __init__(self, regex, flags = 0):
 		self.flags = flags
 		self.regex = regex
-		
-		# if no anchor specified, then match anywhere in line	
+
+		# if no anchor specified, then match anywhere in line
 		self.pattern = re.compile(self.regex, self.flags)
-						
-	def __ror__(self, something):	
+
+	def __ror__(self, something):
 		something = self.PREPROCESS_INPUT(something)
-		
+
 		if self.flags & re.M:
 			if self.check(something):
 				self.out(something)
@@ -648,10 +648,10 @@ class BaseGrep(object):
 	def check(self, something):
 		method = {
 			'find': self.pattern.findall,
-			'match': self.pattern.match,		
-		}.get(self.MATCH_METHOD.lower(), 
+			'match': self.pattern.match,
+		}.get(self.MATCH_METHOD.lower(),
 			  self.pattern.findall)
-			  
+
 		self.last_check = method(something)
 		return self.last_check
 
@@ -667,7 +667,7 @@ class BaseGrep(object):
 class dirgrep(BaseGrep):
 	def __init__(self, regex, flags=0, **p_kwargs):
 		super(dirgrep, self).__init__(regex, flags)
-		
+
 		# default pdir config
 		config = {
 			'ellipsisLimit': 1000,
@@ -678,7 +678,7 @@ class dirgrep(BaseGrep):
 
 	def PREPROCESS_INPUT(self, something, directPrint=True):
 		results = pdir(something, directPrint=False, **self.p_config).splitlines()
-		
+
 		if directPrint:
 			print '\n'.join('      | %s' % line for line in results[:3])
 		else:
@@ -688,7 +688,7 @@ class dirgrep(BaseGrep):
 class grep(BaseGrep):
 	def __init__(self, regex, flags=0, **p_kwargs):
 		super(grep, self).__init__(regex, flags)
-		
+
 		# default pdir config
 		config = {
 			'ellipsisLimit': 1000,
@@ -701,14 +701,14 @@ class grep(BaseGrep):
 	def PREPROCESS_INPUT(self, something, directPrint=True):
 		if isinstance(something, str):
 			return something
-			
+
 		results = p(something, directPrint=False, **self.p_config).splitlines()
-		
+
 		if directPrint:
 			print '\n'.join('      | %s' % line for line in results[:1])
 		else:
 			return '\n'.join(results[1:])
-		
+
 
 
 

@@ -20,7 +20,7 @@ class Breakpoint(object):
 	  effectively brings the situation to the breakpoint to be verified.
 	"""
 	__slots__ = ('_id', '_filename', '_line_number', '_function_name',
-				 'temporary', 'condition', 'hits', 
+				 'temporary', 'condition', 'hits',
 				 'enabled', 'ignored',
 				 'note',
 				 '__weakref__',
@@ -32,7 +32,7 @@ class Breakpoint(object):
 	_break_locations = {(None, None): set()}
 
 
-	def __init__(self, filename=None, location=None, 
+	def __init__(self, filename=None, location=None,
 				 temporary=False, condition=None, note=''):
 
 		self._filename = normalize_filename(filename or '') or None
@@ -74,7 +74,7 @@ class Breakpoint(object):
 	@property
 	def filename(self):
 		return self._filename
-	
+
 	@property
 	def line_number(self):
 		return self._line_number
@@ -82,8 +82,8 @@ class Breakpoint(object):
 	@property
 	def function_name(self):
 		return self._function_name
-	
-	
+
+
 	@property
 	def id(self):
 		return self._id
@@ -103,7 +103,7 @@ class Breakpoint(object):
 	def resolve_breakpoints(cls, breakpoint_ids):
 		# coerce to iterable, if needed
 		if not isinstance(breakpoint_ids, (list, tuple, set)):
-			breakpoint_ids = [breakpoint_ids] 
+			breakpoint_ids = [breakpoint_ids]
 
 		breakpoints = []
 		for breakpoint in breakpoint_ids:
@@ -126,9 +126,9 @@ class Breakpoint(object):
 				self._break_locations[self.location].add(self)
 			else:
 				self._break_locations[self.location] = set([self])
-			
+
 			self._id = self.next_id()
-			self._instances[self.id] = self 
+			self._instances[self.id] = self
 
 	def _remove(self):
 		self.enabled.clear()
@@ -138,16 +138,16 @@ class Breakpoint(object):
 
 	def trip(self, frame):
 		"""Determine if the breakpoint should trip given the frame context."""
-	
+
 		# Breakpoint set by line
 		if not self.function_name:
 			# always trip on contextless breakpoints
 			if not any((self.line_number, self.filename)):
 				return True
 			else:
-				return (    self.line_number == frame.f_lineno 
-					    and (not self.filename 
-					    	  or self.filename == normalize_filename(frame.f_code.co_filename) ) )
+				return (    self.line_number == frame.f_lineno
+						and (not self.filename
+							  or self.filename == normalize_filename(frame.f_code.co_filename) ) )
 
 		# Fail if the function name's wrong
 		if self.function_name != frame.f_code.co_name:
@@ -186,7 +186,7 @@ class Breakpoint(object):
 	def enable(self, interested_party):
 		"""Enable the breakpoint for the interested_party"""
 		self.enabled[interested_party] = True
-		
+
 	def disable(self, interested_party):
 		"""Disable the breakpoint for the interested_party (this is the default state)"""
 		self.enabled[interested_party] = False
@@ -207,9 +207,9 @@ class Breakpoint(object):
 
 		possible = set( cls._break_locations[(None,None)]
 					  | cls._break_locations.get((None, location_by_line[1]), set())
-			          | cls._break_locations.get((None, location_by_function[1]), set())
+					  | cls._break_locations.get((None, location_by_function[1]), set())
 					  | cls._break_locations.get(location_by_line, set())
-			          | cls._break_locations.get(location_by_function, set()) )
+					  | cls._break_locations.get(location_by_function, set()) )
 
 		# Check candidate locations
 		for breakpoint in possible:
@@ -246,7 +246,7 @@ class Breakpoint(object):
 					# Sure, eval is evil... but we're in debug so all bets are off
 					# Note that this is like PDB: it expects a string or compiled code here.
 					#   A function will need to be either in scope or compiled beforehand!
-					result = eval(breakpoint.condition, 
+					result = eval(breakpoint.condition,
 								  frame.f_globals,
 								  frame.f_locals)
 					if result:
@@ -260,7 +260,7 @@ class Breakpoint(object):
 							relevant.add(breakpoint)
 							if breakpoint.temporary:
 								breakpoint._remove()
-							continue							
+							continue
 				# If the condition fails to eval, then break just to be safe
 				#   but don't modify the ignore settings, also to be safe. (PDB compliance)
 				except:
@@ -278,7 +278,7 @@ class Breakpoint(object):
 			'ignore_remaining': self.ignored[interested_party] if interested_party else self.ignored,
 			'location': '%s:%s' % (self.filename or '<ANYWHERE>', self.function_name or self.line_number)
 		}
-	
+
 
 	def __str__(self):
 		meta = []
@@ -290,12 +290,12 @@ class Breakpoint(object):
 		meta = (' %r' % meta) if meta else ''
 
 		location = '%s:%s' % (self.filename or '<ANYWHERE>', self.function_name or self.line_number)
-		
+
 		return '<Breakpoint [%d] for %s%s>' % (self.id, location, meta)
 
 
 	def __repr__(self):
-		return self.__str__() # for now... should add conditional 
+		return self.__str__() # for now... should add conditional
 
 
 def set_breakpoint(note=''):

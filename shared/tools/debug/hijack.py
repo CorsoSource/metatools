@@ -2,7 +2,7 @@
 	The SysHijack is part of the secret sauce enabling the tracer
 	  to work at all.
 
-	Long story short, Jython (rightly) makes it very hard to control 
+	Long story short, Jython (rightly) makes it very hard to control
 	  a thread from the outside. By wrapping the Python system state,
 	  we can reliably gain access to the thread's state, meaning we
 	  can affect the thread from its own context. Or, put differently,
@@ -35,46 +35,46 @@ __email__ = 'andrew.geiger@corsosystems.com'
 
 
 class DefSysHijack(object):
-	"""The main SysHijack class. 
+	"""The main SysHijack class.
 	By adding a subclass, attribute resolution works reliably in the __getattr__ and __setattr__ overrides.
 	"""
 
 	__slots__ = (
-				 '_target_thread', 
+				 '_target_thread',
 				 '_io_proxy',
 				 '__weakref__',
-	             )
+				 )
 
 	def __init__(self, thread):
 		self._target_thread = thread
 		self._io_proxy = ProxyIO(hijacked_sys=self)
 		self._install()
-		
-		
+
+
 	def _install(self):
 		"""Redirect all I/O to proxy's endpoints"""
 		self._io_proxy.install()
-			
+
 	def _restore(self):
 		"""Restore all I/O to original's endpoints"""
 		self._io_proxy.uninstall()
-		
+
 
 	@property
 	def _thread_state(self):
 		"""If we're in the same thread, we need to grab the state from the master Py object.
-		Otherwise we rip it from the thread itself. 
-		We'll also want this to be calculated every call to ensure it's the correct reference. 
+		Otherwise we rip it from the thread itself.
+		We'll also want this to be calculated every call to ensure it's the correct reference.
 		"""
 		if Thread.currentThread() is self._target_thread:
 			return Py.getThreadState()
 		else:
 			return getThreadState(self._target_thread)
-	
+
 	@property
 	def _thread_sys(self):
 		return self._thread_state.systemState
-	
+
 
 	# I/O proxy redirection
 	# NOTE: This will not play well with other things attempting to hijack I/O
@@ -104,7 +104,7 @@ class DefSysHijack(object):
 			return self._io_proxy.displayhook
 		else:
 			return self._thread_sys.displayhook
-			
+
 
 	def _getframe(self, depth=0):
 		#print >>self.stdout, '[~] getting frame %d' % depth
@@ -134,21 +134,21 @@ class DefSysHijack(object):
 
 	def __del__(self):
 		self._restore()
-	
+
 
 class SysHijack(DefSysHijack):
 	"""Capture a thread's system state and redirect it's standard I/O."""
 
 	# Override masking mechanic (the hijack)
-	
+
 	def __getattr__(self, attribute):
 		"""Get from this class first, otherwise use the wrapped item."""
 		try:
 			return super(SysHijack, self).__getattr__(attribute)
 		except AttributeError:
 			return getattr(self._thread_sys, attribute)
-	
-	
+
+
 	def __setattr__(self, attribute, value):
 		"""Set to this class first, otherwise use the wrapped item."""
 		try:

@@ -5,7 +5,7 @@
 	Note that it may not be a perfect image! Execution frames update while the
 	  stack frame executes, and any objects that fails the deepcopy (or if it's
 	  not actively deepcopying for speed) may mutate as execution progresses.
-	  Moreover, Java objects are not subject to deepcopy, meaning that their 
+	  Moreover, Java objects are not subject to deepcopy, meaning that their
 	  references are merely passed along and saved. And so be forewarned.
 """
 
@@ -21,19 +21,19 @@ __email__ = 'andrew.geiger@corsosystems.com'
 
 
 class Snapshot(object):
-	
+
 	__slots__ = ('_event', '_arg', '_frame', '_code',
 				 '_filename', '_line', '_caller', '_depth',
-				 '_locals_key', '_locals_dup', '_locals_ref', '_locals_err', 
-				 '_cloned', 
+				 '_locals_key', '_locals_dup', '_locals_ref', '_locals_err',
+				 '_cloned',
 				 '__weakref__',)
-	
+
 	_repr_markers = {'line': '|',  'call': '+',   'return': '/',   'exception': 'X',
-							     'c_call': '+', 'c_return': '/', 'c_exception': 'X', 
+								 'c_call': '+', 'c_return': '/', 'c_exception': 'X',
 					 'init': '#'}
 
 	def __init__(self, frame, event, arg, clone=True):
-		
+
 
 		self._event    = event
 		self._arg      = arg
@@ -61,7 +61,7 @@ class Snapshot(object):
 					local_ref[key] = value
 					local_err[key] = err
 		self._cloned = clone
-		
+
 		self._locals_key = local_key
 		self._locals_dup = local_dup
 		self._locals_ref = local_ref

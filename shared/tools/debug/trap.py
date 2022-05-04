@@ -53,8 +53,8 @@ class WatchTrap(BaseTrap):
 	@fail_false
 	def check(self, context):
 		fc = self.function.f_code
-		return self.function(*(self.resolve_field(context, field) 
-		         			   for field in fc.co_varnames[:fc.co_argcount]
+		return self.function(*(self.resolve_field(context, field)
+							   for field in fc.co_varnames[:fc.co_argcount]
 							 )) == self.expectation
 
 
@@ -70,17 +70,17 @@ class ExpressionTrap(BaseTrap):
 		self.left = Expression(self.expression)
 		self.comparator = two_argument_operators[comparator]
 		self.right = Expression(self.expected_result)
-		
-	
+
+
 	@fail_false
 	def check(self, context):
 		return self.comparator(
 				self.left(*(self.resolve_field(context, field)
-							for field 
+							for field
 							in self.left._fields) ) ,
 				self.right(*(self.resolve_field(context, field)
-							 for field 
-				 			 in self.right._fields) ) )
+							 for field
+							 in self.right._fields) ) )
 
 
 
@@ -93,9 +93,9 @@ class ContextTrap(BaseTrap):
 
 	@fail_false
 	def check(self, context):
-		return all(self.resolve_field(context, field) == value 
-			       for field, value 
-			       in self.context_values.items())
+		return all(self.resolve_field(context, field) == value
+				   for field, value
+				   in self.context_values.items())
 
 
 class TransientTrap(BaseTrap):

@@ -45,15 +45,15 @@ class MetaAsyncWatchdog(type):
 	_thread_expirations = {}
 
 	def watch(cls, thread_handle, max_allowed_runtime=None, kill_switch=None):
-		
+
 		if max_allowed_runtime is None:
 			expected_dead_by = None
 		else:
 			expected_dead_by = datetime.now() + timedelta(seconds=max_allowed_runtime)
-		
+
 		if kill_switch is None:
 			kill_switch = lambda : False
-		
+
 		cls._thread_expirations[thread_handle] = (expected_dead_by, kill_switch)
 
 		cls.spawn_watchdog_monitor()
@@ -72,23 +72,23 @@ class MetaAsyncWatchdog(type):
 
 			# Once the threads are all gone, exit and die gracefully
 			while cls._thread_expirations:
-				
+
 				for thread_handle in frozenset(cls._thread_expirations):
-					
+
 					try:
 						next_expiration, kill_switch = cls._thread_expirations[thread_handle]
 					except KeyError:
 						continue # already culled, possibly because it finished so fast
-					
+
 					thread_state = thread_handle.getState()
-					
+
 					# If the thread is already done, then remove it
 					if thread_state == Thread.State.TERMINATED:
 						try:
 							del cls._thread_expirations[thread_handle]
 						except KeyError: # already dead or removed? Ok!
 							pass
-													
+
 					# if the thread isn't dead but should be, kill it
 					elif next_expiration and next_expiration < datetime.now():
 						thread_handle.interrupt()
@@ -110,13 +110,13 @@ class MetaAsyncWatchdog(type):
 							# otherwise wait a little bit and see if that changes
 							# push back onto the dictionary and check again on next loop
 							pass
-				
-				# pause the loop long enough for states to change...			
+
+				# pause the loop long enough for states to change...
 				sleep(cls.SCRAM_CHECK_RATE)
 
 			cls._SCRAM_MONITOR = None
 
-		cls._SCRAM_MONITOR = monitor()	
+		cls._SCRAM_MONITOR = monitor()
 
 
 
@@ -129,7 +129,7 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 	"""Decorate a function with this to make it run in another thread asynchronously!
 	If defined with a value, it will wait that many seconds before firing.
 	If a name is provided the thread will be named. Handy for the gateway thread status page.
-	
+
 	Note that threads have their own scope, and any output is redirected to their own
 	  sys.stderr writer. It turns out this is simply always the JVM's console, though.
 
@@ -144,7 +144,7 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 	RUNNABLE
 	>>> tFoo.getState()
 	TERMINATED
-	>>> 
+	>>>
 	>>> # For a 1.5 second delay before executing, you can provide an argument:
 	>>> from time import sleep
 	>>> @async(1.5)
@@ -157,10 +157,10 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 	TERMINATED
 	"""
 	# Check if the first argument is a function. If it's just decorating, do the trivial case
-	if getattr(startDelaySeconds, '__call__', None):		
+	if getattr(startDelaySeconds, '__call__', None):
 		# Decorator didn't have a param, so this is actually a function
 		function = startDelaySeconds
-		
+
 		try:
 			@wraps(function)
 			def asyncWrapper(*args, **kwargs):
@@ -176,8 +176,8 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 
 				# Wrap the function and delay values to prevent early GC of function and delay
 				closure = partial(async_closure, function)
-				
-				# Async calls should return the thread handle. 
+
+				# Async calls should return the thread handle.
 				# They will _not_ return whatever the function returned. That gets dumped to _.
 				return system.util.invokeAsynchronous(closure)
 			return asyncWrapper
@@ -194,36 +194,36 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 		if isinstance(startDelaySeconds, (str, unicode)):
 			name = startDelaySeconds
 			startDelaySeconds = None
-			
+
 		if startDelaySeconds is None:
 			startDelaySeconds = 0.0
 
 		# Convert to check param... Clamps to millisecond multiples
 		delaySeconds = int(startDelaySeconds*1000.0)/1000.0
-			
+
 		# Since we passed in a value, we'll need to return an actual decorator function
 		def asyncDecoWrapper(function):
-			
+
 			@wraps(function)
 			def asyncWrapper(*args, **kwargs):
-		
+
 				# Create the closure to carry the scope into another thread
 				def async_closure(function, delaySeconds, args=args, kwargs=kwargs):
-					
+
 					if delaySeconds:
 						sleep(delaySeconds)
-						
+
 					try:
 						_ = function(*args,**kwargs)
 					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
 						pass
 					except (Exception, JavaException), error:
 						Logger(prefix='(Async)', target_context=error).error(repr(error))
-					
+
 				# Wrap the function and delay values to prevent early GC of function and delay
 				closure = partial(async_closure, function, delaySeconds)
-				
-				# Async calls should return the thread handle. 
+
+				# Async calls should return the thread handle.
 				# They will _not_ return whatever the function returned. That gets dumped to _.
 				if name and ensureOnlyOne and findThreads(name):
 					return # do nothing
@@ -231,10 +231,10 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 				thread_handle = system.util.invokeAsynchronous(closure)
 				if name:
 					thread_handle.setName(name)
-				
+
 				if maxAllowedRuntime or killSwitch:
 					AsyncWatchdog.watch(thread_handle, maxAllowedRuntime, killSwitch)
-				
+
 				return thread_handle
 			return asyncWrapper
 		return asyncDecoWrapper
@@ -253,12 +253,12 @@ def findThreads(thread_name_pattern='.*', search_group=None, recursive=False, sa
 	If recursive is selected, it will also look at any lower thread_groups.
 	If both are default, it scans all threads available.
 	"""
-	
-	# Guess scope and search all groups if need. 
+
+	# Guess scope and search all groups if need.
 	# Otherwise start with a hint
 	if search_group is None:
 		search_group = Thread.currentThread().getThreadGroup()
-		
+
 		if recursive:
 			while search_group.parent is not None:
 				search_group = search_group.parent
@@ -267,12 +267,12 @@ def findThreads(thread_name_pattern='.*', search_group=None, recursive=False, sa
 	# Docs note that this may change moment to moment,
 	#   so use it as a guide and check
 	estimated_num_threads = search_group.activeCount()
-	
+
 	# As a sanity check, ask for more and then be sure we didn't exceed it
 	overshot_estimate = int(estimated_num_threads * (sandbagging_percent/100.0))
-	
+
 	search_group_threads = zeros(overshot_estimate, Thread)
-	
+
 	search_group.enumerate(search_group_threads, recursive)
 
 	matching_threads = []
@@ -282,42 +282,42 @@ def findThreads(thread_name_pattern='.*', search_group=None, recursive=False, sa
 			continue
 		if match_pattern.match(thread.getName()):
 			matching_threads.append(thread)
-	
+
 	return matching_threads
 
-	
+
 def dangerouslyKillThreads(thread_name_pattern, bypass_interlock='No!'):
 	"""Mercilessly kill threads matching the given pattern.
-	
+
 	Must set bypass_interlock to "Yes, seriously." (sans quotes, with punctuation).
 	  We don't want anyone accidentally fubaring a running system, right?
 	"""
 	if not bypass_interlock == 'Yes, seriously.':
 		return
-		
+
 	for thread in findThreads(thread_name_pattern):
 		thread.interrupt()
-		
+
 
 def getThreadState(target_thread):
 	# Earlier builds of Jython do not have the internals exposed. At least, not the same way.
 	# The following introspects the thread tiven and returns what it finds.
 	try:
 		thread_locals = getReflectedField(target_thread, 'threadLocals')
-	
+
 		table = getReflectedField(thread_locals, 'table', 'java.lang.ThreadLocal$ThreadLocalMap')
-	
+
 		for entry in table:
 			if entry is None:
 				continue
-			
+
 			value = getReflectedField(entry, 'value')
-			
+
 			if isinstance(value, ThreadState):
 				return value
 		else:
 			raise AttributeError("Python ThreadState object not found for given thread!")
-	
+
 	# If the thread's dead, attempts to reflect garbage throw NPEs
 	except NullPointerException:
 		return None
@@ -327,7 +327,7 @@ def getFromThreadScope(target_thread, object_name):
 
 	For the ThreadStateMapping method, see Jython commit 8f00d52031
 	  and http://bugs.jython.org/issue2321
-	For the Java reflection introspection, see  
+	For the Java reflection introspection, see
 	  https://web.archive.org/web/20150505022210/http://weblogs.java.net/blog/jjviana/archive/2010/06/09/dealing-glassfish-301-memory-leak-or-threadlocal-thread-pool-bad-ide
 	  https://web.archive.org/web/20150422074412/http://blog.igorminar.com/2009/03/identifying-threadlocal-memory-leaks-in.html
 	"""
@@ -366,25 +366,25 @@ class SemaphoreError(RuntimeError): """Errors thrown specifically in the service
 
 
 def semaphore(*arguments, **options):
-	"""Block execution until any previously running functions 
+	"""Block execution until any previously running functions
 	with the same values for the given arguments finish.
-	
+
 	Place the semaphore decorator as close to the function as possible,
 	under other decorators (since they'll goober up the argument checks)
-	
+
 	To block other threads from using a function while in use by another thread
-	(even if the other thread only uses it periodically), 
+	(even if the other thread only uses it periodically),
 	use `None` for arguments and clue with `<thread>`:
 		@semaphore(None, '<thread>')
-	
+
 	Special argument flags:
 	 - <function>: always included (almost by definition)
 	 - <thread>: block by thread (async first come, first serve)
 	 - None: don't use arguments to block, just the function (and thread, if flagged)
-	
+
 	Options:
 	 max_queue: maximum number of blocks per key
-	
+
 	Usage:
 		@async
 		@semaphore('z', 'y')
@@ -392,96 +392,96 @@ def semaphore(*arguments, **options):
 		def bar(x, y, z=5):
 			sleep(0.5 + random())
 			print x,y,z
-			
+
 		for i in range(5):
 			bar(i, 99)
-	
+
 	This blocks all bar threads with (z=5, y=99) until each finish.
-	
-	NOTE: This does NOT guarantee they finish in order, 
-	      only that they are done one at a time!
-	      
+
+	NOTE: This does NOT guarantee they finish in order,
+		  only that they are done one at a time!
+
 	For full JVM-level blocking (in case of sharded Python contexts),
 	use ExtraGlobal as the dictionary, as commented out in the code.
 	"""
 	SEMAPHORE_SPECIAL_ARGUMENTS = set(['<thread>', '<function>'])
-	
+
 	# special case: no arguments, just decorator
 	# in this case the function blocks if any arguments have the same value
 	if (len(arguments) == 1 and not isinstance(arguments[0], str) and getattr(arguments[0], '__call__', None)):
-		return semaphore()(arguments[0])	
-		
+		return semaphore()(arguments[0])
+
 	thread_block = '<thread>' in arguments
-	
+
 	if thread_block:
 		arguments = tuple(arg for arg in arguments if not arg == '<thread>')
-		
+
 	if 'max_queue' in options:
 		max_queue = options['max_queue']
 	else:
 		max_queue = SEMAPHORE_MAX_QUEUE
-	
-		
+
+
 	def tuned_decorator(function, arguments=arguments):
 		"""Main function bits cribbed from shared.tools.meta.getFunctionCallSigs"""
 		assert function is not None
-		
+
 		pfa = PythonFunctionArguments(function)
-		
+
 		# if no arguments are given, the block on any function with the same inputs
 		if len(arguments) == 0:
 			arguments = pfa.args
 		elif arguments == (None,):
 			arguments = tuple()
-			
-		assert all(arg in pfa.args or (arg in SEMAPHORE_SPECIAL_ARGUMENTS) 
+
+		assert all(arg in pfa.args or (arg in SEMAPHORE_SPECIAL_ARGUMENTS)
 				   for arg in arguments), (
 				   "Arguments given to semaphore (%r) must be in decorated function (%r) or be special (%r)" % (
-				   arguments, function, SEMAPHORE_SPECIAL_ARGUMENTS,) )		
+				   arguments, function, SEMAPHORE_SPECIAL_ARGUMENTS,) )
 
 		# make sure the function can always reference itself,
 		# that way even if there's no arguments given, it can
 		# still block
 		arguments += ('<function>',)
-				
+
 		arg_lookup     = dict((arg, ix) for ix,arg in enumerate(pfa.args))
 		default_lookup = pfa.defaults
-		
-		arg_lookup['<function>'] = -1 # out of bounds to force default 
+
+		arg_lookup['<function>'] = -1 # out of bounds to force default
 		default_lookup['<function>'] = function
-		
+
 		# closure variable
 		call_queue_lookup = {}
 		thread_id_lookup = {}
-				
+
 		@wraps(function)
 		def decorated(*args, **kwargs):
-		
+
 			my_thread = Thread.currentThread()
 			my_thread_id = my_thread.getId()
-							
+
 			# keep track of this thread's id in case we try to come back later
 			# so that we don't block ourselves (or grab it if it's already been generated)
 			# NOTE: we're using Thread.getId() here so that we can be sure we're getting a consistent hash
 			#       this wasn't working, and so this annoying indirection was needed since Thread.currentThread()
-			#       wasn't returning the actual object 
+			#       wasn't returning the actual object
 			call_id = thread_id_lookup.setdefault(my_thread_id, uuid1(node=None, clock_seq = hash(function)))
-	
+
 			block_key = tuple(
 					kwargs[key]           if key in kwargs else (
-					args[arg_lookup[key]] if 0 <= arg_lookup[key] < len(args) else 
+					args[arg_lookup[key]] if 0 <= arg_lookup[key] < len(args) else
 					default_lookup.get(key, None)
 					)
 					for key in arguments
 				)
-						
+
 			# Get/create the call queueueue
 			# NOTE: yes, the "queue" here is a dict - in Java maps are thread safe
 			#       and it is _critical_ that nothing break simply adding/removing entries
 			# To get the head of the queue, we use min(...) which seems to be fairly safe
 			# It's also reasonably fast, and the semaphore is NOT meant to be used for traffic
 			#   control - it's to prevent small-ish numbers of threads from tromping on each other!
-			
+
 			try:
 				call_queue = call_queue_lookup.setdefault(block_key, {})
 				# call_queue = EG.setdefault(block_key, scope=(function, semaphore), default={})
@@ -490,10 +490,10 @@ def semaphore(*arguments, **options):
 					raise SemaphoreError('An argument in %r could not be hashed: arguments were %r with an attempted key %r' % (function, arguments, block_key))
 				else:
 					raise error
-			
+
 			if len(call_queue) > max_queue:
 				raise SemaphoreError('Semaphore for %r blocking more than %d (max) waiting calls! Blocking key: %r' % (function, max_queue, block_key))
-			
+
 			# new call_ids are monotonically increasing, so either we're re-entering or we have
 			# just gotten a stale id from the earlier thread_id_lookup.setdefault(...)
 			if call_id < min(call_queue):
@@ -501,20 +501,20 @@ def semaphore(*arguments, **options):
 				# we could clean it up automatically by doing the following:
 				thread_id_lookup[my_thread_id] = call_id = uuid1(node=None, clock_seq = hash(function))
 				# but this isn't tested yet...
-						
+
 			if not call_id in call_queue:
 				call_queue[call_id] = my_thread
-						
+
 			my_thread.sleep(0, 1000) # wait a microsecond in case there's a starting race...
-			
+
 			# IMPORTANT: There are two semantics at play here.
 			#  - Remove semaphore block when finished - normal blocking monitor (at end)
 			#  - Cull dead threads (whose handles are left after they finish) (up next below)
-								
+
 			# wait until our number comes up
-			# (min is probably safe here, or at least it won't throw an error for 
+			# (min is probably safe here, or at least it won't throw an error for
 			#  the dict changing sizes during the check
-			#  See https://gist.github.com/null-directory/273498601dfe55b2130234b8d5cc8cd7 )			
+			#  See https://gist.github.com/null-directory/273498601dfe55b2130234b8d5cc8cd7 )
 			while not min(call_queue) == call_id:
 				# wait, with jitter
 				wait = SEMAPHORE_WAIT_MILLISECONDS + (SEMAPHORE_WAIT_JITTER_MILLISECONDS * random())
@@ -522,7 +522,7 @@ def semaphore(*arguments, **options):
 				# (by splitting up, we can get faster loops, if desired...
 				#  just be warned that lots of threads can lead to a lot of wheel spinning)
 				Thread.sleep(int(wait_ms), int(wait_ns*1000000))
-				
+
 				# attempt to clear a dead head off queue, if needed
 				# (subsequent iterations will *eventually* drain the queue if many die,
 				#  and the larger the queue the faster it drains... -ish.)
@@ -533,14 +533,14 @@ def semaphore(*arguments, **options):
 						try: # attempt to purge thread ref first
 							del thread_id_lookup[head_thread.getId()]
 						except KeyError:
-							pass						
+							pass
 						try: # release lock
 							del call_queue[head]
-						except KeyError: 
+						except KeyError:
 							pass
 				except:
 					pass
-							
+
 			try:
 				results = function(*args, **kwargs)
 			except Exception as error:
@@ -559,12 +559,12 @@ def semaphore(*arguments, **options):
 						del call_queue[call_id]
 					except KeyError:
 						pass # job already done
-					pass 
+					pass
 
 			return results
-			
+
 		return decorated
 
 	return tuned_decorator
-	
-	
+
+

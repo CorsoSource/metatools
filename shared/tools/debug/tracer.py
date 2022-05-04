@@ -24,7 +24,7 @@ from shared.tools.debug.trap import TransientTrap, Step, Next, Until, Return
 
 from ast import literal_eval
 from time import sleep
-from collections import deque 
+from collections import deque
 from datetime import datetime, timedelta
 import textwrap, math, re
 
@@ -40,7 +40,7 @@ __email__ = 'andrew.geiger@corsosystems.com'
 IGNITION_VERSION = system.tag.read('[System]Client/System/FPMIVersion').value
 
 # Standardize the string keys that will be used
-# NOTE: Enum will break the message handlers when in payloads, apparently. 
+# NOTE: Enum will break the message handlers when in payloads, apparently.
 #   It's _literally_ a string, but the Jython reflection gets hung up on the details, it seems.
 # Python doesn't treat it as different, but Java has a different opinion.
 
@@ -50,7 +50,7 @@ class ExtraGlobalScopes(Enum):
 	INSTANCES = 'Tracers'
 	REMOTE_INFO = 'Remote Tracers'
 	REMOTE_COMMANDS = 'Remote Tracer Commands'
-	LOCK = 'Tracer Queue'	
+	LOCK = 'Tracer Queue'
 
 class MessageTypes(Enum):
 	LISTING = 'list'
@@ -58,7 +58,7 @@ class MessageTypes(Enum):
 	COMMAND = 'command'
 	STATE_UPDATE = 'update'
 	STATE_CHECK = 'check'
-	
+
 class MessageScopes(Enum):
 	GATEWAY = 'G'
 	CLIENT = 'C'
@@ -84,7 +84,7 @@ def SCRAM():
 		tracer = Tracer[tracer_id]
 		tracer.SCRAM()
 		del Tracer[tracer_id]
-			
+
 SCRAM_DEADMAN_SIGNAL = {'SCRAMS on empty': True}
 
 
@@ -99,15 +99,15 @@ def NOP_TRACE(frame=None, event=None, arg=None, SCRAM_DEADMAN_SIGNAL=SCRAM_DEADM
 	This acts mostly like a no-op function, returning itself for frames that
 	  are not explicitly blocked (by Tracer.skip_frame(...)).
 	It also checks if a SCRAM has been requested, and if so begins the flush.
-	"""	
+	"""
 	if not SCRAM_DEADMAN_SIGNAL:
 		SCRAM()
 		return None
-	
+
 	# Overhead likely worth it to avoid tracing builtins and such
 	if _skip_frame(frame):
 		return None
-	
+
 	return NOP_TRACE
 
 
@@ -144,9 +144,9 @@ class TracerException(Exception):
 
 class MetaTracer(type):
 	"""
-	Class-level details are broken out here as a metaclass. 
+	Class-level details are broken out here as a metaclass.
 
-	It allows certain convenience functions to work and makes 
+	It allows certain convenience functions to work and makes
 	  instance/class methods easier to tell apart.
 	"""
 
@@ -164,7 +164,7 @@ class MetaTracer(type):
 				if tracer.thread is tracer_id:
 					return tracer
 			raise KeyError("Tracer working on Thread %r not found" % tracer_id)
-		
+
 		raise KeyError("Tracer associated with %r not found" % tracer_id)
 
 	def __setitem__(cls, *args):
@@ -180,7 +180,7 @@ class MetaTracer(type):
 		except Exception, err:
 			system.util.getLogger('MetaTracer').error("Tracer [%s] did NOT shutdown gracefully" % tracer_id)
 			raise err
-			
+
 	def __iter__(cls):
 		"""Iterate over all tracers currently tracked"""
 		for tracer_id in cls.tracer_ids:
@@ -200,7 +200,7 @@ class MetaTracer(type):
 	#==========================================================================
 	#  Jython is pretty darn multithreaded. Except for imports and tracing.
 	#  Multiple traces may run at once, but they'll block each other.
-	#    See Jython source: 
+	#    See Jython source:
 	#    https://github.com/jythontools/jython/blob/1cbd35ce6604198019eb0913fd381a783eb299f2/src/org/python/core/PythonTraceFunction.java#L14-L15
 
 	@property
@@ -213,20 +213,20 @@ class MetaTracer(type):
 		  tracers are active at once, one will merely be blocked until the earlier
 		  clears or the two will simply trip over each other constantly.
 
-		The return value is the ID of the currently active tracer. 
+		The return value is the ID of the currently active tracer.
 		"""
-		current_tracer = ExtraGlobal.setdefault('Active Tracer ID', 
-												scope=ExtraGlobalScopes.LOCK, 
+		current_tracer = ExtraGlobal.setdefault('Active Tracer ID',
+												scope=ExtraGlobalScopes.LOCK,
 												default=None)
 		if not current_tracer:
-			tracer_queue = ExtraGlobal.get('Pending Queue', 
-										   scope=ExtraGlobalScopes.LOCK, 
+			tracer_queue = ExtraGlobal.get('Pending Queue',
+										   scope=ExtraGlobalScopes.LOCK,
 										   default=[])
 			if tracer_queue:
 				current_tracer = tracer_queue.pop(0)
-				ExtraGlobal.stash(current_tracer, 
-								  'Active Tracer ID', 
-								  scope=ExtraGlobalScopes.LOCK, 
+				ExtraGlobal.stash(current_tracer,
+								  'Active Tracer ID',
+								  scope=ExtraGlobalScopes.LOCK,
 								  callback=lambda tracer_id=current_tracer: tracer_id)
 		return current_tracer
 
@@ -247,11 +247,11 @@ class MetaTracer(type):
 		tracer_queue = ExtraGlobal.setdefault('Pending Queue', scope=ExtraGlobalScopes.LOCK, default=[])
 		if tracer_id in tracer_queue:
 			tracer_queue.remove(tracer_id)
-		current_tracer = ExtraGlobal.setdefault('Active Tracer ID', 
-												scope=ExtraGlobalScopes.LOCK, 
+		current_tracer = ExtraGlobal.setdefault('Active Tracer ID',
+												scope=ExtraGlobalScopes.LOCK,
 												default=None)
 		if current_tracer == tracer_id:
-			ExtraGlobal.trash('Active Tracer ID', scope=ExtraGlobalScopes.LOCK) 
+			ExtraGlobal.trash('Active Tracer ID', scope=ExtraGlobalScopes.LOCK)
 
 		# Check if the trace lock needs to be updated
 		return cls.trace_lock
@@ -338,11 +338,11 @@ class MetaTracer(type):
 
 		# Reply to a tracer's request for commands (if any have been buffered)
 		if message_type == MessageTypes.INPUT:
-			commands = ExtraGlobal.get(label=tracer_id, 
-									   scope=ExtraGlobalScopes.REMOTE_COMMANDS, 
+			commands = ExtraGlobal.get(label=tracer_id,
+									   scope=ExtraGlobalScopes.REMOTE_COMMANDS,
 									   default=[])
 			if commands:
-				ExtraGlobal.trash(label=tracer_id, 
+				ExtraGlobal.trash(label=tracer_id,
 								  scope=ExtraGlobalScopes.REMOTE_COMMANDS)
 			return commands
 
@@ -358,12 +358,12 @@ class MetaTracer(type):
 			def heartbeat_check(cls=cls, tracer_id=tracer_id):
 				cls._check_heartbeat(tracer_id)
 			ExtraGlobal.stash(payload,
-							  label=tracer_id, 
+							  label=tracer_id,
 							  scope=ExtraGlobalScopes.REMOTE_INFO,
 							  lifespan=30, # seconds
 							  callback=heartbeat_check)
-			return 
-			
+			return
+
 		# Reply with tracer state
 		if message_type == MessageTypes.STATE_CHECK:
 			state = ExtraGlobal.get(label=tracer_id,
@@ -374,12 +374,12 @@ class MetaTracer(type):
 			state['message'] = str(MessageTypes.STATE_CHECK)
 			return state
 
-			
+
 	def _check_heartbeat(cls, tracer_id):
 		#system.util.getLogger('Tracer %s' % (tracer_id,)).trace('Heartbeat check...')
 
-		pending_commands = ExtraGlobal.get(label=tracer_id, 
-									   scope=ExtraGlobalScopes.REMOTE_COMMANDS, 
+		pending_commands = ExtraGlobal.get(label=tracer_id,
+									   scope=ExtraGlobalScopes.REMOTE_COMMANDS,
 									   default=[])
 		if isinstance(pending_commands, (list, tuple)):
 			# Check if we've already tried to send the command and failed
@@ -388,19 +388,19 @@ class MetaTracer(type):
 		elif isinstance(pending_commands, (str, unicode)):
 			if 'heartbeat' == pending_commands:
 				return
-		
+
 		#system.util.getLogger('Tracer %s' % (tracer_id,)).trace('Heartbeat extending')
 
 		cls._queue_command(tracer_id, 'heartbeat')
-		ExtraGlobal.extend(label=tracer_id, 
+		ExtraGlobal.extend(label=tracer_id,
 						   scope=ExtraGlobalScopes.REMOTE_INFO,
 						   additional_time=self._MESSAGE_CALLBACK_TIMEOUT)
 
 
 	def _queue_command(cls, tracer_id, command):
 		"""Enqueue a command onto the local ExtraGlobal remote control list"""
-		commands = ExtraGlobal.get(label=tracer_id, 
-								   scope=ExtraGlobalScopes.REMOTE_COMMANDS, 
+		commands = ExtraGlobal.get(label=tracer_id,
+								   scope=ExtraGlobalScopes.REMOTE_COMMANDS,
 								   default=[])
 		if not commands:
 			commands = command
@@ -413,7 +413,7 @@ class MetaTracer(type):
 			commands = command
 
 		ExtraGlobal.stash(commands,
-						  label=tracer_id, 
+						  label=tracer_id,
 						  scope=ExtraGlobalScopes.REMOTE_COMMANDS)
 
 
@@ -423,7 +423,7 @@ class MetaTracer(type):
 
 class Tracer(object):
 	"""A variant of the Python Debugger (Pdb)
-	
+
 	This is designed to overcome and take advantage of the different
 	  constraints that running Pdb in a multi-threaded environment
 	  creates.
@@ -432,14 +432,14 @@ class Tracer(object):
 	Traps are created for a tracer, enabled by default, and break only on success.
 
 	Breakpoints are evaluated _before_ the line is executed.
-	  For example, if a breakpoint is set for the line 'x += 1' and 
+	  For example, if a breakpoint is set for the line 'x += 1' and
 	  has a condition 'x == 20', then trace.cursor_frame (lowest frame) will show
 	  x is 20, _not_ 21.
 
 	NOTE: If this is activated inline with the code (same thread), it will NOT
 		  wait indefinitely. You MUST turn off the Tracer instance's INTERDICTION_FAILSAFE
 		  or it will time out quickly!
-	  
+
 	For more information and the cool implementation that we're tweaking here,
 	  see also rpdb at https://github.com/tamentis/rpdb
 	"""
@@ -447,20 +447,20 @@ class Tracer(object):
 
 	__slots__ = (
 				 # Event attributes
-				 '_map_for_dispatch', 
+				 '_map_for_dispatch',
 				 'monitoring',
 
 				 # Command attributes
 
 				 '_cursor_index', '_cursor_stack', '_cursor_context_index',
-				 '_pending_commands', 
+				 '_pending_commands',
 				 '_map_o_commands', '_logged_commands',
 				 '_current_context', 'recording', 'context_buffer',
-				 
-				 '_alias_commands', 
-				 'traps', 'active_traps', 
+
+				 '_alias_commands',
+				 'traps', 'active_traps',
 				 '_breakpoint_commands',
-				 
+
 				 # Tracer attributes
 				 'thread', 'sys', 'tracer_thread',
 				 'interdicting',
@@ -477,7 +477,7 @@ class Tracer(object):
 				 # Remote control handles
 				 '_remote_request_handle', '_remote_request_thread',
 				 'tag_path', 'tag_acked',
-				 
+
 				 '__weakref__', # Allows the weakref mechanics to work on this slotted class.
 				)
 
@@ -485,32 +485,32 @@ class Tracer(object):
 	#==========================================================================
 	# Constants and references
 	#==========================================================================
-	
+
 	_RANDOM_ID_LENGTH = 5
 
 	SCRAM_DEADMAN_SIGNAL = SCRAM_DEADMAN_SIGNAL
-	
+
 	CONTEXT_BUFFER_LIMIT = 1000
 	COMMAND_BUFFER_LIMIT = 1000
 	_UPDATE_CHECK_DELAY = 0.050 # seconds (leave relatively high since it should be driven by human input.)
 	INTERDICTION_FAILSAFE = False # True
 	INTERDICTION_FAILSAFE_TIMEOUT = 30000 # milliseconds (seconds if failsafe disabled)
-		
-	# _event_labels = set(['call', 'line', 'return', 'exception', 
+
+	# _event_labels = set(['call', 'line', 'return', 'exception',
 	# 					 'c_call', 'c_return', 'c_exception',
-	# 					 ])	
+	# 					 ])
 
 	#--------------------------------------------------------------------------
 	# Ignition Messaging
 	#--------------------------------------------------------------------------
-	
+
 	IGNITION_MESSAGE_PROJECT = 'Debugger'
 	IGNITION_MESSAGE_HANDLER = 'Remote Tracer Control'
 
 	# If possible, allow Ignition message traffic to request inputs
 	REMOTE_MESSAGING = False # True if getattr(system.util, 'sendRequest', None) else False
 
-	# Make sure the sendRequest is not called more often than a few times a second, 
+	# Make sure the sendRequest is not called more often than a few times a second,
 	#   or the client starts to log jam events a bit.
 	_MESSAGE_CALLBACK_TIMEOUT = 1.50 # seconds
 
@@ -523,7 +523,7 @@ class Tracer(object):
 		"""
 		If a tracer_id is provided, then if it's already active then it will NOT start a new one.
 		"""
-		# Set the ID - catch the KeyError to gracefully bypass 
+		# Set the ID - catch the KeyError to gracefully bypass
 		if tracer_id:
 			if tracer_id in Tracer.tracer_ids:
 				raise TracerException("Tracer ID [%s] is already taken." % tracer_id)
@@ -550,7 +550,7 @@ class Tracer(object):
 		self._init_control_tag(control_tag)
 
 		# Event init
-		
+
 		self.monitoring = False
 
 		self._map_for_dispatch = dict(
@@ -564,7 +564,7 @@ class Tracer(object):
 			(attribute[9:], getattr(self, attribute))
 			for attribute in dir(self)
 			if attribute.startswith('_command_'))
-		
+
 		self._pending_commands = []
 		self._logged_commands = deque()
 		self._cursor_context_index = 0
@@ -584,12 +584,12 @@ class Tracer(object):
 
 		self.tracer_thread = Thread.currentThread()
 		self.thread = thread or self.tracer_thread
-		
+
 		self.logger.info("Tracing [%s] from %r onto %r" % (self.id, self.tracer_thread, self.thread))
-		
+
 		self.sys = SysHijack(self.thread)
 
-		self.interdicting = False		
+		self.interdicting = False
 		self._top_frame = None
 		self._debug = {}
 		self.step_speed = 0
@@ -615,9 +615,9 @@ class Tracer(object):
 		# start the machinery so we can inject directly
 		#self.sys.settrace(Tracer.dispatch)
 		self.sys.settrace(NOP_TRACE)
-		
 
-	def __repr__(self):	
+
+	def __repr__(self):
 		"""Custom high level glance at tracer"""
 		return '<Tracer [%s] (%s) on %r>' % (self.id, self.state, self.thread)
 
@@ -626,13 +626,13 @@ class Tracer(object):
 	# Bookkeeping and traffic control (one-at-a-time management)
 	#==========================================================================
 
-		
+
 	def SCRAM(self):
 		"""SCRAM the trace and revert thread to as close to untouched as possible."""
 		# Clear out any active traces running
 		self.SCRAM_DEADMAN_SIGNAL.clear()
 		self.logger.warn("SCRAM intiated for tracer [%s]" % self.id)
-		# Purge current frame's trace - this is also done in shutdown, 
+		# Purge current frame's trace - this is also done in shutdown,
 		#   but should happen first
 		for frame in iter_frames(self.current_frame):
 			if frame.f_trace:
@@ -655,7 +655,7 @@ class Tracer(object):
 		There can not be more than one _active_ trace at a time. This is part of the
 		  semaphore traffic-cop routines that allow multiple traces to _exist_ at once.
 
-		Control for this come from outside the tracer, of course. 
+		Control for this come from outside the tracer, of course.
 
 		This function does NOT enque the tracer. That must be already set before entry.
 		  Or after from outside this thread via ExtraGlobal.
@@ -663,7 +663,7 @@ class Tracer(object):
 		See Jython source for PythonTraceFunction for its history
 		  src/org/python/core/PythonTraceFunction.java
 		It may be possible to work around it, but then the tracer will not be able to
-		  interact with the outside world via ExtraGlobal 
+		  interact with the outside world via ExtraGlobal
 		  (or likely any extra-threaded source - if all external references are removed it'll
 		   block the trace thread on something like datetime.now() or some Java call.)
 		The line `synchronized(imp.class) { synchronized(this) {` seems to really _work_ =/
@@ -692,7 +692,7 @@ class Tracer(object):
 
 	def _burn_failsafe_fuse(self):
 		"""
-		If INTERDICTION_FAILSAFE is set then verify timeout has not occured. 
+		If INTERDICTION_FAILSAFE is set then verify timeout has not occured.
 		Returns true as long as fuse time remains.
 
 		NOTE: This is NOT a SCRAM trigger. It merely releases the interdiction interlock
@@ -708,9 +708,9 @@ class Tracer(object):
 
 	def _add_tracer(self, tracer):
 		"""Place tracer in the global cache."""
-		ExtraGlobal.stash(tracer, 
-						  tracer.id, 
-						  scope=ExtraGlobalScopes.INSTANCES, 
+		ExtraGlobal.stash(tracer,
+						  tracer.id,
+						  scope=ExtraGlobalScopes.INSTANCES,
 						  callback=tracer._renew_cache_entry)
 
 
@@ -737,7 +737,7 @@ class Tracer(object):
 	#--------------------------------------------------------------------------
 
 	def _stack_install(self):
-		"""Install the trace dispatcher to every level of the stack 
+		"""Install the trace dispatcher to every level of the stack
 		and then set the trace machinery in motion.
 		"""
 		frame = self.sys._getframe()
@@ -746,7 +746,7 @@ class Tracer(object):
 			# track the furthest up the stack goes
 			self._top_frame = frame
 			frame = frame.f_back
-		
+
 		# Trace is already initialized by this point, and setting
 		#  the frame's trace ensures dispatch will trigger on the
 		#  next line. That dispatch will call sys.settrace as well,
@@ -755,11 +755,11 @@ class Tracer(object):
 
 
 	def _stack_uninstall(self):
-		"""Turn off trace and remove the trace dispatcher from every level 
+		"""Turn off trace and remove the trace dispatcher from every level
 		in the stack.
 		"""
 		self.sys.settrace(None)
-		
+
 		frame = self.sys._getframe()
 		while frame:
 			if frame.f_trace:
@@ -775,14 +775,14 @@ class Tracer(object):
 		"""Begin trace, watching each frame event."""
 		self.monitoring = True
 		self._stack_install()
-	
-		self._debug['entry'] = self.sys._getframe()		
+
+		self._debug['entry'] = self.sys._getframe()
 
 	def interdict(self):
 		"""Begin trace, interdicting each frame event and waiting for commands."""
 		self.interdicting = True
-		self.monitor()		
-		
+		self.monitor()
+
 	def shutdown(self):
 		"""Stop the trace and tear down the setup."""
 		if self.tag_path:
@@ -801,7 +801,7 @@ class Tracer(object):
 				system.tag.removeTag(self.tag_path)
 			self.logger.info('Tracer shutdown complete.')
 		except:
-			raise RuntimeError('Tracer shutdown was at least partly graceless - traced thread is likely already dead and cleanup thus failed.')		
+			raise RuntimeError('Tracer shutdown was at least partly graceless - traced thread is likely already dead and cleanup thus failed.')
 
 	#==========================================================================
 	# Convenience properties
@@ -819,7 +819,7 @@ class Tracer(object):
 
 		if self.waiting:
 			state += ' but waiting'
-		
+
 		if self.thread.state == Thread.State.BLOCKED:
 			thread_info = getThreadInfo(self.thread)
 			try:
@@ -831,7 +831,7 @@ class Tracer(object):
 			except KeyError:
 				state += ", currently blocked by Thread[%s, %d]" % (thread_info.getLockOwnerName(), thread_info.getLockOwnerId())
 		return state
-		
+
 	@property
 	def debug(self):
 		return self._debug
@@ -843,7 +843,7 @@ class Tracer(object):
 		else:
 			return self.sys._getframe()
 
-	@property 
+	@property
 	def current_locals(self):
 		return self.current_frame.f_locals
 	@property
@@ -857,9 +857,9 @@ class Tracer(object):
 	def current_context(self):
 		return self._current_context
 
-	@property 
+	@property
 	def cursor_frame(self):
-		# Though technically the same, 
+		# Though technically the same,
 		# we'll treat the very most present context directly instead of via buffer
 		if self._cursor_context_index == 0:
 			# Override to fail safe to local context (if we're not actively monitoring...)
@@ -880,7 +880,7 @@ class Tracer(object):
 	def cursor_context(self):
 		return self.context_buffer[self._cursor_context_index]
 
-	@property 
+	@property
 	def cursor_locals(self):
 		if self._cursor_context_index == 0:
 			return self.cursor_frame.f_locals
@@ -894,11 +894,11 @@ class Tracer(object):
 			return self.cursor_frame.f_globals
 		else:
 			return self.cursor_context.frame.f_globals
-	
+
 	@property
 	def cursor_code(self):
 		return self.cursor_context.code
-	
+
 	@property
 	def context_recent_traceback(self, past=20):
 		context_traceback = []
@@ -921,7 +921,7 @@ class Tracer(object):
 
 	def __lshift__(self, command):
 		"""
-		Run command like 
+		Run command like
 		tracer << 'source 5'
 		"""
 		return self.command(command)
@@ -933,7 +933,7 @@ class Tracer(object):
 		"""
 		return self.command(command)
 
-	
+
 	#==========================================================================
 	# Interdiction Triggers
 	#==========================================================================
@@ -946,7 +946,7 @@ class Tracer(object):
 
 
 	def _interdict_context(self, frame, event, arg):
-		"""Do the actual interdiction checks against the context."""		
+		"""Do the actual interdiction checks against the context."""
 		if self.interdicting:
 			return True # if already interdicting, continue
 
@@ -964,26 +964,26 @@ class Tracer(object):
 					self.pending_commands = commands + self.pending_commands
 			return True
 
-		return False 
+		return False
 
 
 	def check_traps(self):
 		"""Check any traps, and mark them active if the context triggers it.
 
 		Any transient traps are removed when placed on the active set.
-		"""		
+		"""
 		self.active_traps = set()
 		for trap in frozenset(self.traps):
 			if trap.check(self.current_context):
-				
+
 				#self.logger.debug('TRIP: %r on %r' % (trap, self.current_context,))
-				
+
 				if isinstance(trap, TransientTrap):
 					self.active_traps.add(trap)
 					self.traps.remove(trap)
 				else:
 					self.active_traps.add(trap)
-					
+
 		#if not self.active_traps:
 		#	self.logger.trace('No active traps on %r' % (self.current_context,))
 
@@ -996,34 +996,34 @@ class Tracer(object):
 	#--------------------------------------------------------------------------
 	# Dispatch
 	#--------------------------------------------------------------------------
-	
+
 	def dispatch(self, frame, event, arg):
 		"""
 		The master dispatch called from the sys.settrace tracing functionality.
-		
+
 		NOTE: Due to the way Jython performs tracing, this WILL block other
-			  trace threads. This is part of the Jython implementation of 
+			  trace threads. This is part of the Jython implementation of
 			  the tracing call function, where it forces a synchronized state.
-		"""		
+		"""
 		if not self.SCRAM_DEADMAN_SIGNAL:
 			self.SCRAM(frame)
 			return None
-		
+
 		self.cursor_reset()
-		
+
 		if not self.monitoring:
 			self._cursor_stack = tuple()
 			return None
-				
+
 		if _skip_frame(frame):
 			return None
-			
+
 		if self.step_speed:
 			sleep(self.step_speed) # DEBUG
-		
+
 		self._cursor_stack = tuple(iter_frames(frame))
 		self._current_context = Snapshot(frame, event, arg, clone=self.recording)
-		
+
 		# Buffer's most present is always index 0
 		if self.recording:
 			self.context_buffer.appendleft(self._current_context)
@@ -1040,30 +1040,30 @@ class Tracer(object):
 			# Note that we don't really do anything with this...
 			#   The rest of the function determines how we reply to sys' trace
 			dispatch_retval = self._map_for_dispatch.get(event, NOP_TRACE)(frame, arg)
-			
+
 			self.check_traps()
 
 			# Check if execution should be interdicted for debugging
 			if self.interdict_context(frame, event, arg):
 				self.command_loop()
-				
+
 		except Exception, err:
 			self.logger.error('Dispatch Error: %r' % err)
-		
+
 
 		# Ensure trace continues in this context
 		if frame.f_trace is None:
 			frame.f_trace = self.dispatch
-		
+
 		# Ideally we'd use sys.gettrace but that ain't a thing in Jython 2.5
 		if self.monitoring and not _skip_frame(frame):
 			self.sys.settrace(self.dispatch)
 		else:
 			self.shutdown()
-		
+
 		# TRAMPOLINE GOOOOO
 		return self.dispatch
-		
+
 
 	#--------------------------------------------------------------------------
 	# Event Dispatch
@@ -1094,7 +1094,7 @@ class Tracer(object):
 	#--------------------------------------------------------------------------
 	# User overridable hooks
 	#--------------------------------------------------------------------------
-	
+
 	def on_call(self, frame):
 		pass
 	def on_line(self, frame):
@@ -1112,28 +1112,28 @@ class Tracer(object):
 	def _init_control_tag(self, control_tag):
 		"""
 		If given, a tag may be used to externally control the tags.
-		
+
 		If the tag already exists:
 		 - If it is a folder, then a new memory tag is added with the tracer's id.
-		     Tracers have fairly unique IDs. It's _really_ unlikely this is a problem.
+			 Tracers have fairly unique IDs. It's _really_ unlikely this is a problem.
 		 - If it is a tag, then that is simply taken as an appropriate string tag.
 		If the tag does NOT exist:
 		 - If the control tag path ends in a slash, then it's assumed to be a folder
-		     and will ensure the folders exist as well as a tag of the tracer's id.
+			 and will ensure the folders exist as well as a tag of the tracer's id.
 		 - If the control tag includes a name, then a new tag will be created that is
-		     a string memory tag at that location.
-		     
-		The tag starts off blank and the tracer starts ready to read from it. 
+			 a string memory tag at that location.
+
+		The tag starts off blank and the tracer starts ready to read from it.
 		  (If waiting in a command loop, of course.)
 		"""
 		if not control_tag:
 			self.tag_path = ''
 			self.tag_acked = False
 			return
-		
+
 		# If the tag already exists, us it!
 		if system.tag.exists(control_tag):
-			
+
 			if IGNITION_VERSION.startswith('8.'):
 				tag_config = system.tag.getConfiguration(control_tag)[0]
 				tag_type = tag_config['tagType']
@@ -1155,12 +1155,12 @@ class Tracer(object):
 				self.tag_path = '%s/%s' % (control_tag, self.id)
 			else:
 				self.tag_path = control_tag
-				
+
 		# If the tag does not exist, divine the intention given the string provided
 		else:
 			# https://regex101.com/r/ogqErX/3
 			path_pattern = re.compile(r"""
-			^ 
+			^
 			  # If a tag provider is given, match that first
 			  (\[(?P<provider>[a-z0-9_\- ]+)\])?
 			  # Everything after the provider is a parent path
@@ -1172,30 +1172,30 @@ class Tracer(object):
 			  (?P<name>[a-z0-9_\- ]+)?
 			$
 			""", re.X + re.I)
-			
+
 			path_parts = path_pattern.match(control_tag).groupdict()
-		
+
 			tag_name = path_parts.get('name')     or self.id
 			provider = path_parts.get('provider') or 'default'
 			parent   = path_parts.get('parent')   or ''
 			base_path = '[%s]%s' % (provider, parent)
-			
+
 			# Use Ignition 8's fancy tag control if possible!
 			if IGNITION_VERSION.startswith('8.'):
 				system.tag.configure(
-					basePath=base_path, 
+					basePath=base_path,
 					tags = [
 						{
-							'name'       : tag_name, 
+							'name'       : tag_name,
 							'tagType'    : 'AtomicTag',
 							'dataType'   : 'String',
 							'valueSource': 'memory',
 							}
-						], 
+						],
 					# merge in the change, though none of the other cases apply if we reach this point
-					collisionPolicy='m' 
+					collisionPolicy='m'
 				)
-			# ... otherwise add the tag the long way			
+			# ... otherwise add the tag the long way
 			else:
 				# Make sure the folder exists if missing
 				if parent and not system.tag.exists(base_path):
@@ -1203,7 +1203,7 @@ class Tracer(object):
 					remaining = parent.replace('\\', '/')
 					next_folder, _, remaining = remaining.partition('/')
 					base_path = '[%s]' % provider
-					
+
 					# While we're going through the parent paths, add the folders as needed
 					while next_folder:
 						next_path = '%s/%s' % (base_path, next_folder)
@@ -1224,9 +1224,9 @@ class Tracer(object):
 					enabled=True,
 					value='',
 					)
-			
+
 			self.tag_path = '%s/%s' % (base_path, tag_name)
-	
+
 		self.tag_acked = True
 		system.tag.write(self.tag_path, '')
 
@@ -1260,7 +1260,7 @@ class Tracer(object):
 
 	def _request_command(self, blocking=True):
 		"""
-		Ask the debug project for input. 
+		Ask the debug project for input.
 		This supplements the self._pending_commands waiting loop.
 		"""
 		if not self.REMOTE_MESSAGING:
@@ -1285,7 +1285,7 @@ class Tracer(object):
 			if result:
 				self._remote_request_handle = True
 				self._request_command_onSuccess(result)
-			
+
 			sleep(self._UPDATE_CHECK_DELAY)
 			return
 
@@ -1338,8 +1338,8 @@ class Tracer(object):
 				for command in result:
 					self._pending_commands.append(command)
 
-		# Request complete - clear it. 
-		#   Assume that if not sanity check request_handle was passed in, this was correctly called back. 
+		# Request complete - clear it.
+		#   Assume that if not sanity check request_handle was passed in, this was correctly called back.
 		sleep(self._UPDATE_CHECK_DELAY)
 		self._remote_request_handle = None
 
@@ -1353,8 +1353,8 @@ class Tracer(object):
 
 		pass # don't do anything on error yet...
 
-		# Request complete - clear it. 
-		#   Assume that if not sanity check request_handle was passed in, this was correctly called back. 
+		# Request complete - clear it.
+		#   Assume that if not sanity check request_handle was passed in, this was correctly called back.
 		sleep(self._UPDATE_CHECK_DELAY)
 		self._remote_request_handle = None
 
@@ -1383,11 +1383,11 @@ class Tracer(object):
 			'cursor': self._payload_cursor_info,
 			'log': self._payload_last_log,
 		}
-	
+
 	@property
 	def _payload_ignition_info(self):
 		return {
-			'host': self._ignition_host,			
+			'host': self._ignition_host,
 			'project': self._ignition_project,
 			'client': self._ignition_client,
 			'scope': str(self._ignition_scope),
@@ -1402,10 +1402,10 @@ class Tracer(object):
 					'in': self._logged_commands[i][0],
 					'out': self._logged_commands[i][1],
 				} for i in reversed(range(n)) if i < len(self._logged_commands)
-			] 				
+			]
 		}
 
-	@property 
+	@property
 	def _payload_last_log(self, n=5):
 		return {
 			'stdout': self.sys.stdout.history[-1:],
@@ -1441,7 +1441,7 @@ class Tracer(object):
 			'line':     self.cursor_context.line,
 			'filename': self.cursor_context.filename,
 		}
-		
+
 
 	#==========================================================================
 	# Interaction
@@ -1453,10 +1453,10 @@ class Tracer(object):
 
 	# Some commands shouldn't sanely be logged. Especially the log/status stuff.
 	_UNLOGGED_COMMANDS = set(['status', 'state', 'log'])
-	
+
 	def command(self, command):
 		"""
-		Interpret commands like PDB: '!' means execute, 
+		Interpret commands like PDB: '!' means execute,
 		otherwise it's a command word followed by optional arguments.
 		"""
 		if not command:
@@ -1466,7 +1466,7 @@ class Tracer(object):
 		#   in the std* histories, then the timestamp should happen before it is run.
 		# So capture here, then log after.
 		timestamp = datetime.now()
-		
+
 		args = [None]
 		try:
 			if command.lstrip()[0] == '!':
@@ -1478,7 +1478,7 @@ class Tracer(object):
 						args.append(literal_eval(arg))
 					except:
 						args.append(arg)
-				
+
 				result = self._map_o_commands.get(args[0], self._command_default)(command, *args[1:])
 		except Exception, error:
 			result = error
@@ -1493,11 +1493,11 @@ class Tracer(object):
 
 		if not self.interdicting:
 			return
-	
+
 		# if Thread.currentThread() is self.tracer_thread:
 		# 	raise RuntimeError("Await called from the wrong context! %r instead of %r" % (
 		# 					self.tracer_thread, self.thread,) )
-		
+
 		self._set_failsafe_fuse()
 
 		while self.interdicting:
@@ -1516,10 +1516,10 @@ class Tracer(object):
 						elif isinstance(result, (list, tuple, dict)):
 							system.tag.write(self.tag_path, system.util.jsonEncode(result))
 						elif result is None or result == '':
-							system.tag.write(self.tag_path, 'Done.')						
+							system.tag.write(self.tag_path, 'Done.')
 						else:
 							system.tag.write(self.tag_path, str(result))
-						
+
 			# Send update after all commands are run (query for logs if batch set...)
 			self._send_update()
 
@@ -1551,7 +1551,7 @@ class Tracer(object):
 		self._logged_commands.appendleft((format_string % (timestamp or datetime.now(), command), result))
 		# self._logged_commands.insert(0, (format_string % (timestamp or datetime.now(), command), result))
 		while len(self._logged_commands) > self.COMMAND_BUFFER_LIMIT:
-			_ = self._logged_commands.pop()	
+			_ = self._logged_commands.pop()
 
 
 	def _await_pause(self):
@@ -1561,11 +1561,11 @@ class Tracer(object):
 
 	def _compile(self, expression, mode='eval'):
 		return self.sys.builtins['compile'](expression, '<tracer:expression>', mode)
-	
+
 	def cursor_eval(self, expression):
 		code = self._compile(expression)
 		return self.sys.builtins['eval'](code, self.cursor_frame.f_globals, self.cursor_frame.f_locals)
-	
+
 
 	def cursor_reset(self):
 		self._cursor_context_index = 0
@@ -1599,7 +1599,7 @@ class Tracer(object):
 		if context:
 			comfunc = self._map_o_commands[context]
 
-			aliases = ', '.join(alias for alias,cf in self._map_o_commands.items() 
+			aliases = ', '.join(alias for alias,cf in self._map_o_commands.items()
 								if cf == comfunc)
 			doc = textwrap.dedent(comfunc.__doc__.strip())
 
@@ -1648,7 +1648,7 @@ class Tracer(object):
 			))
 
 		return '\n'.join(reversed(stack))
-	_command_w = _command_where 
+	_command_w = _command_where
 
 
 	# Position frame
@@ -1744,7 +1744,7 @@ class Tracer(object):
 
 	def _command_ignore(self, command='ignore', breakpoint=None, num_passes=0):
 		"""
-		Run past breakpoint num_passes times. 
+		Run past breakpoint num_passes times.
 		Once count goes to zero the breakpoint activates.
 		"""
 		if breakpoint is None:
@@ -1754,9 +1754,9 @@ class Tracer(object):
 
 	def _command_break(self, command='break', stop_location='', stop_condition='', *misaligned_args):
 		"""
-		Create a breakpoint at the given location. 
+		Create a breakpoint at the given location.
 		Use the tbreak command to set the new breakpoint as temporary.
-		
+
 		The stop_location can be
 		 - a line in the current file
 		 - a function in the current file
@@ -1772,7 +1772,7 @@ class Tracer(object):
 		 - conditions, if any
 		 - is temporary
 		"""
-		# For consistency, we'll reparse the command using regex 
+		# For consistency, we'll reparse the command using regex
 		#   This helps if the condition has spaces or other junk.
 		# See this for test cases https://regex101.com/r/NKiXj6/2
 		pattern = re.compile(r"""
@@ -1783,20 +1783,20 @@ class Tracer(object):
 			""", re.I + re.X)
 
 		arg_match = pattern.match(command)
-		
+
 		if not arg_match:
 			return 'Listing Breakpoints: \n%s' % '\n'.join('%3d   %r' % (bpid, bp) for bpid, bp in Breakpoint._instances.items())
-		
+
 		parts = arg_match.groupdict()
 
 		if parts['command'] in ('tbreak', 'temporary'):
 			parts['temporary'] = True
 
 		del parts['command']
-		
+
 		# create the breakpoint
 		new_breakpoint = Breakpoint(**parts)
-		
+
 		# ... and enable it for this tracer
 		new_breakpoint.enable(self)
 	_command_tbreak = _command_temporary = _command_break
@@ -1812,14 +1812,14 @@ class Tracer(object):
 
 		if not condition:
 			raise RuntimeError("Condition is required for conditional breakpoints.")
-		
+
 		breakpoint = Breakpoint.get(breakpoint)
 		breakpoint.condition = condition
-		
+
 
 	def _command_commands(self, command='commands', breakpoint=None):
 		"""
-		Run commands when breakpoint is reached. 
+		Run commands when breakpoint is reached.
 		Commands are pulled off the tracer's pending_commands;
 		Commands entered will be assigned to this breakpoint until 'end' is seen.
 
@@ -1861,7 +1861,7 @@ class Tracer(object):
 		"""
 		self.traps = set()
 		self.interdicting = False
-		self.monitoring = False	
+		self.monitoring = False
 
 	def _command_interdict(self, command='interdict'):
 		"""
@@ -1872,7 +1872,7 @@ class Tracer(object):
 
 	def _command_monitor(self, command='monitor', step_speed=0):
 		"""
-		Resume execution but watch for breaks. 
+		Resume execution but watch for breaks.
 		If step_speed is nonzero, wait that many seconds between steps.
 		"""
 		self.step_speed = step_speed
@@ -1892,9 +1892,9 @@ class Tracer(object):
 
 	def _command_next(self, command='next'):
 		"""
-		Continue to the next line (or return statement). 
+		Continue to the next line (or return statement).
 		Note step 'steps into a line' (possibly making the call stack deeper)
-		  while next goes to the 'next line in this frame'. 
+		  while next goes to the 'next line in this frame'.
 		"""
 		self.traps.add(Next(self.current_context))
 		self.interdicting = False
@@ -1938,7 +1938,7 @@ class Tracer(object):
 
 		Original design:
 		Set the next line to be executed. Only possible in the bottom frame.
-		
+
 		Use this to re-run code or skip code in the current frame.
 		NOTE: You can note jump into the middle of a for loop or out of a finally clause.
 		"""
@@ -1954,7 +1954,7 @@ class Tracer(object):
 
 	def _command_status(self, command='status', format='', log_index=-1):
 		"""
-		Summarize the status of the tracer. 
+		Summarize the status of the tracer.
 		The return format can be specified as any of the following:
 		 - None (default): Python payload
 		 - 'repr': Typical output on the interactive prompt
@@ -1986,13 +1986,13 @@ class Tracer(object):
 			return 'IndexError: log depth %d is out of range for %s' % (log_index, format)
 	_command_state = _command_log = _command_status
 
-		
+
 	def _command_list(self, command='list', first=0, last=0):
 		"""
 		List the source code for the current file, +/- 5 lines.
 		Given just first, show code +/- 5 lines around first.
 		Given first and last show code between the two given line numbers.
-		If last is less than first it goes last lines past the first. 
+		If last is less than first it goes last lines past the first.
 		"""
 		frame = self.cursor_frame
 
@@ -2004,7 +2004,7 @@ class Tracer(object):
 		if not code_lines:
 			self.logger.warn('Code is empty in listing: %s %d %d' % (command, first, last))
 			return 'Source in "%s"\n%s' % (frame.f_code.co_filename, "CodeCache could not find source code!")
-			
+
 		if last == 0:
 			if first == 0:
 				start = self.cursor_frame.f_lineno - 5
@@ -2019,7 +2019,7 @@ class Tracer(object):
 			else:
 				start = first
 				end   = last
-		
+
 		# sanity check
 		if start < 0:
 			start = 0
@@ -2031,8 +2031,8 @@ class Tracer(object):
 		line_order = (int(math.log10(end)) + 1)
 		fmt_line = '[ %%%dd]  %%s' % line_order
 		cur_line = ' >%%%dd > %%s' % line_order
-		annotated_block = '\n'.join([(cur_line 
-										if (i + start + 1) == frame.f_lineno 
+		annotated_block = '\n'.join([(cur_line
+										if (i + start + 1) == frame.f_lineno
 										else fmt_line
 										) % (i + start + 1, line)
 									 for i, line in enumerate(rendered_code)])
@@ -2043,7 +2043,7 @@ class Tracer(object):
 	def _command_source(self, command='source', radius=0):
 		"""
 		Returns the source code for the file at the cursor frame.
-		Just source code lines returned by default, otherwise the starting 
+		Just source code lines returned by default, otherwise the starting
 		  line is also returned (to contextualize block of code).
 		"""
 		if radius:
@@ -2088,11 +2088,11 @@ class Tracer(object):
 		if expression == '':
 			return
 		return pdir(self.cursor_eval(expression), skipPrivate=skip_private, directPrint=False)
-		
-		
+
+
 	def _command_alias(self, command='alias', name='', command_string=''):
 		"""
-		Create an alias called name that executes command. 
+		Create an alias called name that executes command.
 		If no command, then show what alias is. If no name, then show all aliases.
 
 		NOTE: The command should not be in quotes.
@@ -2113,7 +2113,7 @@ class Tracer(object):
 
 	def _command_statement(self, raw_command, *tokens):
 		"""
-		Execute the (one-line) statement. 
+		Execute the (one-line) statement.
 		Start the statement with '!' if it starts with a command.
 
 		To set a global variable, prefix the assignment command with `global`
@@ -2125,14 +2125,14 @@ class Tracer(object):
 			raw_command = raw_command[1:].strip()
 		elif raw_command.startswith('statement'):
 			raw_command = raw_command[10:].strip()
-			
+
 		if isinstance(raw_command, (str, unicode)):
 			raw_command += '\n'
-		
+
 		code = self._compile(raw_command, mode='exec')
-		
+
 		frame = self.cursor_frame
-		exec code in frame.f_globals, frame.f_locals	
+		exec code in frame.f_globals, frame.f_locals
 
 		# DO NOT RUN THIS - Frames can't be generated from within the Python
 		#   engine, it seems, and this just... locks everything up.
@@ -2152,7 +2152,7 @@ class Tracer(object):
 		  this. This is here specifically for completion's sake.
 		"""
 		raise NotImplementedError("IPDB will not implement the 'run' command.")
-	
+
 
 	def _command_quit(self, command):
 		"""
@@ -2166,25 +2166,25 @@ class Tracer(object):
 	def _command_fork(self, raw_command='fork', *ignored_details):
 		"""
 		Create a new tracer that initializes from the start of the current cursor scope.
-		
+
 		Variables can be adjusted before initialization by providing them.
 		Carefully crafted Python objects can be sent in directly using
 		  fork_scenario(**kwargs). This function is a helper wrapper.
-		  
-		This commandline function accepts statements of the form "variableName=value", 
+
+		This commandline function accepts statements of the form "variableName=value",
 		  where variableName is any legal Python identifier string
 		  and value is any string that evaluates (specifically, it will attempt
 		  to perform an ast.literal_eval first, then failing that eval() next.
-		  
-		For example, the following command overrides the variable 
+
+		For example, the following command overrides the variable
 		"""
-		# To do this right, we need to ignore the calculated stuff 
+		# To do this right, we need to ignore the calculated stuff
 		#   from the command loop
 		raw_command = raw_command.strip()
 		command,_,local_override_statements = raw_command.partition(' ')
-		
+
 		local_overrides = {}
-		if local_override_statements:			
+		if local_override_statements:
 			pattern = re.compile("""
 				(?:(^|\\s*))
 				(?P<variable_name>[a-z_][a-z0-9_]*)
@@ -2194,14 +2194,14 @@ class Tracer(object):
 				(?P<expression>[^=]+?)
 				(?=([a-z_][a-z0-9_]*\\s*=|$))
 				""", re.X + re.I)
-			
-			statement_tokens = pattern.findall(local_override_statements) 
-			
+
+			statement_tokens = pattern.findall(local_override_statements)
+
 			for tokens in statement_tokens:
 				_,variable_name,_,expression,_ = tokens
-				
+
 				expression = expression.strip()
-				
+
 				try:
 					value = literal_eval(expression)
 				except:
@@ -2209,23 +2209,23 @@ class Tracer(object):
 						value = self.cursor_eval(expression)
 					except:
 						return ('An argument did not evaluate: %s' % variable_name), None
-						
+
 				local_overrides[variable_name] = value
-			
+
 		scenario_tracer_id, scenario_thread = self.fork_scenario(**local_overrides)
-		
+
 		return scenario_tracer_id
-		
+
 
 	def fork_scenario(self, **local_overrides):
 		"""
-		Fork another tracer off from the cursor frame to inspect as a new scenario. 
-		
+		Fork another tracer off from the cursor frame to inspect as a new scenario.
+
 		Returns the new thread that is getting traced.
-		
+
 		WARNING: Other tracers will block until they shutdown!
 		"""
-		# Check if we're forking on a scenario already. 
+		# Check if we're forking on a scenario already.
 		# If so, maintain source and increment.
 		# https://regex101.com/r/m6J20o/1
 		scenario_name_pattern = re.compile('^(?P<source_id>[a-z0-9-]+?)(?P<scenario>-S-(?P<scenario_number>[0-9]+))?$')
@@ -2236,29 +2236,29 @@ class Tracer(object):
 		else:
 			origin = self.id
 			next_refnum = 1
-	
+
 		back_reference = '%s-S-%d' % (origin, next_refnum)
 		tracer_ids = Tracer.tracer_ids
-		
+
 		while back_reference in tracer_ids:
 			next_refnum += 1
 			back_reference = '%s-S-%d' % (origin, next_refnum)
-		
+
 		frame = self.cursor_frame
 
 		source = CodeCache.get_lines(frame, radius=0, sys_context=self.sys)
-		
+
 		# frame lines are one-indexed
 		frame_first_line_number = frame.f_code.co_firstlineno
 		frame_first_line = source[frame_first_line_number - 1]
-		
+
 		spacer = frame_first_line[0]
-		
+
 		for indent_count, c in enumerate(frame_first_line):
 			# zero-index means we end on the count
 			if c != spacer:
 				break
-		
+
 		# increase the indent by one since the frame is actually executed
 		#   inside the definition, not _on_ it.
 		indent = spacer * (indent_count + 1)
@@ -2270,38 +2270,38 @@ class Tracer(object):
 			# once we're past the def statement, break if we dedent
 			elif code_block:
 				break
-		
+
 		while not code_block[-1].strip():
 			_ = code_block.pop(-1)
-		
+
 		head_code = [indent + line.strip() for line in """
 			from shared.tools.debug.tracer import set_trace
 			set_trace(**_trace_init_config)
 			""".splitlines() if line]
-		
+
 		code_block = head_code + code_block
-		
+
 		#CodeCache._render_tabstops(code_block)
 		code = compile(textwrap.dedent('\n'.join(code_block)), '<tracer-scenario:%s>' % back_reference, 'exec')
-		
+
 		argument_names = frame.f_code.co_varnames[:frame.f_code.co_argcount]
-		
+
 		scenario_locals = {'_trace_init_config': {'tracer_id': back_reference}}
-		scenario_locals.update(dict((arg_name, frame.f_locals[arg_name]) 
+		scenario_locals.update(dict((arg_name, frame.f_locals[arg_name])
 							   for arg_name in argument_names))
 		scenario_locals.update(local_overrides)
-		
+
 		scenario_globals = frame.f_globals
 		#del scenario_globals['Tracer']
-		
+
 		@async(name='Tracer Scenario: %s' % back_reference)
-		def initialize_scenario(code=code, 
-								scenario_globals=scenario_globals, 
+		def initialize_scenario(code=code,
+								scenario_globals=scenario_globals,
 								scenario_locals=scenario_locals):
 			exec(code, scenario_globals, scenario_locals)
-			
+
 		scenario_thread = initialize_scenario()
-		
+
 		return back_reference, scenario_thread
 
 
@@ -2314,7 +2314,7 @@ def set_trace(**tracer_init_config):
 		tracer.interdict()
 		return tracer
 
-	# If it fails to interdict, then fail and move on 
+	# If it fails to interdict, then fail and move on
 	except TracerException:
 		return None
 
@@ -2332,4 +2332,3 @@ def post_mortem():
 def pre_mortem():
 	"""Fork from the start and immediately interdict given current scope."""
 	raise NotImplementedError("TODO: ADD FEATURE")
-	

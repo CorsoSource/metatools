@@ -2,21 +2,21 @@
 	CodeCache replaces the builtin linecache
 
 	The linecache library doesn't seem to work well in Jython. At the least,
-	  it doesn't seem to keep a copy of the Python source while it executes.
+		it doesn't seem to keep a copy of the Python source while it executes.
 
 	To work around this, CodeCache references the objects and backtraces
-	  to their original source. Or at least tries (there are things like
-	  the script playground's buffer that can't obviously be retrieved).
-	  And some code could be available, but is not simply because
-	  it hasn't been extracted yet. Point at an issue and raise a request
-	  to have it added. There's a small pending list already, but it
-	  helps to know where other blind spots might be.
+		to their original source. Or at least tries (there are things like
+		the script playground's buffer that can't obviously be retrieved).
+		And some code could be available, but is not simply because
+		it hasn't been extracted yet. Point at an issue and raise a request
+		to have it added. There's a small pending list already, but it
+		helps to know where other blind spots might be.
 
 	Also this uses pygments to generate a syntax highlighted view of the
-	  code, if possible. A backported version of Pygments is available at
-	  https://github.com/CorsoSource/jython-2.5-backports 
-    ... but if unavailable syntax_highlight will simply fail safe 
-      and give the code as-is.
+		code, if possible. A backported version of Pygments is available at
+		https://github.com/CorsoSource/jython-2.5-backports
+		... but if unavailable syntax_highlight will simply fail safe
+			and give the code as-is.
 """
 
 from __future__ import with_statement
@@ -65,7 +65,7 @@ try:
 			highlight_lines = [line_no + 1 for line_no in highlight_lines]
 
 		formatter = HtmlFormatter(
-			linenos='table', 
+			linenos='table',
 			style=style,
 			hl_lines=highlight_lines,
 			linenostart=start_line,
@@ -74,12 +74,12 @@ try:
 			lineseparator='<br>',
 			noclasses=True,
 			)
-					
+
 		html = highlight(code, PYTHON_LEXER, formatter)
 
 		html = highlight_html_strip_pattern.sub('', html)
 		html = replace_linenumber_format(html)
-		
+
 		return html.strip()
 
 # In case Pygments is not installed, passthru
@@ -119,15 +119,15 @@ def cached(function):
 
 
 class MetaCodeCache(type):
-	"""The CodeCache is another kinda-like-a-module classes. 
+	"""The CodeCache is another kinda-like-a-module classes.
 	Because it's Jython (and Ignition), it's useful to encapsulate state
-	  inside a class instead of module. The module mechanics are just a bit
-	  difficult to reason on, given how state is shared between threads,
-	  so this pattern helps a bit.
+		inside a class instead of module. The module mechanics are just a bit
+		difficult to reason on, given how state is shared between threads,
+		so this pattern helps a bit.
 
 	Plus it cuts down on so many @classmethod calls and makes it easier to
-	  make this a singleton. CodeCache is meant to be serve the same purpose
-	  as linecache, and so a little bit of magic isn't too bad, I think.
+		make this a singleton. CodeCache is meant to be serve the same purpose
+		as linecache, and so a little bit of magic isn't too bad, I think.
 	"""
 
 
@@ -149,18 +149,18 @@ class MetaCodeCache(type):
 		"""Retrieve the line of code at the frame location."""
 		code = cls._dispatch_frame(frame)
 
-		if not code: 
+		if not code:
 			return ''
-		
+
 		return code.splitlines()[frame.f_lineno]
-		
+
 
 	def get_lines(cls, frame, radius=5, sys_context=None):
 		"""Retreive the lines of code at the frame location.
 
 		If radius is 0, return all the code in that frame's file.
 		Otherwise, return radius lines before and after the frame's
-		  active line, clamping to the start/end of the code block.
+			active line, clamping to the start/end of the code block.
 		"""
 		code_lines, start_line = cls.get_lines_with_start(frame, radius, sys_context)
 		return code_lines
@@ -169,23 +169,23 @@ class MetaCodeCache(type):
 	def get_lines_with_start(cls, frame, radius=5, sys_context=None):
 		"""Retreive the lines of code at the frame location as a tuple of code and the starting line.
 		(Use this in case the radius blocks to a different initial offset)
-	
+
 		If radius is 0, return all the code in that frame's file.
 		Otherwise, return radius lines before and after the frame's
-		  active line, clamping to the start/end of the code block.
+			active line, clamping to the start/end of the code block.
 		"""
 		code = cls._dispatch_frame(frame)
-	
-		if not code: 
+
+		if not code:
 			return []
 		else:
 			code_lines = code.splitlines()
-	
+
 		if not radius:
 			return code_lines, 1
 		else:
 			block_slice = cls._calc_block_ends(frame.f_lineno, len(code_lines), radius)
-			return code_lines[block_slice], block_slice.start		
+			return code_lines[block_slice], block_slice.start
 
 
 	@staticmethod
@@ -193,7 +193,7 @@ class MetaCodeCache(type):
 		"""Calculate ends assuming a full block is preferred at ends"""
 		start = line_number - radius
 		end = line_number + radius + 1
-	
+
 		# Realign if over/undershot
 		if start < 0:
 			end -= start
@@ -201,20 +201,20 @@ class MetaCodeCache(type):
 		if end >= list_length:
 			start -= end - list_length
 			end = list_length
-			
+
 		# Clamp to limits
 		if start < 0:
 			start = 0
 		if end >= list_length:
 			end = list_length
-		
+
 		return slice(start, end)
 
-	
+
 	def _render_tabstops(cls, code_lines):
 		"""Replace tab characters with spaces to align to tab stops."""
 		rendered_lines = []
-		
+
 		for line in code_lines:
 			rendered = ''
 			while '\t' in line:
@@ -224,17 +224,17 @@ class MetaCodeCache(type):
 			rendered += line
 			rendered_lines.append(rendered)
 		return rendered_lines
-		
+
 
 	def _dispatch_frame(cls, frame, sys_context=None):
-		"""Resolve and make sense of the location given. 
+		"""Resolve and make sense of the location given.
 
-		It may be "module:shared.tools.debug.codecache" or perhaps 
-		  a vague "event:actionPerformed". This function will make sense of this
-		  in the Ignition environment, backtracing as needed.
+		It may be "module:shared.tools.debug.codecache" or perhaps
+			a vague "event:actionPerformed". This function will make sense of this
+			in the Ignition environment, backtracing as needed.
 
 		Note that this caches after resolving objects. This is because name references
-		  may be ambiguous or change as the stack mutates.
+			may be ambiguous or change as the stack mutates.
 		"""
 		location = normalize_filename(frame.f_code.co_filename)
 
@@ -256,7 +256,7 @@ class MetaCodeCache(type):
 
 			elif script_type == 'WebDev':
 				return cls._code_webdev(location)
-		
+
 		return None
 
 
@@ -278,7 +278,7 @@ class MetaCodeCache(type):
 				ic_comp = ic_comp.parent
 
 		assert ic_comp, "Interaction controller not found - backtrace failed."
-		
+
 		for adapter in ic.getAllAdaptersForTarget(component):
 			if adapter.getMethodDescriptor().getName() == event_name:
 				return adapter.getJythonCode()
@@ -288,10 +288,10 @@ class MetaCodeCache(type):
 
 	@cached
 	def _code_module(cls, filename, sys_context=None):
-	
+
 		if sys_context is None:
 			sys_context = cls._default_sys_context
-		
+
 		try:
 			module = sys_context.modules[filename]
 		except KeyError:
@@ -299,19 +299,19 @@ class MetaCodeCache(type):
 			#   so they're not _really_ modules - sometimes the full chain
 			#   is not in sys.modules. Thus we'll get the root and pull from there.
 			module_chain = filename.split('.')
-			module = sys_context.modules[module_chain[0]]			
+			module = sys_context.modules[module_chain[0]]
 			for submodule_name in module_chain[1:]:
 				module = getattr(module, submodule_name)
-			
+
 			# NOTE: the following reduce statement DOES NOT WORK.
 			#   It's super inside baseball why, but the basic answer is that
 			#   Jython effectively has a GIL for import statements, and Ignition
-			#   sorta does the import mechanics during the getattr of it's 
+			#   sorta does the import mechanics during the getattr of it's
 			#   pseudo-modules. They don't quite block, but they're not done
 			#   loading in, either. So we have to do a loop to let each
 			#   getattr statement take as long as the mechanics need.
 			# module = reduce(getattr, module_chain[1:], module)
-			
+
 		filepath = getattr(module, '__file__', None)
 		if filepath:
 			with open(filepath, 'r') as f:
@@ -323,7 +323,7 @@ class MetaCodeCache(type):
 
 		if code:
 			return code
-		
+
 		return None
 
 
@@ -343,17 +343,17 @@ class MetaCodeCache(type):
 
 class CodeCache(MetaSingleton):
 	"""Similar to the linecache module in purpose, but makes sense of the Ignition environment.
-	
+
 	It caches the results for faster lookup.
 
 	For example, the `frame.f_code.co_filename` may be `<event:actionPerformed>`.
-	  This isn't enough information, so we need to backtrace to get the event object.
-	  Though the project may have many of these, the `event` object nearest in the 
-	  call stack is certainly the one of interest. It's `event.source` is what fired
-	  it, and if we go up the `.parent` tree enough, we'll find the interaction
-	  controller that has the adapters that has the source code in them.
+		This isn't enough information, so we need to backtrace to get the event object.
+		Though the project may have many of these, the `event` object nearest in the
+		call stack is certainly the one of interest. It's `event.source` is what fired
+		it, and if we go up the `.parent` tree enough, we'll find the interaction
+		controller that has the adapters that has the source code in them.
 
-	  That's a bit involved, hence the caching.
+		That's a bit involved, hence the caching.
 	"""
 	__metaclass__ = MetaCodeCache
 

@@ -27,9 +27,9 @@ __email__ = 'andrew.geiger@corsosystems.com'
 
 
 class StreamBuffer(object):
-	__slots__ = ('history', 
+	__slots__ = ('history',
 				 '_target_io',
-				 '_parent_proxy', 
+				 '_parent_proxy',
 				 '_buffer_line',
 				 '__weakref__',
 				)
@@ -39,17 +39,17 @@ class StreamBuffer(object):
 	def __init__(self, target_io, parent_proxy=None):
 		self._buffer_line = ''
 		self.history = ['[%s] %s' % (str(datetime.now()), '#! Starting log...')]
-		
+
 		# Failsafe to drill past repeated inits
 		while isinstance(target_io, StreamBuffer):
 			target_io = target_io._target_io
-					
+
 		self._target_io = target_io
 		self._parent_proxy = parent_proxy
 
 		system.util.getLogger('StreamBuffer').debug(repr(self._target_io))
 
-				
+
 	@property
 	def parent(self):
 		return self._parent_proxy
@@ -57,7 +57,7 @@ class StreamBuffer(object):
 
 	def write(self, string):
 		self._target_io.write(string)
-		
+
 		buffer = self._buffer_line + string
 		timestamp = str(datetime.now())
 		ix = 0
@@ -65,11 +65,11 @@ class StreamBuffer(object):
 			line, _, buffer = buffer.partition('\n')
 			self.history.append('[%s] %s' % (timestamp, line))
 		self._buffer_line = buffer
-		
+
 
 	def writelines(self, iterable):
 		self._target_io.writelines(iterable)
-		
+
 		timestamp = str(datetime.now())
 		for ix, line in enumerate(iterable):
 			if ix == 0:
@@ -95,11 +95,11 @@ class StreamBuffer(object):
 
 class ProxyIO(object):
 	"""Control the I/O"""
-	
-	__slots__ = ('_stdin', '_stdout', '_stderr', '_displayhook', 
+
+	__slots__ = ('_stdin', '_stdout', '_stderr', '_displayhook',
 				 '_original_displayhook',
 				 '_hijacked_sys', '_installed')
-	
+
 	def __init__(self, hijacked_sys=None):
 		self._installed = False
 
@@ -110,20 +110,20 @@ class ProxyIO(object):
 		self._displayhook = None
 
 		self._hijacked_sys = hijacked_sys
-	
+
 
 	@property
 	def installed(self):
-		return self._installed	
+		return self._installed
 
 	@property
 	def coupled_sys(self):
 		return self._coupled_sys
-		
+
 	@property
 	def last_input(self):
 		return self.stdin.history[-1]
-			
+
 	@property
 	def last_output(self):
 		return self.stdout.history[-1]
@@ -136,23 +136,23 @@ class ProxyIO(object):
 	@property
 	def stdin(self):
 		return self._stdin
-	
+
 	@property
 	def stdout(self):
 		return self._stdout
-	
+
 	@property
 	def stderr(self):
 		return self._stderr
-	
+
 	@property
 	def displayhook(self):
 		return self._displayhook
-	
+
 	@property
 	def _coupled_sys(self):
 		return self._hijacked_sys._thread_sys
-	
+
 
 	def install(self):
 		self._original_displayhook = self._coupled_sys.displayhook
@@ -161,12 +161,12 @@ class ProxyIO(object):
 		self._stdin  = StreamBuffer(self._coupled_sys.stdin,  parent_proxy=self)
 		self._stdout = StreamBuffer(self._coupled_sys.stdout, parent_proxy=self)
 		self._stderr = StreamBuffer(self._coupled_sys.stderr, parent_proxy=self)
-		
+
 		self._coupled_sys.stdin       = self.stdin
 		self._coupled_sys.stdout      = self.stdout
 		self._coupled_sys.stderr      = self.stderr
 		self._coupled_sys.displayhook = self.displayhook
-		
+
 		self._installed = True
 
 

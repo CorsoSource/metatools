@@ -530,7 +530,7 @@ class Emitter(object):
 				return '\''
 		return '"'
 
-	def process_scalar(self):        
+	def process_scalar(self):
 		if self.analysis is None:
 			self.analysis = self.analyze_scalar(self.event.value)
 		if self.style is None:
@@ -644,7 +644,7 @@ class Emitter(object):
 		return anchor
 
 	def analyze_scalar(self, scalar):
-				
+
 		# Empty scalar is a special case.
 		if not scalar:
 			return ScalarAnalysis(scalar=scalar, empty=True, multiline=False,
@@ -761,7 +761,7 @@ class Emitter(object):
 		allow_single_quoted = True
 		allow_double_quoted = True
 		allow_block = True
-		
+
 		# Leading and trailing whitespaces are bad for plain scalars.
 		if (leading_space or leading_break
 				or trailing_space or trailing_break):
@@ -795,7 +795,7 @@ class Emitter(object):
 		if block_indicators:
 			allow_block_plain = False
 
-		if (FORCE_MULTILINE_STRING_BLOCKS 
+		if (FORCE_MULTILINE_STRING_BLOCKS
 				and isinstance(scalar, (str, unicode)) and line_breaks):
 			allow_block = True
 
@@ -1001,7 +1001,7 @@ class Emitter(object):
 			end += 1
 		self.write_indicator(u'"', False)
 
-	def determine_block_hints(self, text):		
+	def determine_block_hints(self, text):
 		hints = u''
 		if text:
 			if text[0] in u' \n\x85\u2028\u2029':
@@ -1012,7 +1012,7 @@ class Emitter(object):
 				hints += u'+'
 		return hints
 
-	def write_folded(self, text):		
+	def write_folded(self, text):
 		hints = self.determine_block_hints(text)
 		self.write_indicator(u'>'+hints, True)
 		if hints[-1:] == u'+':
@@ -1066,7 +1066,7 @@ class Emitter(object):
 				spaces = (ch == u' ')
 			end += 1
 
-	def write_literal(self, text):		
+	def write_literal(self, text):
 		hints = self.determine_block_hints(text)
 		self.write_indicator(u'|'+hints, True)
 		if hints[-1:] == u'+':
@@ -1101,7 +1101,7 @@ class Emitter(object):
 				breaks = (ch in u'\n\x85\u2028\u2029')
 			end += 1
 
-	def write_plain(self, text, split=True):	
+	def write_plain(self, text, split=True):
 		if self.root_context:
 			self.open_ended = True
 		if not text:

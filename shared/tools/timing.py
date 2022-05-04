@@ -29,13 +29,13 @@ def waitForConditionOrTimeout(rising_edge_function, us_timeout=100000, _us_check
 	timeout = datetime.now() + timedelta(microseconds=us_timeout)
 	while not rising_edge_function() and datetime.now() < timeout:
 		sleep(_us_check_rate)
-	
+
 	if rising_edge_function():
 		return
 	else:
 		raise TimeoutError(err_msg)
-	
-	
+
+
 class AtLeastThisDelay(object):
 	"""Force a with statement to take a minimum amount of time before
 	returning execution to the thread.
@@ -69,12 +69,12 @@ class EveryFixedBeat(object):
 	(up to the max time provided).
 
 	If the loop takes too long, it will skip the missed window and wait until the next.
-	
+
 	Time is in units of seconds. (Internally it is in milliseconds.)
-	
+
 	If steps are provided _instead_ of step times, then the needed step times
 	  will be calculated instead.
-	
+
 	for windowNumber,lastStepTime in EveryFixedDelay(1.0, 0.100):
 		pass # iterates ten times
 	for windowNumber,lastStepTime in EveryFixedDelay(1.0, numSteps=3):
@@ -95,34 +95,34 @@ class EveryFixedBeat(object):
 		self.count = 0
 		self.endTimeMS = self.startTimeMS + self.maxTimeMS
 		self.lastStepTimeMS = self.startTimeMS
-		
+
 	def __iter__(self):
 		if self.initialIteration:
 			yield 0, 0
-			
+
 		while now() < self.endTimeMS:
-			currentTimeMS = now() # keep it internally consistent, 
+			currentTimeMS = now() # keep it internally consistent,
 								# but yield at end will be ever so slightly off
-			
+
 			nextStepNumber = (currentTimeMS + self.stepTimeMS - self.startTimeMS) // self.stepTimeMS
 			nextStepTime  = (nextStepNumber * self.stepTimeMS) + self.startTimeMS
-			
+
 			self.count = nextStepNumber
-			
+
 			if nextStepTime > self.endTimeMS:
 				nextStepTime = self.endTimeMS
-			
+
 			# The extra +1ms here is to ensure we don't undershoot and loop too many times
-			remainingWaitTime = nextStepTime - currentTimeMS + 1 
-			
+			remainingWaitTime = nextStepTime - currentTimeMS + 1
+
 			if remainingWaitTime > 0:
 				sleep( remainingWaitTime / 1000.0 )
-			
+
 			newCurrentTimeMS = now()
 			lastStepDuration = (newCurrentTimeMS - self.lastStepTimeMS) / 1000.0
 			self.lastStepTimeMS = newCurrentTimeMS
-			
-			
+
+
 			yield self.count, lastStepDuration
 
 
@@ -131,7 +131,7 @@ class EveryFixedDelay(object):
 
 	Use in a for loop, making each loop take at least the step time given
 	(up to the max time provided).
-	
+
 	Time is in units of seconds. (Internally it is in milliseconds.)
 
 	If a particular iteration takes a long time that merely delays the next iteration.
@@ -139,7 +139,7 @@ class EveryFixedDelay(object):
 
 	If steps are provided _instead_ of step times, then the needed step times
 	  will be calculated instead.
-	
+
 	for iterNum,lastStepTime in EveryFixedDelay(1.0, 0.100):
 		pass # iterates ten times
 	for iterNum,lastStepTime in EveryFixedDelay(1.0, numSteps=3):
@@ -160,25 +160,25 @@ class EveryFixedDelay(object):
 		self.count = -1
 		self.endTimeMS = self.startTimeMS + self.maxTimeMS
 		self.lastStepTimeMS = self.startTimeMS
-		
+
 	def __iter__(self):
 		if self.initialIteration:
 			self.count += 1
 			yield 0, 0
-			
+
 		while now() < self.endTimeMS:
-			currentTimeMS = now() # keep it internally consistent, 
+			currentTimeMS = now() # keep it internally consistent,
 								# but yield at end will be ever so slightly off
-								
+
 			if self.lastStepTimeMS + self.stepTimeMS > self.endTimeMS:
 				remainingWaitTime = self.startTimeMS + self.maxTimeMS - currentTimeMS
 			else:
 				# The extra +1ms here is to ensure we don't undershoot and loop too many times
 				remainingWaitTime = self.lastStepTimeMS + self.stepTimeMS - currentTimeMS + 1
-				
+
 			if remainingWaitTime > 0:
 				sleep(remainingWaitTime / 1000.0)
-			
+
 			self.count += 1
 			newCurrentTimeMS = now()
 			lastStepDuration = (newCurrentTimeMS - self.lastStepTimeMS) / 1000.0
