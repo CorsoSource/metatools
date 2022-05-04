@@ -496,7 +496,7 @@ def semaphore(*arguments, **options):
 			
 			# new call_ids are monotonically increasing, so either we're re-entering or we have
 			# just gotten a stale id from the earlier thread_id_lookup.setdefault(...)
-			if min(call_queue) <= call_id:
+			if call_id < min(call_queue):
 				raise SemaphoreError('Semaphore seems to have a reused thread ID with an invalid identifier')
 				# we could clean it up automatically by doing the following:
 				thread_id_lookup[my_thread_id] = call_id = uuid1(node=None, clock_seq = hash(function))
