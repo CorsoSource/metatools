@@ -65,7 +65,7 @@ def getGatewayContext():
 	"""Attempts to get the gateway context."""
 	from com.inductiveautomation.ignition.gateway import IgnitionGateway
 	return IgnitionGateway.get()
-	
+		
 
 def getDesignerContext(anchor=None):
 	"""Attempts to grab the Ignition designer context.
@@ -195,6 +195,75 @@ def getObjectByName(objName, estimatedDepth=None, startRecent=True):
 		return None
 
 
+class PythonFunctionArguments(object):
+	"""Function introspection simplified."""
+	_VARARGS = 4
+	_VARKEYWORDS = 8
+
+	def __init__(self, function):
+		if getattr(function, 'im_func', None):
+			function = function.im_func
+		self.function = function
+		
+		if getattr(function, 'func_code', None):
+			self.tablecode = function.func_code
+			self._default_values = tuple(function.func_defaults or [])
+		else:
+			self.tablecode = function.__code__
+			self._default_values = tuple(function.__defaults__ or [])
+			
+	def tuple(self):
+		# just the core facts
+		return self.function, self.nargs, self.args, self._default_values
+
+	@property
+	def name(self):
+		return self.tablecode.co_name
+			
+	@property
+	def num_args(self):
+		return self.tablecode.co_argcount
+	
+	nargs = num_args
+	
+	@property
+	def num_nondefault(self):
+		return self.nargs - len(self._default_values)
+		
+	nnondefault = num_nondefault
+	
+	@property
+	def args(self):
+		return tuple(self.tablecode.co_varnames[:self.nargs])
+
+	@property
+	def defaults(self):
+		return dict((self.tablecode.co_varnames[self.num_nondefault+dix],val) 
+					for dix,val in enumerate(self._default_values))
+	
+	@property
+	def has_varargs(self):
+		return bool(self.tablecode.co_flags & self._VARARGS)
+		
+	@property
+	def varargs(self):
+		if self.has_varargs:
+			return self.tablecode.co_varnames[self.nargs]
+		else:
+			return None
+	
+	@property
+	def has_varkwargs(self):
+		return bool(self.tablecode.co_flags & self._VARKEYWORDS)
+
+	@property
+	def varkwargs(self):
+		if self.has_varkwargs:
+			return self.tablecode.co_varnames[self.nargs + self.has_varargs]
+		else:
+			return None
+		
+
 def getFunctionCallSigs(function, joinClause=' -OR- '):
 	"""Explains what you can use when calling a function.
 	The join clause doesn't make as much sense for Python functions,
@@ -203,11 +272,6 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 	>>> getFunctionCallSigs(getFunctionCallSigs, joinClause=' <> ')
 	"(function, joinClause=' -OR- ')"
 	"""
-	# https://stackoverflow.com/a/33686315/13229100
-	# weirdly hard to actually find these - dis in Jython does *not* have these
-	VARARGS = 4
-	VARKEYWORDS = 8
-	
 	if getattr(function, 'im_func', None):
 		function = function.im_func
 
@@ -221,35 +285,19 @@ def getFunctionCallSigs(function, joinClause=' -OR- '):
 			else:
 				callMethods += ['()']
 		return joinClause.join(callMethods)
-	elif getattr(function, 'func_code', None):
-		nargs = function.func_code.co_argcount
-		args = function.func_code.co_varnames[:nargs]
-		defaults = function.func_defaults or []
-		has_varargs = bool(function.func_code.co_flags & VARARGS)
-		has_varkwargs = bool(function.func_code.co_flags & VARKEYWORDS)
-	else:
-		nargs = function.__code__.co_argcount
-		args = function.__code__.co_varnames[:nargs]
-		defaults = function.__defaults__ or []
-		has_varargs = bool(function.__code__.co_flags & VARARGS)
-		has_varkwargs = bool(function.__code__.co_flags & VARKEYWORDS)
 
-	nnondefault = nargs - len(defaults)
+	pfa = PythonFunctionArguments(function)
 		
 	out = []
-	for i in range(nnondefault):
-		out += [args[i]]
-	for i in range(len(defaults)):
-		out += ['%s=%r' % (args[nnondefault + i],defaults[i])]
+	for i in range(pfa.num_nondefault):
+		out += [pfa.args[i]]
+	for i in range(len(pfa.defaults)):
+		out += ['%s=%r' % (pfa.args[pfa.nnondefault + i], pfa._default_values[i])]
 
-	if has_varargs:
-		if has_varkwargs:
-			out += ['*%s' % function.func_code.co_varnames[nargs],
-					'**%s' % function.func_code.co_varnames[nargs+1],]
-		else:
-			out += ['*%s' % function.func_code.co_varnames[nargs]]
-	elif has_varkwargs:
-		out += ['**%s' % function.func_code.co_varnames[nargs]]
+	if pfa.has_varargs:
+		out += ['*%s' % pfa.varargs]
+	if pfa.has_varkwargs:
+		out += ['**%s' % pfa.varkwargs]
 
 	return '(%s)' % ', '.join(out)
 
