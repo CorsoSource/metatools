@@ -469,10 +469,6 @@ def semaphore(*arguments, **options):
 
 			my_root_frame = stackRootFrame()
 
-			# keep track of this thread's root frame in case we try to come back later
-			# so that we don't block ourselves (or grab it if it's already been generated)
-			call_id = execution_frame_lookup.setdefault(my_root_frame, uuid1(node=None, clock_seq = hash(function)))
-
 			block_key = tuple(
 					kwargs[key]           if key in kwargs else (
 					args[arg_lookup[key]] if 0 <= arg_lookup[key] < len(args) else
@@ -507,29 +503,30 @@ def semaphore(*arguments, **options):
 			if len(call_queue) > max_queue:
 				raise SemaphoreError('Semaphore for %r blocking more than %d (max) waiting calls! Blocking key: %r' % (function, max_queue, block_key))
 
-			# new call_ids are monotonically increasing, so this is a weird situation if it comes up
-			if call_queue and call_id < min(call_queue):
-				raise SemaphoreError('Semaphore seems to have a reused thread ID with an invalid identifier')
-				# we could clean it up automatically by doing the following:
-				execution_frame_lookup[my_root_frame] = call_id = uuid1(node=None, clock_seq = hash(function))
-				# but this isn't tested yet...
-				# ... and if we're doing Python execution stack frames instead of Java threads
-				#     then this probably doesn't make sense, since we won't re-use IDs
+			# Generate the blocking call_id for the semaphore signal
+			#
+			# NOTE: This is NOT thread safe. It's very likely good enough
+			#       and safe enough for all but very tortured race conditions.
+			#       It should deal even if state gets confused, but there is
+			#       the potential for a race.
 
-			if not call_id in call_queue:
-				call_queue[call_id] = my_root_frame
+			# There are three base cases for entering a potential block:
+			if my_root_frame in execution_frame_lookup:
+				call_id = execution_frame_lookup[my_root_frame]
+			else:
+				call_id = uuid1(node=None, clock_seq = hash(function))
+				execution_frame_lookup[my_root_frame] = call_id
+
+			call_queue[call_id] = my_root_frame
 
 			Thread.sleep(0, 1000) # wait a microsecond in case there's a starting race...
 
 			# IMPORTANT: There are two semantics at play here.
 			#  - Remove semaphore block when finished - normal blocking monitor (at end)
-			#  - Cull dead threads (whose handles are left after they finish) (up next below)
+			#  - Cull dead threads (whose root frames are left) (up next below)
 
 			# wait until our number comes up
-			# (min is probably safe here, or at least it won't throw an error for
-			#  the dict changing sizes during the check
-			#  See https://gist.github.com/null-directory/273498601dfe55b2130234b8d5cc8cd7 )
-			while not min(call_queue) == call_id:
+			while not call_queue.get(None, None) == call_id:
 				# wait, with jitter
 				wait = SEMAPHORE_WAIT_MILLISECONDS + (SEMAPHORE_WAIT_JITTER_MILLISECONDS * random())
 				wait_ms, wait_ns = divmod(wait, 1.0)
@@ -537,25 +534,34 @@ def semaphore(*arguments, **options):
 				#  just be warned that lots of threads can lead to a lot of wheel spinning)
 				Thread.sleep(int(wait_ms), int(wait_ns*1000000))
 
-				# attempt to clear a dead head off queue, if needed
-				# (subsequent iterations will *eventually* drain the queue if many die,
-				#  and the larger the queue the faster it drains... -ish.)
-				head = min(call_queue)
-				try:
-					head_root_frame = call_queue[head]
-					# last root frame instruction is -1 when it returns
-					# ... and if the root returns, the stack is effectively done
-					if head_root_frame.f_lasti == -1:
-						try: # attempt to purge thread ref first
+				# check on the current holder of the semaphore
+				head = call_queue.get(None,None)
+
+				# if it's been cleared, add it
+				if head is None:
+					call_queue[None] = min(k for k in call_queue if k)
+				# if it's a frame then check on it
+				else:
+					head_root_frame = call_queue.get(head, None)
+
+					# has the root execution frame finished?
+					if head_root_frame and head_root_frame.f_lasti == -1:
+						# ... if so clear its references out
+						try: # attempt to purge lookup first
 							del execution_frame_lookup[head_root_frame]
 						except KeyError:
 							pass
+
 						try: # release lock
 							del call_queue[head]
 						except KeyError:
 							pass
-				except:
-					pass
+
+						# move next least id to queue
+						call_queue[None] = min(k for k in call_queue if k)
+
+					else:
+						pass # leave the head where it is - it's still running
 
 			try:
 				results = function(*args, **kwargs)
@@ -571,10 +577,16 @@ def semaphore(*arguments, **options):
 						del execution_frame_lookup[my_root_frame]
 					except KeyError:
 						pass
+
 					try: # release lock
 						del call_queue[call_id]
 					except KeyError:
 						pass # job already done
+
+					assert call_queue[None] == call_id
+					# simply blank ourselves out, since we're done
+					call_queue[None] = None
+
 					pass
 
 			return results
