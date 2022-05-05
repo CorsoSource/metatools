@@ -130,13 +130,29 @@ def currentStackDepth(maxDepth=100):
 		return None
 
 
+def stackRootFrame(maxDepth=100):
+	"""Returns the calling function's stack depth.
+	The easiest way to do this is to simply scan the stack
+	  until the function declares the end of it by ValueError.
+	Remember: 0 is THIS frame, 1 is the previous calling frame,
+	  and there's no globally available stack depth value or length.
+	For safety's sake, this will stop at maxDepth.
+	From https://stackoverflow.com/a/47956089
+	"""
+	frame = sys._getframe()
+	while frame.f_back:
+		frame = frame.f_back
+	return frame
+
+
 def isJavaObject(o):
 	"""Walk up the object inheritance heirarchy to determine if the object is Java-based"""
 	cutoff = 10
 
+	oType = o
 	while cutoff:
 		cutoff -= 1
-		oType = type(o)
+		oType = type(oType)
 
 		if oType is JavaClass:
 			return True

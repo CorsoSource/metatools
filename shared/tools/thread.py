@@ -16,7 +16,7 @@ from java.nio.channels import ClosedByInterruptException
 from jarray import array, zeros
 from org.python.core import ThreadState
 
-from shared.tools.meta import getReflectedField, MetaSingleton, PythonFunctionArguments
+from shared.tools.meta import getReflectedField, MetaSingleton, PythonFunctionArguments, stackRootFrame
 from shared.tools.timing import EveryFixedDelay
 
 from shared.tools.logging import Logger
@@ -354,6 +354,11 @@ def getThreadInfo(thread):
 	return TMXB.getThreadInfo(thread.id)
 
 
+def _frameExecutionFinished(frame):
+	"""Execution for frame is done when last instruction is -1 (returned from frame)"""
+	return frame.f_linei == -1
+
+
 SEMAPHORE_WAIT_JITTER_MILLISECONDS = 1.000
 SEMAPHORE_WAIT_MILLISECONDS = 2.500
 
@@ -377,9 +382,14 @@ def semaphore(*arguments, **options):
 	use `None` for arguments and clue with `<thread>`:
 		@semaphore(None, '<thread>')
 
+	NOTE: "thread" is a slight misnomer here. This is actually blocking for the
+	  duration of the Python execution context. Since this resides in Java, a
+	  thread could be a part of a pool that arbitrarily spins up Python contexts.
+	  This tracks *that* - something normal thread locking tooling doesn't do.
+
 	Special argument flags:
 	 - <function>: always included (almost by definition)
-	 - <thread>: block by thread (async first come, first serve)
+	 - <thread>: block by Python execution context
 	 - None: don't use arguments to block, just the function (and thread, if flagged)
 
 	Options:
@@ -452,20 +462,16 @@ def semaphore(*arguments, **options):
 
 		# closure variable
 		call_queue_lookup = {}
-		thread_id_lookup = {}
+		execution_frame_lookup = {}
 
 		@wraps(function)
 		def decorated(*args, **kwargs):
 
-			my_thread = Thread.currentThread()
-			my_thread_id = my_thread.getId()
+			my_root_frame = stackRootFrame()
 
-			# keep track of this thread's id in case we try to come back later
+			# keep track of this thread's root frame in case we try to come back later
 			# so that we don't block ourselves (or grab it if it's already been generated)
-			# NOTE: we're using Thread.getId() here so that we can be sure we're getting a consistent hash
-			#       this wasn't working, and so this annoying indirection was needed since Thread.currentThread()
-			#       wasn't returning the actual object
-			call_id = thread_id_lookup.setdefault(my_thread_id, uuid1(node=None, clock_seq = hash(function)))
+			call_id = execution_frame_lookup.setdefault(my_root_frame, uuid1(node=None, clock_seq = hash(function)))
 
 			block_key = tuple(
 					kwargs[key]           if key in kwargs else (
@@ -501,18 +507,19 @@ def semaphore(*arguments, **options):
 			if len(call_queue) > max_queue:
 				raise SemaphoreError('Semaphore for %r blocking more than %d (max) waiting calls! Blocking key: %r' % (function, max_queue, block_key))
 
-			# new call_ids are monotonically increasing, so either we're re-entering or we have
-			# just gotten a stale id from the earlier thread_id_lookup.setdefault(...)
+			# new call_ids are monotonically increasing, so this is a weird situation if it comes up
 			if call_queue and call_id < min(call_queue):
 				raise SemaphoreError('Semaphore seems to have a reused thread ID with an invalid identifier')
 				# we could clean it up automatically by doing the following:
-				thread_id_lookup[my_thread_id] = call_id = uuid1(node=None, clock_seq = hash(function))
+				execution_frame_lookup[my_root_frame] = call_id = uuid1(node=None, clock_seq = hash(function))
 				# but this isn't tested yet...
+				# ... and if we're doing Python execution stack frames instead of Java threads
+				#     then this probably doesn't make sense, since we won't re-use IDs
 
 			if not call_id in call_queue:
-				call_queue[call_id] = my_thread
+				call_queue[call_id] = my_root_frame
 
-			my_thread.sleep(0, 1000) # wait a microsecond in case there's a starting race...
+			Thread.sleep(0, 1000) # wait a microsecond in case there's a starting race...
 
 			# IMPORTANT: There are two semantics at play here.
 			#  - Remove semaphore block when finished - normal blocking monitor (at end)
@@ -535,10 +542,12 @@ def semaphore(*arguments, **options):
 				#  and the larger the queue the faster it drains... -ish.)
 				head = min(call_queue)
 				try:
-					head_thread = call_queue[head]
-					if head_thread.getState() == Thread.State.TERMINATED:
+					head_root_frame = call_queue[head]
+					# last root frame instruction is -1 when it returns
+					# ... and if the root returns, the stack is effectively done
+					if head_root_frame.f_lasti == -1:
 						try: # attempt to purge thread ref first
-							del thread_id_lookup[head_thread.getId()]
+							del execution_frame_lookup[head_root_frame]
 						except KeyError:
 							pass
 						try: # release lock
@@ -558,8 +567,8 @@ def semaphore(*arguments, **options):
 					pass
 				# clear the block if we don't need to wait for other work
 				else:
-					try: # attempt to purge thread ref first
-						del thread_id_lookup[my_thread_id]
+					try: # attempt to purge thread's execution context first
+						del execution_frame_lookup[my_root_frame]
 					except KeyError:
 						pass
 					try: # release lock
