@@ -157,6 +157,40 @@ def hotload(module_zip_binary, global_context=None, namespace='', sys_context=No
 			sys.modules[module_path].__package__ = module_path.rpartition('.')[0]
 
 
+def jar_class_grind(jar_paths):
+	"""First jar is the one that gets ground in, the rest are for support/dependents, if needed."""
+	from shared.tools.logging import Logger
+	
+	Logger(logging_level='trace').info('Loading jars: %(jar_paths)r')
+	
+	if isinstance(jar_paths, str):
+		jar_paths = [jar_paths]
+	# add the jar to PATH so we can hotload it
+	for jar_path in jar_paths:
+		if jar_path not in sys.path:
+			sys.path.insert(0, jar_path)
+	
+	# get the jar's contents so we can iterate loading it
+	from java.util.jar import JarFile
+	
+	jf = JarFile(jar_paths[0])
+	classList = [str(k)[:-6].replace('/', '.') 
+				 for k 
+				 in jf.getManifest().getEntries().keySet() 
+				 if str(k).endswith('.class')]
+	
+	import imp
+	from java.lang import Exception as JavaException, NoClassDefFoundError
+	for cls_path in classList:
+		# attempt to load the class. On fail give up and tell why
+		try:
+			Logger().trace('> %s' % cls_path)
+			_ = __import__(cls_path)
+		except NoClassDefFoundError, err:
+			Logger().warn('NoClassDefFoundError: %(cls_path)s, %(err)r')
+		except Exception, err:
+			Logger().warn('Python error: %(cls_path)s, %(err)r')
+		except JavaException, err:
+			Logger().warn('Java error: %(cls_path)s, %(err)r')
 
-
-
+	Logger().info('Jars loaded: %(jar_paths)r')
