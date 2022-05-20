@@ -214,6 +214,8 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 					if delaySeconds:
 						sleep(delaySeconds)
 
+					# Async calls should return the thread handle.
+					# They will _not_ return whatever the function returned. That gets dumped to _.
 					try:
 						_ = function(*args,**kwargs)
 					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
@@ -222,14 +224,27 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 						Logger(prefix='(Async)', target_context=error).error(repr(error))
 
 				# Wrap the function and delay values to prevent early GC of function and delay
-				closure = partial(async_closure, function, delaySeconds)
-
-				# Async calls should return the thread handle.
-				# They will _not_ return whatever the function returned. That gets dumped to _.
-				if name and ensureOnlyOne and findThreads(name):
-					return # do nothing
+				closure = partial(async_closure, function, delaySeconds)				
+				
+				if name and ensureOnlyOne:
+					other_threads = findThreads(name)
+					
+					if other_threads:
+						# First check the reversed case, where
+						# each new thread supplants the previous
+						if ensureOnlyOne < 0 or ensureOnlyOne is reversed:
+							for thread_handle in other_threads:
+								try:
+									thread_handle.interrupt()
+								except:
+									pass
+						# Otherwise, the normal way to ensure there's only one: 
+						# simply leave well enough alone
+						else:
+							return # do nothing
 
 				thread_handle = system.util.invokeAsynchronous(closure)
+				
 				if name:
 					thread_handle.setName(name)
 
