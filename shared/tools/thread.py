@@ -171,7 +171,8 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
 						pass
 					except (Exception, JavaException), error:
-						Logger(prefix='(Async)', target_context=error).error(repr(error))
+						import traceback
+						Logger(prefix='(Async in %r) ' % (Thread.currentThread(),), target_context=error).error(repr(error) + '\n' + traceback.format_exc())
 						return
 
 				# Wrap the function and delay values to prevent early GC of function and delay
@@ -510,7 +511,6 @@ def semaphore(*arguments, **options):
 			#       It should deal even if state gets confused, but there is
 			#       the potential for a race.
 
-			# There are three base cases for entering a potential block:
 			if my_root_frame in execution_frame_lookup:
 				call_id = execution_frame_lookup[my_root_frame]
 			else:
