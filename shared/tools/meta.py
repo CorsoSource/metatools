@@ -210,6 +210,8 @@ def getObjectByName(objName, estimatedDepth=None, startRecent=True):
 	except ValueError:
 		return None
 
+# https://www.youtube.com/watch?v=vcFBwt1nu2U&lc=UgyEDNCFugZNIDEss214AaABAg
+upvar = getObjectByName
 
 class PythonFunctionArguments(object):
 	"""Function introspection simplified."""
