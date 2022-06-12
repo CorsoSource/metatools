@@ -11,7 +11,7 @@
 from zipfile import ZipFile
 from StringIO import StringIO as BytesIO
 
-import sys, imp
+import sys, imp, os
 
 #namespace = 'hotload'
 
@@ -157,40 +157,74 @@ def hotload(module_zip_binary, global_context=None, namespace='', sys_context=No
 			sys.modules[module_path].__package__ = module_path.rpartition('.')[0]
 
 
-def jar_class_grind(jar_paths):
-	"""First jar is the one that gets ground in, the rest are for support/dependents, if needed."""
-	from shared.tools.logging import Logger
-	
-	Logger(logging_level='trace').info('Loading jars: %(jar_paths)r')
-	
-	if isinstance(jar_paths, str):
-		jar_paths = [jar_paths]
-	# add the jar to PATH so we can hotload it
-	for jar_path in jar_paths:
-		if jar_path not in sys.path:
-			sys.path.insert(0, jar_path)
-	
-	# get the jar's contents so we can iterate loading it
-	from java.util.jar import JarFile
-	
-	jf = JarFile(jar_paths[0])
-	classList = [str(k)[:-6].replace('/', '.') 
-				 for k 
-				 in jf.getManifest().getEntries().keySet() 
-				 if str(k).endswith('.class')]
-	
-	import imp
-	from java.lang import Exception as JavaException, NoClassDefFoundError
-	for cls_path in classList:
-		# attempt to load the class. On fail give up and tell why
-		try:
-			Logger().trace('> %s' % cls_path)
-			_ = __import__(cls_path)
-		except NoClassDefFoundError, err:
-			Logger().warn('NoClassDefFoundError: %(cls_path)s, %(err)r')
-		except Exception, err:
-			Logger().warn('Python error: %(cls_path)s, %(err)r')
-		except JavaException, err:
-			Logger().warn('Java error: %(cls_path)s, %(err)r')
 
-	Logger().info('Jars loaded: %(jar_paths)r')
+
+
+from java.net import URLClassLoader, URL
+from java.io import File
+from jarray import array
+from java.lang import Class as JavaClass
+from java.lang import Exception as JavaException, NoClassDefFoundError
+from java.util.jar import JarFile
+
+
+
+class JarClassLoader(object):
+	"""Load in jars via an alternate method from just injecting into sys.path
+
+	Jython can natively load jar libraries very easily, but occasionally has weird
+	trouble loading inner classes (or something). At the least, grinding through and
+	manually injecting the class objects seems to help.
+
+	An attempt was made to make the class loading lazy, but the import mechanics
+	do not seem to resolve properties on load, returning the property instead
+	of the class itself. Oh well.
+	"""
+	def __init__(self, jar_file_path):
+		self.jar_file_path = jar_file_path
+		self.urlLoader = URLClassLoader(array([File(jar_file_path).toURI().toURL()], URL))
+		self.jarFile = JarFile(jar_file_path)
+		
+		self.class_list = set(
+				str(class_name)[:-6].replace('/', '.') 
+				for class_name
+				in self.jarFile.entries()
+				if str(class_name).endswith('.class')
+			)
+			
+		self.packages = {}
+		for class_path in self.class_list:
+			package_path, _, class_name = class_path.rpartition('.')
+			if not package_path in self.packages:
+				self.packages[package_path] = set()
+			self.packages[package_path].add(class_name)
+
+		self.class_cache = {}
+		
+		self.inject_sys()
+		
+	def inject_sys(self):
+		for package_path in sorted(self.packages):
+			module = imp.new_module(package_path)
+			module.__file__ = os.path.join(self.jar_file_path, package_path)
+			module.__name__ = package_path
+			module.__package__ = '.'.join(package_path.split('.')[:1]) # I forget why this is needed...
+			
+			for class_name in self.packages[package_path]:
+				class_name = class_name.partition('$')[0]
+				setattr(module, class_name, self.get_class(package_path, class_name))
+			
+			sys.modules[package_path] = module
+			
+		
+	def get_class(self, package_path, class_name):
+		if not (package_path, class_name) in self.class_cache:
+			loaded_class = self.urlLoader.loadClass(package_path + '.' + class_name)
+			self.class_cache[(package_path, class_name)] = loaded_class			
+		return self.class_cache[(package_path, class_name)]
+
+
+
+def jar_class_grind(jar_paths):
+	for jar_path in jar_paths:
+		_ = JarClassLoader(jar_path)
