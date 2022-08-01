@@ -240,13 +240,24 @@ class ExtraMetaExtraGlobal(type):
 
 		cache_threads = findThreads(cls.HOLDING_THREAD_NAME)
 
-		assert len(cache_threads) <= 1, "The ExtraGlobal-Cache thread has been spun up more than once! Only one should be alive: %r" % cache_threads
+#		assert len(cache_threads) <= 1, "The ExtraGlobal-Cache thread has been spun up more than once! Only one should be alive: %r" % cache_threads
 
 		# If no holding threads are found and GLOBAL_REFERENCE is not initialized, generate MetaExtraGlobal
 		if not cache_threads:
 			cls.GLOBAL_REFERENCE = super(ExtraMetaExtraGlobal, cls).__new__(cls, clsname, bases, attrs)
 			cls.spawn_holding_thread(cls, cls.GLOBAL_REFERENCE)
 		else:
+			if len(cache_threads) > 1:
+				# heuristic: lower id implies older - use the oldest
+				cache_threads.sort(key=lambda t: t.getId())
+				
+				# attempt to kill the other threads
+				for younger_threads in cache_threads[1:]:
+					try:
+						younger_threads.interrupt()
+					except:
+						pass
+
 			system.util.getLogger('ExtraGlobal').debug('Already initialized in %r as %r' % (cache_threads[0], cls.GLOBAL_REFERENCE))
 			cls.GLOBAL_REFERENCE = getFromThreadScope(cache_threads[0], 'MetaExtraGlobal')
 				
@@ -267,6 +278,14 @@ class ExtraMetaExtraGlobal(type):
 				return
 			else:
 				meg_cls._HOLDING_THREAD = None	
+		
+		existing_holding_threads = findThreads(meg_cls.HOLDING_THREAD_NAME)
+		
+		if existing_holding_threads:
+			assert len(existing_holding_threads) == 1, "Too many %r holding threads!" % meg_cls.HOLDING_THREAD_NAME 
+			meg_cls._HOLDING_THREAD = existing_holding_threads[0]
+			meg_cls.GLOBAL_REFERENCE = MEG_Reference
+			return 
 				
 		system.util.getLogger('ExtraGlobal').debug('Spinning up holding thread')
 				
