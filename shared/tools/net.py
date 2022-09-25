@@ -144,9 +144,7 @@ def poke_from_gateway(hostname, ports=tuple(), timeout=1.0,
 		}
 		
 		tag_configs.append(tag_config)
-	
-	print repr(tag_config)
-	
+		
 	system.tag.configure(temp_tag_folder, tag_configs)
 
 	sleep(timeout + 0.5)
