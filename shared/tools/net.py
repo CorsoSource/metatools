@@ -4,6 +4,8 @@
 
 import socket
 import telnetlib
+import uuid
+from time import sleep
 
 
 LOCALHOST_HOSTNAME = ''
