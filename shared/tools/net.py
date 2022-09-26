@@ -12,7 +12,7 @@ LOCALHOST_DNS = 'localhost'
 
 
 def default_hostname():
-  """Returns the default hostname for the JVM's host."""
+ 	"""Returns the default hostname for the JVM's host."""
 	try:
 		return socket.gethostname()
 	except: 
@@ -20,7 +20,7 @@ def default_hostname():
 
 
 def default_ip():
-  """Returns the default IP address of the JVM's host."""
+	"""Returns the default IP address of the JVM's host."""
 	try:
 		return socket.gethostbyname(
 			socket.gethostname()
@@ -30,7 +30,7 @@ def default_ip():
 
 
 def default_dns_name():
-  """Returns the/a default network name of the JVM's host."""
+	"""Returns the/a default network name of the JVM's host."""
 	try:
 		return socket.gethostbyaddr(
 			socket.gethostbyname(
@@ -42,7 +42,7 @@ def default_dns_name():
 
 
 def gateway_name():
-  """Returns the gateway's configured name"""
+	"""Returns the gateway's configured name"""
 	return str(system.tag.read('[System]Gateway/SystemName').value)
 
 
@@ -51,16 +51,16 @@ def is_reachable(hostname, port):
 
 
 def poke(hostname, port, timeout=1.0, from_hostname='', from_port=0):
-  """From THIS JVM check if the hostname:port is reachable.
-  
-  Fairly naive "throw a 'GET /' at it approach, but even an error helps.
-  
-  If returns True, the connection can _potentially_ be established. 
-  If it returns False, the connection _probably_ doesn't work.
-  
-  Note that firewalls, routing, and all manner of odd edge cases can 
-  make this confusing to interpret; this function merely tries "can TCP work *AT ALL*?"
-  """
+	"""From THIS JVM check if the hostname:port is reachable.
+	
+	Fairly naive "throw a 'GET /' at it approach, but even an error helps.
+	
+	If returns True, the connection can _potentially_ be established. 
+	If it returns False, the connection _probably_ doesn't work.
+	
+	Note that firewalls, routing, and all manner of odd edge cases can 
+	make this confusing to interpret; this function merely tries "can TCP work *AT ALL*?"
+	"""
 	try:
 		sock = socket.create_connection(
 			address=(hostname, port), 
