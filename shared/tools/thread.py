@@ -171,8 +171,7 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
 						pass
 					except (Exception, JavaException), error:
-						import traceback
-						Logger(prefix='(Async in %r) ' % (Thread.currentThread(),), target_context=error).error(repr(error) + '\n' + traceback.format_exc())
+						Logger(prefix='(Async)', target_context=error).error(repr(error))
 						return
 
 				# Wrap the function and delay values to prevent early GC of function and delay
@@ -211,12 +210,12 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 				# Create the closure to carry the scope into another thread
 				def async_closure(function, delaySeconds, args=args, kwargs=kwargs):
 
-					if delaySeconds:
-						sleep(delaySeconds)
-
-					# Async calls should return the thread handle.
-					# They will _not_ return whatever the function returned. That gets dumped to _.
-					try:
+					try:					
+						if delaySeconds:
+							try:
+								sleep(delaySeconds)
+							except KeyboardInterrupt as error:
+								Logger(prefix='(Async) Preemptive interrupt: ', target_context=error).error(repr(error))
 						_ = function(*args,**kwargs)
 					except (KeyboardInterrupt, IOError, ClosedByInterruptException):
 						pass
@@ -224,27 +223,14 @@ def async(startDelaySeconds=None, name=None, maxAllowedRuntime=None, killSwitch=
 						Logger(prefix='(Async)', target_context=error).error(repr(error))
 
 				# Wrap the function and delay values to prevent early GC of function and delay
-				closure = partial(async_closure, function, delaySeconds)				
-				
-				if name and ensureOnlyOne:
-					other_threads = findThreads(name)
-					
-					if other_threads:
-						# First check the reversed case, where
-						# each new thread supplants the previous
-						if ensureOnlyOne < 0 or ensureOnlyOne is reversed:
-							for thread_handle in other_threads:
-								try:
-									thread_handle.interrupt()
-								except:
-									pass
-						# Otherwise, the normal way to ensure there's only one: 
-						# simply leave well enough alone
-						else:
-							return # do nothing
+				closure = partial(async_closure, function, delaySeconds)
+
+				# Async calls should return the thread handle.
+				# They will _not_ return whatever the function returned. That gets dumped to _.
+				if name and ensureOnlyOne and findThreads(name):
+					return # do nothing
 
 				thread_handle = system.util.invokeAsynchronous(closure)
-				
 				if name:
 					thread_handle.setName(name)
 
@@ -526,6 +512,8 @@ def semaphore(*arguments, **options):
 			#       It should deal even if state gets confused, but there is
 			#       the potential for a race.
 
+			# There are three base cases for entering a potential block:
+			# 1) we've already been here, so grab that entry
 			if my_root_frame in execution_frame_lookup:
 				call_id = execution_frame_lookup[my_root_frame]
 			else:
@@ -538,7 +526,7 @@ def semaphore(*arguments, **options):
 
 			# IMPORTANT: There are two semantics at play here.
 			#  - Remove semaphore block when finished - normal blocking monitor (at end)
-			#  - Cull dead threads (whose root frames are left) (up next below)
+			#  - Cull dead threads (whose handles are left after they finish) (up next below)
 
 			# wait until our number comes up
 			while not call_queue.get(None, None) == call_id:
