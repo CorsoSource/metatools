@@ -169,13 +169,15 @@ def pdir(o, indent='  ', ellipsisLimit=120, includeDocs=False, skipPrivate=True,
 
 				try:
 					if recursePrettily and isinstance(attr, PRETTY_PRINT_TYPES) and not attribute in recurseSkips:
-						attrReprs.append(p(attr, listLimit=10, ellipsisLimit=ellipsisLimit, nestedListLimit=4, directPrint=False))						
+						attrReprs.append(p(attr, listLimit=10, ellipsisLimit=ellipsisLimit, nestedListLimit=4, directPrint=False))
 					else:
 						if getattr(attr, '__call__', None):
 							if re.match('(get|to|is|has)[A-Z]', attribute) and getFunctionCallSigs(attr) == '()':
 								attrReprs.append(repr(attr()))
 							else:
 								attrReprs.append(repr_function(attr))
+						elif attribute in recurseSkips:
+							attrReprs.append(' '.join(repr(attr).splitlines()))
 						else:
 							attrReprs.append(repr(attr))
 				except:
