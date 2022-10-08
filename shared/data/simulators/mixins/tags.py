@@ -53,7 +53,8 @@ class TagsMixin(object):
 		assert 'folder' in tags, 'Tag folder for variables needed in config'
 		
 		self._tag_definitions = mask_dict({
-				 'collision policy': TAG_OVERWRITE_POLICY.OVERWRITE, 
+				 'collision policy': TAG_OVERWRITE_POLICY.OVERWRITE,
+				 'resume': True, # instead of clearing out, load back in, if possible
 			}, tags or {})
 				
 		super(TagsMixin, self).__init__(**configuration)
@@ -69,6 +70,14 @@ class TagsMixin(object):
 				configuration.get(tag_name, {})			
 				)
 				
+		def check_init_value(self, variable_name, default):
+			if self._tag_definitions['resume']:
+				if system.tag.exists(self._tag_definitions['folder'] + '/' + variable_name):
+					value = system.tag.read(self._tag_definitions['folder'] + '/' + variable_name).value
+					self._variable[variable_name] = value
+					return value
+			return default
+			
 		root_parts = {
 				'provider': 'default',
 				'parent': ''
@@ -95,6 +104,11 @@ class TagsMixin(object):
 					'value':    self._raw_definition,
 				}, override_tag_config('_definition_')))
 		
+		# treat state as a special case
+		if self._tag_definitions['resume']:
+			if system.tag.exists(self._tag_definitions['folder'] + '/' + 'state'):
+				self.state = system.tag.read(self._tag_definitions['folder'] + '/' + 'state').value
+				
 		tag_definitions['tags'].append(mask_dict({
 					'name':     'state',
 					'tagType':  'AtomicTag',
@@ -104,6 +118,10 @@ class TagsMixin(object):
 				}, override_tag_config('state')))
 		
 		for variable, value in self._variables.items():
+			if self._tag_definitions['resume']:
+				if system.tag.exists(self._tag_definitions['folder'] + '/' + variable):
+					value = self._variables[variable] = system.tag.read(self._tag_definitions['folder'] + '/' + variable).value
+			
 			tag_definitions['tags'].append(mask_dict({
 					'name':     variable,
 					'tagType':  'AtomicTag',
