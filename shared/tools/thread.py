@@ -338,16 +338,23 @@ def getThreadState(target_thread):
 	except NullPointerException:
 		return None
 
+	
 def getFromThreadScope(target_thread, object_name):
-	"""Abuse optimizations in Jython or reflection in Java to get objects in other frames.
+	"""Look into thread's execution stack and grab an object, breaking ~all~ many the safety rules."""
+	# The ThreadState object 	contains the current Python frame under execution.
+	# Frames have all the needed context to execute, including the variable references in scope.
+	return getThreadFrame(target_thread).f_locals[object_name]
 
+
+def getThreadFrame(target_thread):
+	"""Abuse optimizations in Jython or reflection in Java to get objects in other frames.
+	
 	For the ThreadStateMapping method, see Jython commit 8f00d52031
 	  and http://bugs.jython.org/issue2321
 	For the Java reflection introspection, see
 	  https://web.archive.org/web/20150505022210/http://weblogs.java.net/blog/jjviana/archive/2010/06/09/dealing-glassfish-301-memory-leak-or-threadlocal-thread-pool-bad-ide
 	  https://web.archive.org/web/20150422074412/http://blog.igorminar.com/2009/03/identifying-threadlocal-memory-leaks-in.html
 	"""
-
 	try:
 		# Jython 2.7 has a singleton-style dictionary that keeps track of the thread states.
 		# Given a thread ID, it will return the ThreadState object
@@ -357,10 +364,8 @@ def getFromThreadScope(target_thread, object_name):
 	except (ImportError, AttributeError):
 		thread_state = getThreadState(target_thread)
 		frame = thread_state.frame
-
-	# The ThreadState object 	contains the current Python frame under execution.
-	# Frames have all the needed context to execute, including the variable references in scope.
-	return frame.f_locals[object_name]
+		
+	return frame
 
 
 def getThreadInfo(thread):
