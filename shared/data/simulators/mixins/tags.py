@@ -140,12 +140,24 @@ class TagsMixin(object):
 
 	
 	def step(self):
+		variable_names = sorted(self._variables)
+		tag_paths = ['%s/%s' % (self._tag_folder, variable) for variable in variable_names]
+		tag_paths.append('%s/state' % self._tag_folder)
+		
+		if self._tag_definitions['resume']:
+			values = [qv.value for qv in
+					  system.tag.readBlocking(tag_paths)]
+
+			new_state = values.pop(-1)
+			if new_state != self.state:
+				self.state = new_state
+
+			for value, variable in zip(values, variable_names):
+				self._variables[variable] = value
+
 		super(TagsMixin, self).step()
 		
-		tag_paths = ['%s/%s' % (self._tag_folder, variable) for variable in sorted(self._variables)]
 		values = [value for _,value in sorted(self._variables.items())]
-		
-		tag_paths.append('%s/state' % self._tag_folder)
 		values.append(self.state)
 		
 		system.tag.writeAll(tag_paths, values)
