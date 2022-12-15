@@ -232,6 +232,103 @@ def mode(iterable, truncation_magnitude=None):
 	return next(iter(multimode(iterable, truncation_magnitude)))
 	
 
+def magnitude(x):
+	"""https://stackoverflow.com/a/16839304"""
+	return int(math.floor(math.log10(x)))
+
+
+def order_of_magnitude(x):
+	"""Returns the base-10 order of magnitude for a value. 
+	So 12.3 is 10, 0.03 is 0.01
+	"""
+	return 10**magnitude(x)
+
+
+def mag_floor(x, oom):
+	"""Returns the floor of x snapping to the given order of magnitude. 
+	So 12.345 given 0.01 is 12.34, -5.67 at 0.1 is -5.7 
+	"""
+	return x // oom * oom
+
+
+def mag_ceil(x, oom):
+	"""Returns the ceiling of x snapping to the given order of magnitude. 
+	So 12.345 at 0.1 is 12.4, -5.67 at 0.1 is -5.6"""
+	q,r = divmod(x, oom)
+	q *= oom
+	if r:
+		q+=oom
+	return q
+
+
+
+def histogram(iterable, buckets=20):
+	"""Returns a list of counts for entries in iterable that fit in evenly spaced buckets."""
+	iterator = iter(iterable)
+	x = prime_on_first(iterator)
+	
+	minx = maxx = x
+	
+	values = [x]
+	for x in iterator:
+		if x is None:
+			continue
+		values.append(x)
+		
+		if x < minx:
+			minx = x
+		if x > maxx:
+			maxx = x
+
+	
+	# snap to order of magnitude	
+	oom = order_of_magnitude((maxx - minx) / buckets)
+	
+	minx = mag_floor(minx, oom)
+	maxx = mag_ceil(maxx, oom)
+	
+	width = (maxx - minx) / buckets
+	
+	counts = [0] * buckets
+	for v in values:
+		v -= minx
+		counts[int(v // width)] += 1
+	
+	return counts
+	
+	
+	
+def format_histogram(values, height=5, width=40):
+	"""Returns a text-based simple histogram."""
+	counts = histogram(values, width)
+	
+	height = float(height)
+	
+	maxc = max(counts)
+	oom = order_of_magnitude(maxc / height)
+	
+	left_margin = len(str(maxc)) + 1
+	margin_pad = '  '
+	left = '%%%ds' % (left_margin,) + margin_pad
+	marker = '+'
+	
+	top = maxc
+	step = mag_ceil(maxc, oom) / height
+	
+	plot_lines = []
+	for i in range(int(height))[:-1]:
+		top -= step
+		
+		plot_lines.append( (left % (maxc if not i else '')) + ''.join(marker if c > top else ' ' for c in counts) )
+	# floating point precision errors mean maxc is probably not 0
+	# so we'll just fluff the last line here
+	plot_lines.append( (left % 0) + ''.join(marker if c else ' ' for c in counts) )
+	plot_lines.append( ('-' * left_margin + margin_pad) + '=' * width )
+	plot_lines.append( (left % mag_floor(min(values),oom)) + ' ' * width + (str(mag_ceil(max(values), oom))) )
+	
+	return '\n'.join(plot_lines)
+
+
 
 def describe(iterable):
 	"""Returns the basic statistics of the iterable (ignoring None values)"""
