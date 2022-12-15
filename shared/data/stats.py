@@ -407,7 +407,7 @@ def describe(iterable):
 
 
 
-def combine_descriptions(desc1, desc2, sigfigs=7, round_digits=3):
+def combine_descriptions(desc1, desc2):
 	d3_n, d3_mean, d3_variance = combine_stats(
 		desc1['n'],desc1['mean'],desc1['variance'],
 		desc2['n'],desc2['mean'],desc2['variance'],
