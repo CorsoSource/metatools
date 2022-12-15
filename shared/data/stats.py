@@ -424,6 +424,8 @@ def combine_descriptions(desc1, desc2, sigfigs=7, round_digits=3):
 	}
 	
 	desc3['span']  = desc3['max'] - desc3['min']
+	
+	return desc3
 
 
 
