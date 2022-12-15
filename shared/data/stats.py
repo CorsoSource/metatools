@@ -12,6 +12,50 @@ class StatisticsError(ValueError): pass # Generic "this won't work" error for st
 class InsufficientData(StatisticsError): pass # Generic "need more numbers" error
 
 
+
+def magnitude(x):
+	"""https://stackoverflow.com/a/16839304"""
+	return int(math.floor(math.log10(x)))
+
+
+def order_of_magnitude(x):
+	"""Returns the base-10 order of magnitude for a value. 
+	So 12.3 is 10, 0.03 is 0.01
+	"""
+	return 10**magnitude(x)
+
+
+def mag_floor(x, oom):
+	"""Returns the floor of x snapping to the given order of magnitude. 
+	So 12.345 given 0.01 is 12.34, -5.67 at 0.1 is -5.7 
+	"""
+	return x // oom * oom
+
+
+def mag_ceil(x, oom):
+	"""Returns the ceiling of x snapping to the given order of magnitude. 
+	So 12.345 at 0.1 is 12.4, -5.67 at 0.1 is -5.6"""
+	q,r = divmod(x, oom)
+	q *= oom
+	if r:
+		q+=oom
+	return q
+
+
+def round_sigfigs(x, n=None):
+	"""Round x to n digits significant figures. Defaults to x (no sigfigs)."""
+	if n is None:
+		return x
+	assert n >= 1
+	oom = 10**(magnitude(x)-(n-1))
+	q,r = divmod(x, oom)
+	q *= oom
+	if r/oom > 0.5:
+		q += oom
+	return q
+
+
+
 def prime_on_first(iterator):
 	x = None
 	try:
@@ -97,7 +141,6 @@ def geometric_mean(iterable):
 	return negative_correction_compensation * math.exp((1.0/len(values))*sum_logs)
 
 
-
 def harmonic_mean(iterable):
 	"""Scans over the iterable and returns the reciprocal of the mean of the recipricals of non-None values
 	If a value is 0, the result is zero
@@ -145,6 +188,7 @@ def standard_deviation(iterable):
 	return math.sqrt(variance(iterable))
 
 stdev = standard_deviation
+
 
 def median(iterable):
 	"""Returns the value in the middle of the iterable (after filtering out None)"""
@@ -230,35 +274,6 @@ def multimode(iterable, truncation_magnitude=None):
 def mode(iterable, truncation_magnitude=None):
 	"""Returns the most common value (or one of from the set of them, ignoring None)"""
 	return next(iter(multimode(iterable, truncation_magnitude)))
-	
-
-def magnitude(x):
-	"""https://stackoverflow.com/a/16839304"""
-	return int(math.floor(math.log10(x)))
-
-
-def order_of_magnitude(x):
-	"""Returns the base-10 order of magnitude for a value. 
-	So 12.3 is 10, 0.03 is 0.01
-	"""
-	return 10**magnitude(x)
-
-
-def mag_floor(x, oom):
-	"""Returns the floor of x snapping to the given order of magnitude. 
-	So 12.345 given 0.01 is 12.34, -5.67 at 0.1 is -5.7 
-	"""
-	return x // oom * oom
-
-
-def mag_ceil(x, oom):
-	"""Returns the ceiling of x snapping to the given order of magnitude. 
-	So 12.345 at 0.1 is 12.4, -5.67 at 0.1 is -5.6"""
-	q,r = divmod(x, oom)
-	q *= oom
-	if r:
-		q+=oom
-	return q
 
 
 
@@ -295,9 +310,8 @@ def histogram(iterable, buckets=20):
 		counts[int(v // width)] += 1
 	
 	return counts
-	
-	
-	
+
+
 def format_histogram(values, height=5, width=40):
 	"""Returns a text-based simple histogram."""
 	counts = histogram(values, width)
@@ -327,6 +341,24 @@ def format_histogram(values, height=5, width=40):
 	plot_lines.append( (left % mag_floor(min(values),oom)) + ' ' * width + (str(mag_ceil(max(values), oom))) )
 	
 	return '\n'.join(plot_lines)
+
+
+
+def combine_stats(n1,mean1,variance1, n2,mean2,variance2):
+	"""Merge two sample groups together.
+	ref https://math.stackexchange.com/a/2971563
+	"""
+	new_n = n1 + n2
+	new_mean = ((n1*mean1) + (n2*mean2))/(n1+n2)
+	new_variance = (
+		(   ( ((n1-1)*variance1) + ((n2-1)*variance2) )
+		  / ( n1 + n2 - 1.0                           )
+		) + (
+		    ( (n1*n2)*pow(mean1-mean2,2) )
+		  / ( (n1+n2)*(n1+n2-1.0)        )
+		)
+	)
+	return new_n, new_mean, new_variance
 
 
 
@@ -373,6 +405,57 @@ def describe(iterable):
 		'span': maxx - minx,
 	}
 
+
+
+def combine_descriptions(desc1, desc2, sigfigs=7, round_digits=3):
+	d3_n, d3_mean, d3_variance = combine_stats(
+		desc1['n'],desc1['mean'],desc1['variance'],
+		desc2['n'],desc2['mean'],desc2['variance'],
+		)
+
+	desc3 = {
+		'n': d3_n,
+		'min': min((desc1['min'], desc2['min'])),
+		'max': max((desc1['max'], desc2['max'])),
+		'sum': desc1['sum'] + desc2['sum'],
+		'mean': d3_mean,
+		'variance': d3_variance,
+		'standard deviation': math.sqrt(d3_variance),
+	}
+	
+	desc3['span']  = desc3['max'] - desc3['min']
+
+
+
+NON_ROUNDING_DESCRIPTION_KEYS = set(['n','sum'])
+
+
+def apply_rounding(x, sigfigs=None, round_digits=None, skip_keys=NON_ROUNDING_DESCRIPTION_KEYS):
+	"""Applies a rounding/sigfig coersion to x. 
+	If x is an iterable, it will be traversed and recursively applied as well.
+	"""
+	if isinstance(x, (int, float)):
+		x = round_sigfigs(x, sigfigs)
+		if round_digits:
+			return round(x, round_digits)
+		else:
+			return x
+	if isinstance(x, (list, tuple, set)):
+		return type(x)(
+			apply_rounding(v, sigfigs, round_digits)
+			for v in x)
+	if isinstance(x, dict):
+		return dict(
+			(k, x[k] 
+			    if k in skip_keys 
+			    else apply_rounding(x[k], sigfigs, round_digits) )
+			for k in x
+			)
+	else: # assume some sort of other iterable
+		return (apply_rounding(v, sigfigs, round_digits) for v in x)
+	return apply_rounding(desc3, sigfigs, round_digits)
+
+
 #
 #data = [
 #	4,3,1,2,2,None,None,2,1,1,3,3,5,None,6,1.5,3,4,3.33,1,2,2,1
@@ -397,6 +480,4 @@ def describe(iterable):
 #assert round(harmonic_mean([40, 60]),1) == 48.0
 #assert round(harmonic_mean([2.5, 3, 10]),1) == 3.6
 #assert round(geometric_mean([54, 24, 36]), 1) == 36.0
-
-
 
