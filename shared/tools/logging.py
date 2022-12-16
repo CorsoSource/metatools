@@ -185,7 +185,10 @@ class Logger(BaseLogger):
 			while err_traceback.tb_next:
 				err_traceback = err_traceback.tb_next
 			
-			self.prefix = ' [line %d] ' % err_traceback.tb_lineno
+			self.prefix = ' [%s:%d] ' % (
+				#err_traceback.tb_frame.f_code.co_filename,
+				err_traceback.tb_frame.f_code.co_name, 
+				err_traceback.tb_frame.f_lineno)
 			return err_traceback.tb_frame.f_code.co_filename
 		elif isinstance(context, object):
 			try:
