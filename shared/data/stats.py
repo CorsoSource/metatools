@@ -277,8 +277,9 @@ def mode(iterable, truncation_magnitude=None):
 
 
 
-def histogram(iterable, buckets=20):
+def histogram(iterable, buckets=None, start=None, stop=None, step=None):
 	"""Returns a list of counts for entries in iterable that fit in evenly spaced buckets."""
+	
 	iterator = iter(iterable)
 	x = prime_on_first(iterator)
 	
@@ -294,51 +295,98 @@ def histogram(iterable, buckets=20):
 			minx = x
 		if x > maxx:
 			maxx = x
-
+			
+	x_start = start or minx
+	x_end = stop or maxx
+		
+	x_span = x_end - x_start
 	
-	# snap to order of magnitude	
-	oom = order_of_magnitude((maxx - minx) / buckets)
+#	print x_start, x_end, x_span
+			
+	# resolve and snap to order of magnitude for unconstrained cases
+	if buckets:
+		oom = order_of_magnitude(x_span / buckets)
+	elif step:
+		oom = order_of_magnitude(step)
+	else:
+		oom = order_of_magnitude(10**round(math.log10(x_span))/10.0)
 	
-	minx = mag_floor(minx, oom)
-	maxx = mag_ceil(maxx, oom)
+	# re-resolve unset things given the order of magnitude
+	if not start:
+		x_start = mag_floor(x_start, oom)
+	if not stop:
+		x_end = mag_ceil(x_end, oom)
+		
+	if not (step or buckets):
+		x_step = oom
+		x_buckets = int(math.ceil((x_end - x_start)/float(x_step)))
+	# buckets win in a tie with step since 
+	# evenly spaced buckets are better than consistent steps
+	# (that's a hot take, but buckets define histogram length, which is kind of a contract)
+	elif buckets: 
+		x_buckets = int(math.ceil(buckets))
+		x_step = ((x_end - x_start) / float(buckets))
+	else: # step:
+		x_step = step
+		x_buckets = int(math.ceil((x_end - x_start) / float(step)))
 	
-	width = (maxx - minx) / buckets
-	
-	counts = [0] * buckets
+	counts = [0] * x_buckets
+	dropped = 0
 	for v in values:
-		v -= minx
-		counts[int(v // width)] += 1
+		v -= x_start
+		try:
+			counts[int(v // x_step)] += 1
+		except:
+			dropped += 1
 	
-	return counts
+#	p((slice(x_start, x_end, x_step), counts), nestedListLimit=None)
+	return slice(x_start, x_end, x_step), counts
 
 
-def format_histogram(values, height=5, width=40):
+def format_histogram(values, height=5, buckets=None, start=None, stop=None, step=None):
 	"""Returns a text-based simple histogram."""
-	counts = histogram(values, width)
+	if height < 3:
+		height = 3
 	
+	# config is a slice of the actual start, stop, and step of the histogram
+	config, counts = histogram(values, buckets, start, stop, step)
+	buckets = len(counts)
+	
+	# calculate plot verical lmits
 	height = float(height)
-	
 	maxc = max(counts)
 	oom = order_of_magnitude(maxc / height)
-	
-	left_margin = len(str(maxc)) + 1
+
+	top = maxc
+	v_step = mag_ceil(maxc, oom) / height
+
+
+	# calculate how the margin works (get the longest string that can show up there)
+	left_margin = max(map(lambda x: len(str(x)), 
+					  [maxc, config.start, round_sigfigs(v_step, 4)+1,])
+					  ) + 1
 	margin_pad = '  '
 	left = '%%%ds' % (left_margin,) + margin_pad
 	marker = '+'
-	
-	top = maxc
-	step = mag_ceil(maxc, oom) / height
+
 	
 	plot_lines = []
 	for i in range(int(height))[:-1]:
-		top -= step
+		top -= v_step
 		
-		plot_lines.append( (left % (maxc if not i else '')) + ''.join(marker if c > top else ' ' for c in counts) )
+		if i == 0:
+			left_text = maxc
+		elif i == int(height//2):
+			left_text = (u'Δ' + str(round_sigfigs(v_step, 4)))
+		else:
+			left_text = ''
+		
+		plot_lines.append( (left % left_text) + ''.join(marker if c > top else ' ' for c in counts) )
 	# floating point precision errors mean maxc is probably not 0
 	# so we'll just fluff the last line here
 	plot_lines.append( (left % 0) + ''.join(marker if c else ' ' for c in counts) )
-	plot_lines.append( ('-' * left_margin + margin_pad) + '=' * width )
-	plot_lines.append( (left % mag_floor(min(values),oom)) + ' ' * width + (str(mag_ceil(max(values), oom))) )
+	plot_lines.append( ('-' * left_margin + margin_pad) + '=' * buckets )
+	plot_lines.append( (left % (config.start) + ((u'Δ%%-%ds' % (buckets-1)) % round_sigfigs(config.step, 5)) + str( config.stop )) )
 	
 	return '\n'.join(plot_lines)
 
