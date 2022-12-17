@@ -265,12 +265,6 @@ def spawn_clock_drift_monitor(
 			base_path += ']'
 			
 	from time import sleep
-	import os
-	dump_path = os.path.abspath(dump_path)
-
-	print repr(tag_name)
-	print base_path
-	print dump_path
 
 	tag_config = {
 		'dataType': 'Boolean', 
@@ -283,8 +277,9 @@ def spawn_clock_drift_monitor(
 		if any([initialChange, missedEvents]):
 			return
 		if currentValue.value:
+			import os
 			t = shared.tools.monitor.clock_drift_monitor(
-				dump_path=%r,
+				dump_path=os.path.abspath(%r),
 				dump_pretty=True,
 			)
 		else:
