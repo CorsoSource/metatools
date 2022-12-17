@@ -1,17 +1,5 @@
 """
-	System Monitoring - Know Thy Self
-	
-	These are scripts for getting a better idea of what your Ignition system is doing.
-	
-	Escapement-Histogram
-	  Sometimes your sysetm doesn't seem to keep up in weird and confusing ways.
-	The `clock_drift_monitor` spawns a thread that simply tracks how wrong
-	the sleep() function works for different time slices. It samples and
-	merges results to generate a cumulative  set of results, as well as a
-	histogram of the actual times needed.
-	  It's a statistical sampling approach. Use the data to get a better
-	feel for how the system is working and how it's loaded.
-	
+
 
 """
 from shared.tools.thread import async
@@ -258,5 +246,58 @@ def clock_drift_monitor(dump_path=None, dump_pretty=False,
 	logger.info('Clock drift profiling stopped.')
 	
 #	p(results)
-
 #monitor_thread = clock_drift_monitor(dump_path=r'C:\Workspace\temp\clock_drift_profiling.json')
+
+
+def spawn_clock_drift_monitor(
+		tag_path='[default]Clock Drift Monitor', 
+		dump_path='./logs/clock_drift_monitor.json',
+	):
+	"""Create a tag and activate clock drift monitoring from the gateway's context.	
+	"""
+	base_path, _, tag_name = tag_path.rpartition('/')
+	if not base_path:
+		base_path, _, tag_name = tag_path.rpartition(']')
+		if not tag_name:
+			tag_name = base_path
+			base_path = '[default]'
+		else:
+			base_path += ']'
+			
+	from time import sleep
+	import os
+	dump_path = os.path.abspath(dump_path)
+
+	print repr(tag_name)
+	print base_path
+	print dump_path
+
+	tag_config = {
+		'dataType': 'Boolean', 
+		'tagType': 'AtomicTag', 
+		'name': tag_name, 
+		'eventScripts': [
+			{
+				'eventid': 'valueChanged', 
+				'script': """
+		if any([initialChange, missedEvents]):
+			return
+		if currentValue.value:
+			t = shared.tools.monitor.clock_drift_monitor(
+				dump_path=%r,
+				dump_pretty=True,
+			)
+		else:
+			for t in shared.tools.thread.findThreads('Escapement-Histogram'):
+				t.interrupt()
+			""" % (dump_path,)}
+		], 
+		'valueSource': 'memory', 
+		'value': False
+	}
+
+	_ = system.tag.configure(base_path, [tag_config])
+	
+	sleep(2)
+	
+	_ = system.tag.write(tag_path, True)
