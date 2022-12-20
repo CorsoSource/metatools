@@ -67,6 +67,25 @@ __version__ = '5.3.1'
 __with_libyaml__ = False
 
 
+__all__ = [
+	'scan', 
+	'parse', 
+	'compose', 'compose_all'
+	'load', 'load_all', 
+	'full_load', 'full_load_all',
+	'safe_load', 'safe_load_all', 
+	'unsafe_load', 'unsafe_load_all',
+	'emit', 'serialize', 'serialize_all',
+	'dump', 'dump_all',
+	'safe_dump', 'safe_dump_all',
+	
+	'add_constructor', 'add_multi_constructor', 
+	'add_implicit_resolver', 'add_multi_representer', 
+	'add_path_resolver', 'add_representer',
+	
+	'YAMLObject',
+]
+
 #------------------------------------------------------------------------------
 # Warnings control
 #------------------------------------------------------------------------------

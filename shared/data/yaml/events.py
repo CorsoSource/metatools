@@ -11,6 +11,14 @@ __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
 
 
+__all__ = [
+	'AliasEvent', 'CollectionEndEvent', 'CollectionStartEvent', 
+	'DocumentEndEvent', 'DocumentStartEvent', 'Event', 
+	'MappingEndEvent', 'MappingStartEvent', 'NodeEvent', 
+	'ScalarEvent', 'SequenceEndEvent', 'SequenceStartEvent', 
+	'StreamEndEvent', 'StreamStartEvent'
+]
+
 # Abstract classes.
 
 class Event(object):

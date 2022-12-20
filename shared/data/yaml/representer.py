@@ -11,8 +11,12 @@ __maintainer__ = 'Andrew Geiger'
 __email__ = 'andrew.geiger@corsosystems.com'
 
 
-__all__ = ['BaseRepresenter', 'SafeRepresenter', 'Representer',
-	'RepresenterError']
+__all__ = [
+	'BaseRepresenter', 
+	'SafeRepresenter', 
+	'Representer',
+	'RepresenterError'
+]
 
 from shared.data.yaml.error import *
 
