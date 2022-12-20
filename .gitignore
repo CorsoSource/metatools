@@ -6,6 +6,7 @@
 *.sublime-workspace
 *.sublime-project
 
+nodeenv
 
 # Byte-compiled / optimized / DLL files
 __pycache__/
