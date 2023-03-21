@@ -45,7 +45,7 @@ def memoize(function):
             value = function(*args, **kwargs)
             wrapped_function.memo_cache[memo_key] = value
         
-        return wrapped_function.memo_cache[key_args]
+        return wrapped_function.memo_cache[memo_key]
         
     wrapped_function.memo_cache = {}
     
