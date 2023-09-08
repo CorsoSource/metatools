@@ -61,14 +61,24 @@ class Context(
 
 def _run_tests():
 
+	#from shared.tools.thread import findThreads
+	#[thread.interrupt() for thread in findThreads('TestContext-.+-context')]
+
+	from shared.tools.pretty import p,pdir,install;install()
+	from shared.data.context.core import Context
+
+	from time import sleep
+
+
 	class TestContext(Context):
 		
+		__slots__ = ('one', 'two',)
+		
 		def initialize_context(self, one=0, two=0):
-			self.one = 0
-			self.two = 0
-	
+			self.one = one
+			self.two = two
+
 		def launch_context(self):
-			self.logger.trace('in %(self)r launch_context')
 			self.poll_one()
 			self.poll_two()
 			self.poll_two()
@@ -77,18 +87,47 @@ def _run_tests():
 			if self.one > self.two:
 				self.logger.debug('Two seems to have reset. Fast forwarding.')
 				self.two = self.one*2
-	
-		@poll('one')
+
+		@Context.poll('one')
 		def poll_one(self):
 			self.one += 1
-	
-		@poll('two')
+			self.logger.trace('%(one)d', one=self.one)
+
+		@Context.poll('two')
 		def poll_two(self):
 			self.two += 2
-	
+
 		def handle_signal_two(self, signal):
 			self.logger.debug('Signal sent to [two]: %(signal)r')
 			if signal == 'reset':
 				self.two = 0
-	
-	raise NotImplementedError
+
+
+	threads = []
+
+	for i in range(4):
+		tc = TestContext()
+		threads.append(
+			tc.start_loop()
+		)
+
+	# let it run a moment
+	sleep(3)
+
+
+	# stop the last gracefully
+	tc.stop_loop()
+
+	sleep(2)
+
+	# crash the first
+	threads[0].interrupt()
+
+	sleep(2)
+
+	# request the rest to stop
+	[tc.stop_loop() for tc in TestContext]
+
+	# NOTE: Make sure to read the logs and verify this behaved!
+	# none of these are catastrophic crashes - the interrupt merely
+	# halts the main context's loop, which tears all the other threads down.

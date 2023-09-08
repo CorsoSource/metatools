@@ -193,6 +193,16 @@ class ThreadContexts(ContextManagementForContexts):
 
 	
 	def _del_thread_role(self, thread=None):
+		"""
+		Remove the thread from the role tracking.
+
+		Not that this is susceptible ot multiple threads potentially performing a purge
+		of themselves at once. That's ok - the goal is to remove tracking, so if something
+		else scrams those references, it really is ok. 
+
+		In that case, it's a race condition, but one that converges on the same result,
+		which means it fails safe.
+		"""
 		if thread is None:
 			thread = Thread.currentThread()
 		thread_id = self._get_thread_reference_id(thread)
@@ -204,16 +214,20 @@ class ThreadContexts(ContextManagementForContexts):
 			assert role, 'Do not remove the hub context role'
 			self._role_thread_ids[role].remove(thread_id)
 		except KeyError:
-			pass # already removed
+			pass # already removed (race conditions possible, but safe)
 		except AssertionError:
 			raise ContextSelfReferenceGuard
 		try:
 			del self._thread_references[thread_id]
 		except KeyError:
-			pass # already removed
+			pass # already removed (race conditions possible, but safe)
+		
 		# clean out role if vacated
-		if not self._role_thread_ids[role]:
-			del self._role_thread_ids[role]
+		try:
+			if not self._role_thread_ids[role]:
+				del self._role_thread_ids[role]
+		except KeyError:
+			pass # already removed (race conditions possible, but safe)
 
 	
 	def _get_thread_role(self, thread=None):
