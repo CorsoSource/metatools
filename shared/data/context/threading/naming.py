@@ -15,6 +15,7 @@ from shared.data.context.config import CONTEXT_USES_SLOTS
 
 
 import re
+from collections import defaultdict
 
 
 
@@ -23,7 +24,9 @@ class NamedThreadContexts(ThreadContexts):
 	Add additional context control via named threads.
 
 	Honestly, this should always be used over the base just because naming your stuff is better 
-	than just throwing things to the wind and hoping they don't get lost.    
+	than just throwing things to the wind and hoping they don't get lost.
+
+	The _role_threads_counter entry monotonically counts up every time a thread is added, per role.
 	"""
 	__module__ = shared.tools.meta.get_module_path(1)
 
@@ -41,7 +44,7 @@ class NamedThreadContexts(ThreadContexts):
 
 	def __init__(self, identifier=None, *args, **kwargs):
 		self._identifier = identifier or random_id()
-		self._role_threads_counter = {}
+		self._role_threads_counter = defaultdict(int)
 		super(NamedThreadContexts, self).__init__(*args, **kwargs)
 
 	@property
@@ -73,8 +76,10 @@ class NamedThreadContexts(ThreadContexts):
 				'base': self._thread_base_name(),
 				'identifier': self._identifier,
 				'role': role,
+				'counter': self._role_threads_counter[role],
 			}
-	
+
+
 	def _name_thread(self, thread=None):
 		if thread is None: thread = Thread.currentThread()
 		assert self._has_role(thread), 'Thread naming should happen after role is resolved and set'
@@ -114,6 +119,7 @@ class NamedThreadContexts(ThreadContexts):
 
 	def _add_thread(self, role, thread=None, is_context_init=False):
 		super(NamedThreadContexts, self)._add_thread(role, thread, is_context_init)
+		self._role_threads_counter[role] += 1
 		if self._AUTO_NAME_THREADS:
 			self._name_thread(thread)
 
