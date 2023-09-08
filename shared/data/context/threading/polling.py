@@ -8,6 +8,8 @@
 """
 from shared.data.context.utility import async, apply_jitter
 from shared.data.context.threading.base import ThreadContexts, Thread
+from shared.data.context.config import CONTEXT_USES_SLOTS
+
 
 import functools
 from time import sleep
@@ -209,7 +211,12 @@ class EventLoop(ThreadContexts):
 
 class RoleSpecificEventLoop(EventLoop):
 	__module__ = shared.tools.meta.get_module_path(1)
-	
+
+	if CONTEXT_USES_SLOTS:
+		__slots__ = (
+			'_role_event_loop_delays',
+		)
+
 	# Jitter can make sure that event loops don't cause a thundering herd effect
 	_EVENT_LOOP_JITTER = 0.1
 

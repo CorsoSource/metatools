@@ -9,6 +9,8 @@
 """
 from shared.data.context.threading.base import ThreadContexts
 from shared.data.context.threading.naming import NamedThreadContexts
+from shared.data.context.config import CONTEXT_USES_SLOTS
+
 
 from java.lang import Thread
 
@@ -21,7 +23,12 @@ class ThreadSpecificLogging(ThreadContexts):
 	Allow the context shared between threads to resolve itself, if needed.
 	"""
 	__module__ = shared.tools.meta.get_module_path(1)
-	
+
+	if CONTEXT_USES_SLOTS:
+		__slots__ = (
+			'_thread_loggers',
+		)
+
 	_LOGGER_PREFIX_PADDING = None
 	_LOGGER_PREFIX_PADDING_MIN = 7
 

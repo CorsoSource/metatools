@@ -11,6 +11,8 @@
 """
 from shared.data.context.utility import findThreads, re_match_groupdict, random_id
 from shared.data.context.threading.base import ThreadContexts, Thread
+from shared.data.context.config import CONTEXT_USES_SLOTS
+
 
 import re
 
@@ -24,7 +26,13 @@ class NamedThreadContexts(ThreadContexts):
 	than just throwing things to the wind and hoping they don't get lost.    
 	"""
 	__module__ = shared.tools.meta.get_module_path(1)
-	
+
+	if CONTEXT_USES_SLOTS:
+		__slots__ = (
+			'_identifier',
+			'_role_threads_counter',
+		)
+
 	_THREAD_BASE_NAME = None
 	_THREAD_NAME_SEPARATOR = '-'
 	_THREAD_NAME_PATTERN = 'base-identifier-role-counter'.split(_THREAD_NAME_SEPARATOR)

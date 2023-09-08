@@ -3,6 +3,7 @@
 
 """
 from shared.data.context.base import ContextManagementForContexts
+from shared.data.context.config import CONTEXT_USES_SLOTS
 
 
 from java.lang import Thread
@@ -33,14 +34,23 @@ class ThreadContexts(ContextManagementForContexts):
 	"""
 	__module__ = shared.tools.meta.get_module_path(1)
 	
+	
+	if CONTEXT_USES_SLOTS:
+		__slots__ = (
+			'_role_thread_ids',
+			'_thread_id_role', 
+			'_thread_references',
+		)
+
+
 	_THREAD_DEATH_LOOP_WAIT = 0.01 # sec
 	_THREAD_DEATH_LOOP_RETRIES = 5
 
-    _CONTEXT_THREAD_ROLE = 'context'
+	_CONTEXT_THREAD_ROLE = 'context'
 
-    
-    def __init__(self, *args, **kwargs):
-        self._role_thread_ids = {} # get a set of thread_ids for each role
+	
+	def __init__(self, *args, **kwargs):
+		self._role_thread_ids = {} # get a set of thread_ids for each role
 		self._thread_id_role = {} # get a thread_id's role
 		# NOTE: Can't use a WeakKeyDictionary() because it can't properly do contains    # reverse lookup
 

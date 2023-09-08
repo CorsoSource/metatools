@@ -4,11 +4,6 @@
 	Allow context to contact child processes
 
 """
-
-
-
-
-
 from uuid import uuid1
 import functools
 
@@ -16,6 +11,7 @@ from shared.data.context.base import ContextManagementForContexts
 from shared.data.context.utility import async, JavaException, apply_jitter
 from shared.data.context.threading.base import ThreadContexts, ThreadZombie
 from shared.data.context.threading.polling import EventLoop, RoleSpecificEventLoop
+from shared.data.context.config import CONTEXT_USES_SLOTS
 
 
 class ContextSignal(Exception): """A signal for use withint a context, often between its roles."""
@@ -33,6 +29,12 @@ class RestartSignal(StopIteration, LatchedSignal): """Signal that the role shoul
 class Signalling(ContextManagementForContexts):
 	__module__ = shared.tools.meta.get_module_path(1)
 	
+	if CONTEXT_USES_SLOTS:
+		__slots__ = (
+			'_signals',
+		)
+
+
 	def __init__(self, *args, **kwargs):
 		self._signals = {}
 		super(Signalling, self).__init__(*args, **kwargs)
@@ -200,7 +202,13 @@ class RoleSpecificEventLoopStopSignaling(
 		RoleSpecificEventLoop,
 	):
 	__module__ = shared.tools.meta.get_module_path(1)
+
+	if CONTEXT_USES_SLOTS:
+		__slots__ = (
+			'_role_stop_wait_delays',
+		)
 	
+
 	def __init__(self, *args, **kwargs):
 		self._role_stop_wait_delays = {}
 		super(RoleSpecificEventLoopStopSignaling, self).__init__(*args, **kwargs)

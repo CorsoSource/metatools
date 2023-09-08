@@ -8,6 +8,8 @@
 
 """
 from shared.data.context.utility import re_match_groupdict, findThreads, TypeNotFoundError, get_from_thread
+from shared.data.context.config import CONTEXT_USES_SLOTS
+
 
 import re
 
@@ -21,6 +23,20 @@ class MetaContext(type):
 	_CONTEXT_CACHE = None # ExtraGlobal (scoped to class), list/tuple, or a dict
 
 	_META_LOGGER = shared.tools.logging.Logger('MetaContext')
+
+
+
+	def __new__(metacls, class_name, class_bases, class_configuration):
+		if CONTEXT_USES_SLOTS:
+			# merge slots from subclasses
+			slots = set(class_configuration.get('__slots__', tuple()))
+			for subclass in class_bases:
+				slots.update(getattr(subclass, '__slots__', tuple()))
+				
+			class_configuration['__slots__'] = slots
+		
+		new_class = super(MetaContext, metacls).__new__(metacls, class_name, class_bases, class_configuration)
+		return new_class
 
 
 	@property
