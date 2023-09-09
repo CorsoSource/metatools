@@ -20,6 +20,7 @@ from weakref import WeakValueDictionary #, WeakKeyDictionary, WeakSet
 class ThreadValidation(RuntimeError): """Signal something wrong in the thread management"""
 
 class ThreadZombie(ThreadValidation): """For when threads fail to be interrupted."""
+class HeadlessContext(ThreadValidation): """For when there are no context threads, but potentially associated non-context role threads."""
 
 class ThreadGuard(ThreadValidation): """Throw an exception to be handled by the calling function"""
 class ContextSelfReferenceGuard(ThreadGuard): """Prevent contexts from pulling the rug out from under themselves"""
@@ -169,6 +170,10 @@ class ThreadContexts(ContextManagementForContexts):
 	def _is_thread_terminated(thread):
 		return thread.getState() == Thread.State.TERMINATED
 
+	## not used - we don't really care if it thinks it's interrupted, only that it terminates
+	# @staticmethod
+	# def _is_thread_interrupted(thread):
+	# 	return thread.isInterrupted()
 
 			
 	# GET/SET/DEL threads from context
