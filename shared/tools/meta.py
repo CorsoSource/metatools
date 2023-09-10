@@ -61,6 +61,16 @@ def sentinel(iterable, stopValue):
 	return iter((x for x in iterable).next, stopValue)
 
 
+def getIgnitionContext():
+	try:
+		if system.util.getSystemFlags() & system.util.DESIGNER_FLAG:
+			return getDesignerContext()
+		else:
+			return getGatewayContext()
+	except:
+		return getGatewayContext()
+
+
 def getGatewayContext():
 	"""Attempts to get the gateway context."""
 	from com.inductiveautomation.ignition.gateway import IgnitionGateway
@@ -108,6 +118,13 @@ def getDesignerContext(anchor=None):
 	context = anchor.getContext()
 	return context
 
+
+def get_module_path(depth=1):
+	"""Return the module path in the calling context's scope.
+	
+	returns something like `shared.tools.meta` (if it were called in this module)
+	"""
+	return sys._getframe(depth).f_code.co_filename[8:-1]
 
 def currentStackDepth(maxDepth=100):
 	"""Returns the calling function's stack depth.

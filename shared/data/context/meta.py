@@ -43,29 +43,17 @@ class MetaContext(type):
 	@property
 	def _meta_all_threads(cls):
 		"""Reimplementing for the class methods (without resorting to metaclass properties)"""
-		# default the filter so it can't find just *any* threads    
-		thread_base_part = cls._thread_base_name()
-		assert 'base' in cls._THREAD_NAME_PARTS
-		name_pattern = self._THREAD_NAME_SEPARATOR.join(
-			'(?P<%s>[^%s]+)' % (part, cls._THREAD_NAME_SEPARATOR) for part in cls._THREAD_NAME_PARTS
-		)
-		for thread in findThreads(name_pattern):
-			thread_name = thread.getName()
-			match_dict = re_match_groupdict(name_pattern, thread_name, re.I)
-			if match_dict['base'] == thread_base_part:
-				yield thread
+		# default the filter so it can't find just *any* threads
+		for thread in cls._find_threads(pending=True):
+			yield thread
+		for thread in cls._find_threads():
+			yield thread
 
 	@property
 	def _meta_context_threads(cls):
 		"""Reimplementing for the class methods (without resorting to metaclass properties)"""
-		# default the filter so it can't find just *any* threads    
-		thread_base_part = cls._thread_base_name()
-		assert 'base' in cls._THREAD_NAME_PARTS and 'role' in cls._THREAD_NAME_PARTS
-		for thread in findThreads(cls._thread_match_pattern()):
-			thread_name = thread.getName()
-			match_dict = re_match_groupdict(cls._thread_match_pattern(), thread_name, re.I)
-			if match_dict['base'] == thread_base_part and match_dict['role'] == cls._CONTEXT_THREAD_ROLE:
-				yield thread
+		for thread in cls._find_threads(role=cls._CONTEXT_THREAD_ROLE):
+			yield thread
 	
 	def __getitem__(cls, identifier):
 		# for direct lookup (direct reference)
@@ -91,7 +79,9 @@ class MetaContext(type):
 						return context
 				except TypeNotFoundError:
 					pass
-
+			else:
+				raise KeyError("%r identifier %r not found." % (cls, identifier,))
+	
 	def __iter__(cls):
 		# for direct lookup (direct reference)
 		if cls._CONTEXT_CACHE:

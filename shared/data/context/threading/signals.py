@@ -240,4 +240,3 @@ class RoleSpecificEventLoopStopSignaling(
 		self._role_stop_wait_delays[role] = delay
 
 
-

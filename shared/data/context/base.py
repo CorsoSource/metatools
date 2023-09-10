@@ -102,7 +102,7 @@ class ContextManagementForContexts(object):
 
 	def __exit__(self, exc_type, exc_val, exc_tb):
 		"""Exit the main context block (likely tear down and stop)"""
-		self.logger.error('exiting context')
+		self.logger.trace('[__exit__] Context finished/crashed (error: %r)' % (exc_type,))
 		try:
 			if exc_type is None:
 				self._finish_context()

@@ -9,6 +9,8 @@
 	(as in different modules/threads/subsystems load it in separately)
 
 """
+logger = shared.tools.jupyter.logging.Logger()
+
 from shared.data.context.utility import findThreads, re_match_groupdict, random_id
 from shared.data.context.threading.base import ThreadContexts, Thread
 from shared.data.context.config import CONTEXT_USES_SLOTS
@@ -38,8 +40,7 @@ class NamedThreadContexts(ThreadContexts):
 
 	_THREAD_BASE_NAME = None
 	_THREAD_NAME_SEPARATOR = '-'
-	_THREAD_NAME_PARTS = 'base-identifier-role'.split(_THREAD_NAME_SEPARATOR)
-	_THREAD_NAME_PART_PATTERN = '[^%s]+' % _THREAD_NAME_SEPARATOR
+	_THREAD_NAME_PARTS = ('base', 'identifier', 'role',)
 	_THREAD_PENDING_PREFIX = 'PENDING'
 	_AUTO_NAME_THREADS = True
 
@@ -63,9 +64,13 @@ class NamedThreadContexts(ThreadContexts):
 		return (cls._THREAD_BASE_NAME or cls.__name__)
 
 	@classmethod
+	def _thread_name_part_pattern(cls):
+		return '[^%s]+' % cls._THREAD_NAME_SEPARATOR
+
+	@classmethod
 	def _thread_match_pattern(cls, pending=False):
 		return cls._THREAD_NAME_SEPARATOR.join(([cls._THREAD_PENDING_PREFIX] if pending else [])
-			+ ['(?P<%s>%s)' % (part, cls._THREAD_NAME_PART_PATTERN) for part in cls._THREAD_NAME_PARTS]
+			+ ['(?P<%s>%s)' % (part, cls._thread_name_part_pattern()) for part in cls._THREAD_NAME_PARTS]
 		)
 
 	@classmethod
@@ -96,13 +101,13 @@ class NamedThreadContexts(ThreadContexts):
 
 		# allow an explicit part filter for other contexts
 		if not 'identifier' in part_filter:
-			part_filter['identifier'] = cls._THREAD_NAME_PART_PATTERN
+			part_filter['identifier'] = cls._thread_name_part_pattern()
 		
 		for thread in findThreads(cls._thread_match_pattern(pending)):
 			thread_name = thread.getName()
 			for key, part in re_match_groupdict(cls._thread_match_pattern(pending), thread_name, re.I).items():
 				# match by default (pre-filtering set above)
-				filter_part = part_filter.get(key, cls._THREAD_NAME_PART_PATTERN)
+				filter_part = part_filter.get(key, cls._thread_name_part_pattern())
 				if not re.match(filter_part, part):
 					break # skip this thread since it doesn't match
 			else:

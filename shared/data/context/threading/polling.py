@@ -7,6 +7,7 @@
 
 """
 from shared.data.context.utility import async, apply_jitter
+from shared.data.context.utility import formatted_traceback, JavaException
 from shared.data.context.threading.base import ThreadContexts, Thread
 from shared.data.context.config import CONTEXT_USES_SLOTS
 
