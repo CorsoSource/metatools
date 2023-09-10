@@ -162,10 +162,25 @@ def stackRootFrame(maxDepth=100):
 	return frame
 
 
+
+def get_perspective_self():
+	"""
+	Reach up to the root of the call stack and grab the Perspective object that kicked it all off.	
+	"""
+	try:
+		root_frame = stackRootFrame()
+		self = root_frame.f_locals.get('self', None)
+		self_type_fqn = repr(type(self))[7:-2]
+		assert self_type_fqn.startswith('com.inductiveautomation.perspective.'), 'Not obviously the Perspective component wrapper'
+		return self
+	except:
+		return None # something out of context happened, so simply fail the attempt
+
+
 def isJavaObject(o):
 	"""Walk up the object inheritance heirarchy to determine if the object is Java-based"""
 	cutoff = 10
-
+	
 	oType = o
 	while cutoff:
 		cutoff -= 1
